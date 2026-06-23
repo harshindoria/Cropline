@@ -1,0 +1,431 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+  //output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  FARMER
+  BUYER
+  DELIVERY
+  ADMIN
+}
+
+enum VehicleType {
+  BIKE
+  AUTO
+  TEMPO
+  MINI_TRUCK
+}
+
+// Status Enum ko update kar diya gaya hai
+enum CropStatus {
+  ACTIVE
+  PAUSED
+  BOOKED
+  HARVESTED
+  CLOSED
+}
+
+model User {
+  id           String  @id @default(cuid())
+  name         String
+  phone        String  @unique
+  role         Role
+  aadhaarLast4 String?
+
+  // Location
+  latitude  Float?
+  longitude Float?
+  village   String?
+  district  String?
+  state     String?
+  pincode   String?
+
+  // Delivery partner specific
+  vehicleType      VehicleType?
+  coverageRadiusKm Int?
+  isOnline         Boolean      @default(false)
+
+  // Financial
+  bankAccount   String?
+  bankIfsc      String?
+  walletBalance Decimal @default(0) @db.Decimal(10, 2)
+
+  // Trust
+  rating      Float   @default(0)
+  ratingCount Int     @default(0)
+  isVerified  Boolean @default(false)
+  isActive    Boolean @default(true)
+  strikeCount Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  crops                 Crop[]
+  ordersAsBuyer         Order[]        @relation("BuyerOrders")
+  ordersAsFarmer        Order[]        @relation("FarmerOrders")
+  deliveryJobs          DeliveryJob[]
+  reviewsGiven          Review[]       @relation("GivenReviews")
+  reviewsReceived       Review[]       @relation("ReceivedReviews")
+  subscriptionsAsBuyer  Subscription[] @relation("BuyerSubscriptions")
+  subscriptionsAsFarmer Subscription[] @relation("FarmerSubscriptions")
+  notifications         Notification[] // Added back-relation
+  platformMembership    PlatformMembership?
+}
+
+model Crop {
+  id String @id @default(cuid())
+
+  // Relation with User (Farmer)
+  farmer   User   @relation(fields: [farmerId], references: [id])
+  farmerId String
+
+  // Basic Info
+  cropName    String
+  category    CropCategory
+  description String?
+
+  // Financial & Weights (Decimal is mandatory for financial precision)
+  quantityKg          Decimal @db.Decimal(10, 2)
+  quantityRemainingKg Decimal @db.Decimal(10, 2)
+  pricePerKg          Decimal @db.Decimal(10, 2)
+  minOrderKg          Decimal @db.Decimal(10, 2)
+
+  // Dates & Media
+  harvestDate DateTime
+  photos      String[] // Cloudinary URLs array
+
+  // Farm Location (Consolidated)
+  farmLatitude  Float
+  farmLongitude Float
+  farmVillage   String
+  farmDistrict  String
+  farmState     String
+
+  // Toggles & Constraints
+  selfPickupEnabled  Boolean   @default(false)
+  isPreHarvest       Boolean   @default(false)
+  preHarvestDeadline DateTime?
+
+  // Status & Analytics
+  status     CropStatus @default(ACTIVE)
+  viewsCount Int        @default(0)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // relations
+  orders        Order[]
+  subscriptions Subscription[]
+
+  // Indexes for faster querying (Search optimization)
+  @@index([farmerId])
+  @@index([status, category])
+  @@index([harvestDate])
+  @@index([farmLatitude, farmLongitude])
+}
+
+enum CropCategory {
+  VEGETABLES
+  FRUITS
+  GRAINS
+  HERBS
+  DAIRY
+  OTHER
+}
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  READY_FOR_PICKUP
+  ASSIGNED
+  PICKED_UP
+  IN_DELIVERY
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum DeliveryType {
+  DELIVERY
+  SELF_PICKUP
+}
+
+enum PaymentType {
+  ONLINE
+  CASH_ON_PICKUP
+}
+
+enum PaymentStatus {
+  PENDING
+  HELD
+  RELEASED
+  REFUNDED
+}
+
+enum DeliveryJobStatus {
+  ASSIGNED
+  PICKED_UP
+  IN_DELIVERY
+  DELIVERED
+}
+
+enum SubscriptionFrequency {
+  WEEKLY
+  BIWEEKLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+enum ReviewTargetType {
+  FARMER
+  BUYER
+  DELIVERY
+}
+
+model Order {
+  id String @id @default(cuid())
+
+  // Relations
+  crop   Crop   @relation(fields: [cropId], references: [id])
+  cropId String
+
+  // Named relations kyunki ek hi order mein do User (Farmer aur Buyer) hain
+  farmer   User   @relation("FarmerOrders", fields: [farmerId], references: [id])
+  farmerId String
+  buyer    User   @relation("BuyerOrders", fields: [buyerId], references: [id])
+  buyerId  String
+
+  // Subscription Relation (Added)
+  isSubscription Boolean       @default(false)
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
+
+  // Quantity and pricing — locked at order time (Sabhi Decimal)
+  quantityKg     Decimal @db.Decimal(10, 2)
+  pricePerKg     Decimal @db.Decimal(10, 2)
+  farmerEarnings Decimal @db.Decimal(10, 2)
+  deliveryFee    Decimal @default(0) @db.Decimal(10, 2)
+  platformFee    Decimal @db.Decimal(10, 2)
+  totalAmount    Decimal @db.Decimal(10, 2)
+
+  // Delivery details
+  deliveryType DeliveryType
+  paymentType  PaymentType
+
+  // Delivery address (Delivery type orders ke liye, isliye optional hain)
+  deliveryLatitude  Float?
+  deliveryLongitude Float?
+  deliveryAddress   String?
+  deliveryDate      DateTime?
+
+  // Status and Tracking
+  status        OrderStatus   @default(PENDING)
+  paymentStatus PaymentStatus @default(PENDING)
+  paymentId     String?       // Razorpay payment ID yahan aayega
+  qrCode        String?       // Self-pickup Pay Now orders ke liye QR code string
+
+  cancellationReason String?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  deliveryJob DeliveryJob?
+  reviews     Review[]
+
+  // Indexes for fast querying dashboard data
+  @@index([buyerId, status])
+  @@index([farmerId, status])
+  @@index([createdAt])
+}
+
+model DeliveryJob {
+  id String @id @default(cuid())
+
+  // 1-to-1 Relation with Order
+  order   Order  @relation(fields: [orderId], references: [id])
+  orderId String @unique // @unique makes it 1-to-1 
+
+  // Relation with User (Delivery Partner)
+  deliveryPartner   User   @relation(fields: [deliveryPartnerId], references: [id])
+  deliveryPartnerId String
+
+  // Locations (copied from Crop and Order at job creation time)
+  pickupLatitude  Float
+  pickupLongitude Float
+  dropLatitude    Float
+  dropLongitude   Float
+  distanceKm      Float
+
+  // Job Details
+  cropWeightKg Decimal           @db.Decimal(10, 2)
+  deliveryFee  Decimal           @db.Decimal(10, 2)
+  status       DeliveryJobStatus @default(ASSIGNED)
+
+  // Live location (updated every 30s during delivery) 
+  liveLatitude          Float?
+  liveLongitude         Float?
+  liveLocationUpdatedAt DateTime?
+
+  // Proof photos (Cloudinary URLs) 
+  pickupPhoto   String?
+  deliveryPhoto String?
+
+  // Timestamps 
+  acceptedAt          DateTime  @default(now())
+  pickedUpAt          DateTime?
+  deliveredAt         DateTime?
+  estimatedDeliveryAt DateTime?
+  createdAt           DateTime  @default(now())
+
+  // Fast indexing for delivery partner dashboard
+  @@index([deliveryPartnerId, status])
+  @@index([pickupLatitude, pickupLongitude]) // Geospatial index added
+}
+
+model Review {
+  id String @id @default(cuid())
+
+  // Jis order ke basis par review diya gaya hai
+  order   Order  @relation(fields: [orderId], references: [id])
+  orderId String
+
+  // Kisne review diya (Reviewer)
+  reviewer   User   @relation("GivenReviews", fields: [reviewerId], references: [id])
+  reviewerId String
+
+  // Kisko review mila (Target)
+  target   User   @relation("ReceivedReviews", fields: [targetId], references: [id])
+  targetId String
+
+  // Enum jo batayega ki target kaun hai (FARMER, BUYER, ya DELIVERY)
+  targetType ReviewTargetType
+
+  // Rating and feedback
+  rating  Int     // 1 se 5 stars ke liye
+  comment String? // Optional text feedback
+
+  // Flagging System (Added)
+  isFlagged Boolean @default(false)
+  flagCount Int     @default(0)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Ek order par ek user dusre user ko ek hi baar review de sake (Prevent duplicate reviews)
+  @@unique([orderId, reviewerId, targetId])
+  // Profile loading fast karne ke liye index
+  @@index([targetId])
+}
+
+model Subscription {
+  id String @id @default(cuid())
+
+  // Relations (Named relations kyunki 2 User hain)
+  buyer   User   @relation("BuyerSubscriptions", fields: [buyerId], references: [id])
+  buyerId String
+
+  farmer   User   @relation("FarmerSubscriptions", fields: [farmerId], references: [id])
+  farmerId String
+
+  crop   Crop   @relation(fields: [cropId], references: [id])
+  cropId String
+
+  // Subscription logic
+  quantityKgPerDelivery Decimal               @db.Decimal(10, 2)
+  frequency             SubscriptionFrequency
+  deliveryType          DeliveryType          // Added
+  deliveryDay           String                // Added
+  lockPrice             Boolean               @default(false) // Added
+  lockedPrice           Decimal?              @db.Decimal(10, 2) // Added
+
+  // Dates
+  startDate        DateTime
+  endDate          DateTime? // Optional (user kabhi bhi cancel kar sakta hai)
+  nextDeliveryDate DateTime  // Har order banne ke baad yeh aage badh jayegi
+
+  // Delivery Location
+  deliveryLatitude  Float
+  deliveryLongitude Float
+  deliveryAddress   String
+
+  // Tracking
+  status SubscriptionStatus @default(ACTIVE)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations (Added)
+  orders Order[]
+
+  // Indexes
+  @@index([buyerId, status])
+  @@index([farmerId, status])
+  @@index([nextDeliveryDate, status]) // Cron job ke liye index (taaki roz raat ko fast search ho)
+}
+
+// New Notification Model
+model Notification {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  type      String   // "NEW_ORDER" | "ORDER_CONFIRMED" | "PICKED_UP" etc.
+  title     String
+  body      String
+  data      Json?    // Reference IDs (orderId, cropId) for deep linking
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead]) // Fast unread count query per user
+  @@index([createdAt])      // Admin audit queries
+}
+
+enum PlanType {
+  FREE
+  PRO_MONTHLY
+  PRO_ANNUAL
+}
+
+model PlatformMembership {
+  id              String    @id @default(cuid())
+  
+  // Relation to Farmer
+  farmer          User      @relation(fields: [farmerId], references: [id])
+  farmerId        String    @unique // Ek kisaan ki ek hi active membership hogi
+  
+  planType        PlanType  @default(FREE)
+  
+  // Limits tracking for free tier
+  listingsUsed    Int       @default(0)
+  ordersUsed      Int       @default(0)
+  
+  // Billing cycle
+  startDate       DateTime  @default(now())
+  endDate         DateTime? // FREE tier ke liye null rahega
+  
+  isActive        Boolean   @default(true)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([farmerId])
+}
