@@ -1,7 +1,7 @@
 import {Request, Response} from 'express';
 import { verifyFirebaseToken } from '../services/auth.service';
 import prisma from '../config/db';
-import { User } from '@prisma/client';
+
 
 export const loginWithPhone = async (req : Request, res : Response) : Promise<void> => {
     try {
