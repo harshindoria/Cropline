@@ -18,7 +18,7 @@ export const signToken = (userId: string, role: Role): string => {
 
   // Token banate hain jo 30 din tak valid rahega
   return jwt.sign({ userId, role }, secret, {
-    expiresIn:process.env.JWT_EXPIRES_IN as any | '30d',
+    expiresIn:process.env.JWT_EXPIRES_IN as any || '30d',
   });
 };
 

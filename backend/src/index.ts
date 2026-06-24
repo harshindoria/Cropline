@@ -13,14 +13,6 @@ app.use(cors());
 
 app.use('/api/v1/auth',authRoutes);
 
-// req aur res add kiye, aur TypeScript ko bataya ki inka type kya hai
-app.get('/health', (req: Request, res: Response) => {
-    // res.send() se browser/frontend ko data wapas jayega
-    res.status(200).json({
-        status: 'success', 
-        message: 'Cropline Backend is up and running! 🚀'
-    });
-});
 
 app.listen(PORT, () => {
     console.log(`Server is running at PORT: ${PORT}`);
