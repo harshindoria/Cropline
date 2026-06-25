@@ -39,7 +39,8 @@ model User {
   id           String  @id @default(cuid())
   firebaseUid  String  @unique
   name         String?
-  phone        String  @unique
+  email        String? @unique
+  phone        String?  @unique
   role         Role
   aadhaarLast4 String?
 

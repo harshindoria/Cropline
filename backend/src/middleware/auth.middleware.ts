@@ -1,12 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from '../utils/jwtUtils';
 import prisma from '../config/db';
+import { User } from '@prisma/client';
 
 // Express ki Request type ko extend kar rahe hain taaki req.user mein data daal sakein
 declare global {
   namespace Express {
     interface Request {
-      user?: any; // Aage chalkar jab types define karenge toh ise proper User type denge
+      user?: User; // Aage chalkar jab types define karenge toh ise proper User type denge
     }
   }
 }

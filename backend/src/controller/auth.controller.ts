@@ -1,8 +1,9 @@
 import {Request, Response} from 'express';
-import { FirebaseTokenError, verifyFirebaseToken } from '../services/auth.service';
+import { FirebaseTokenError, sanitizeUser, verifyFirebaseToken } from '../services/auth.service';
 import prisma from '../config/db';
 import { signToken } from '../utils/jwtUtils';
 import { Role } from '@prisma/client';
+import { processPhoneLogin } from '../services/auth.service';
 
 
 export const loginWithPhone = async (req : Request, res : Response) : Promise<void> => {
@@ -16,7 +17,7 @@ export const loginWithPhone = async (req : Request, res : Response) : Promise<vo
             return;
         }
         const allowedSignupRoles: Role[] = [Role.FARMER, Role.BUYER, Role.DELIVERY];
-        if(!role || !Object.values(allowedSignupRoles).includes(role as Role)){
+        if(!role || !allowedSignupRoles.includes(role as Role)){
             res.status(400).json({
                 success : false,
                 error : "Role is invalid"
@@ -36,40 +37,17 @@ export const loginWithPhone = async (req : Request, res : Response) : Promise<vo
             return;
         }
 
-        // 1. Sabse pehle Primary Identity (Firebase UID) se dhoondhein
-        let user = await prisma.user.findUnique({ where: { firebaseUid: userId } });
-
-        // 2. Agar UID se NAHI mila, tabhi rescue mission shuru karenge
-        if (!user) {
-            
-            // Check by Phone Number
-            user = await prisma.user.findUnique({ where: { phone: userPhoneNumber } });
-
-            if (user) {
-                // Scenario A: Phone se mil gaya! Matlab UID diverge ho gaya tha. Sync karein.
-                user = await prisma.user.update({
-                    where: { phone: userPhoneNumber }, // Kisko update karna hai
-                    data: { firebaseUid: userId }      // Kya update karna hai
-                });
-            } else {
-                // Scenario B: Phone se bhi nahi mila! Matlab ekdum naya kisaan hai.
-                user = await prisma.user.create({
-                    data: {
-                        phone: userPhoneNumber,
-                        role: role, // (Dhyan rahe, yahan allowedRoles wala array check zaroor lagayein jo pehle discuss hua tha)
-                        firebaseUid: userId
-                    }
-                });
-            }
-        }
-
+        // Controller sirf request lega aur service ko pass karega
+        const {user, isNewUser} = await processPhoneLogin(userId, userPhoneNumber, role);
+        const safeUser = sanitizeUser(user);
         // Agar pehli baar mein UID se mil gaya tha, toh code seedha yahan aayega 
         // aur bina kisi extra database call ke aage badh jayega!
         const token = signToken(user.id, user.role);
         res.status(200).json({
             success : true,
-            user,
-            token
+            safeUser,
+            token,
+            isNewUser
         })
     } catch (error) {
         console.error("Login Error:", error);
@@ -86,4 +64,9 @@ export const loginWithPhone = async (req : Request, res : Response) : Promise<vo
             message: "Internal server error during login"
         });
     }
+}
+
+
+export const loginWithEmail = async (req : Request , res : Response) => {
+    
 }
