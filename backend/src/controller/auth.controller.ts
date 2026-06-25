@@ -1,5 +1,5 @@
 import {Request, Response} from 'express';
-import { verifyFirebaseToken } from '../services/auth.service';
+import { FirebaseTokenError, verifyFirebaseToken } from '../services/auth.service';
 import prisma from '../config/db';
 import { signToken } from '../utils/jwtUtils';
 import { Role } from '@prisma/client';
@@ -73,6 +73,14 @@ export const loginWithPhone = async (req : Request, res : Response) : Promise<vo
         })
     } catch (error) {
         console.error("Login Error:", error);
+        if (error instanceof FirebaseTokenError) {
+            res.status(401).json({
+                success: false,
+                message: error.message
+            });
+            return;
+        }
+
         res.status(500).json({
             success: false,
             message: "Internal server error during login"

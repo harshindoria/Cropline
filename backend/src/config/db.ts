@@ -1,17 +1,25 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 
-// Global object ko typecast kar rahe hain taaki TypeScript error na de
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-// Agar global memory mein prisma pehle se hai toh use karo, warna naya banao
-export const prisma = globalForPrisma.prisma ?? new PrismaClient({
-  log: process.env.NODE_ENV === "production" ? ['error'] : ['query', 'error', 'warn'], // Yeh terminal mein SQL queries dikhayega testing ke liye
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
 });
 
-// Agar hum production (live server) par nahi hain, toh naye connection ko global memory mein save kar do
-if (process.env.NODE_ENV !== 'production') {
+const adapter = new PrismaPg(pool);
+
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    adapter,
+    log: process.env.NODE_ENV === "production" ? ["error"] : ["query", "error", "warn"],
+  });
+
+if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
 
