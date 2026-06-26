@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../config/db';
-import { sanitizeUser } from '../services/auth.service';
+import { sanitizeUser } from '../utils/helper';
 import { z } from 'zod';
 
 // 💡 Zod Schema (Updated to include bank and aadhaar)

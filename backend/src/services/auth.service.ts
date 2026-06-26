@@ -6,6 +6,7 @@ export class FirebaseTokenError extends Error {
     constructor(message = 'Invalid or expired Firebase ID token') {
         super(message);
         this.name = 'FirebaseTokenError';
+        Object.setPrototypeOf(this, FirebaseTokenError.prototype);
     }
 }
 
@@ -48,7 +49,7 @@ export const processPhoneLogin = async (uid: string, phone: string, role: Role) 
 
     } catch (error) {
         console.error("Database Sync Error:", error);
-        throw new Error("Could not process user in database");
+        throw new Error(error instanceof Error ? error.message : "Could not process user in database");
     }
 }
 
@@ -60,6 +61,7 @@ export const verifyFirebaseToken = async (idToken: string) => {
         return {
             uid: decodedToken.uid,
             phoneNumber: decodedToken.phone_number,
+            email : decodedToken.email
         };
     } catch (error) {
         // Original error ko terminal mein print karna taaki debug karna aasan ho
@@ -68,8 +70,41 @@ export const verifyFirebaseToken = async (idToken: string) => {
     }
 }
 
-// src/utils/helpers.ts
-export const sanitizeUser = (user: User) => {
-  const { bankAccount, bankIfsc, firebaseUid, ...safe } = user
-  return safe
+export const processGoogleLogin = async (uid: string, email: string, role: Role) => {
+    try {
+        if (!email) {
+            throw new Error("Email is required for Google login");
+        }
+        let existingUser = await prisma.user.findUnique({ where: { firebaseUid: uid } });
+
+        if (existingUser) {
+            return { user: existingUser, isNewUser: false };
+        }
+
+        // Shorthand: { email } ki jagah { email: email }
+        existingUser = await prisma.user.findUnique({ where: { email } });
+
+        if (existingUser) {
+            const updatedUser = await prisma.user.update({
+                where: { email }, 
+                data: { firebaseUid: uid }      
+            });
+            return { user: updatedUser, isNewUser: false };
+        }
+
+        // Shorthand applied here too
+        const newUser = await prisma.user.create({
+            data: {
+                email,
+                firebaseUid: uid,
+                role
+            }
+        });
+
+        return { user: newUser, isNewUser: true };
+
+    } catch (error) {
+        console.error("Database Sync Error:", error);
+        throw new Error(error instanceof Error ? error.message : "Could not process user in database");
+    }
 }

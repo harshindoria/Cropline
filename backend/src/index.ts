@@ -1,10 +1,10 @@
+import 'dotenv/config';
 import express from 'express'; // Types import kiye for strict typing
 import type { Request, Response , Express } from 'express';
-import dotenv from 'dotenv';
 import cors from 'cors';
 import authRoutes from './routes/auth.routes';
 import userRoutes from './routes/user.routes';
-dotenv.config();
+
 const app : Express = express();
 // process.env.PORT check karega, nahi mila toh 5000 assign karega
 const PORT = process.env.PORT || 5000; 
