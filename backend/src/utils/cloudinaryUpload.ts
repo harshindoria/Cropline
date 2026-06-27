@@ -6,8 +6,9 @@ export const uploadToCloudinary = (fileBuffer : Buffer , folderName : string) : 
         const uploadStream = cloudinary.uploader.upload_stream(
             {folder : folderName},
             (error,result) => {
-                if(result)resolve(result.secure_url);
-                else reject(error);
+                if (error) return reject(error)
+                if (!result?.secure_url) return reject(new Error('Cloudinary upload failed — no URL returned'))
+                resolve(result.secure_url)
             }
         );
 

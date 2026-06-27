@@ -35,13 +35,21 @@ enum CropStatus {
   CLOSED
 }
 
+enum PlanType {
+  FREE
+  PRO_MONTHLY
+  PRO_ANNUAL
+}
+
 model User {
-  id           String  @id @default(cuid())
-  firebaseUid  String  @unique
-  name         String?
-  email        String? @unique
-  phone        String?  @unique
-  role         Role
+  id          String  @id @default(cuid())
+  firebaseUid String  @unique
+  name        String?
+  email       String? @unique
+  phone       String? @unique
+  role        Role
+
+  // Identity
   aadhaarLast4 String?
 
   // Location
@@ -58,9 +66,14 @@ model User {
   isOnline         Boolean      @default(false)
 
   // Financial
-  bankAccount   String?
-  bankIfsc      String?
-  walletBalance Decimal @default(0) @db.Decimal(10, 2)
+  bankAccount   String?  // Encrypted before storing
+  bankIfsc      String?  // Encrypted before storing
+  walletBalance Decimal  @default(0) @db.Decimal(10, 2)
+
+  // Plan — stored directly on User for fast access in middleware
+  // No extra join needed when protect middleware attaches req.user
+  planType      PlanType  @default(FREE)
+  planExpiresAt DateTime? // null for FREE tier, set for PRO_MONTHLY and PRO_ANNUAL
 
   // Trust
   rating      Float   @default(0)
@@ -69,6 +82,10 @@ model User {
   isActive    Boolean @default(true)
   strikeCount Int     @default(0)
 
+  // Push notifications
+  fcmToken String?
+
+  // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -81,8 +98,12 @@ model User {
   reviewsReceived       Review[]       @relation("ReceivedReviews")
   subscriptionsAsBuyer  Subscription[] @relation("BuyerSubscriptions")
   subscriptionsAsFarmer Subscription[] @relation("FarmerSubscriptions")
-  notifications         Notification[] // Added back-relation
-  platformMembership    PlatformMembership?
+  notifications         Notification[]
+  membershipPayments    MembershipPayment[]
+
+  @@index([latitude, longitude])    // Geospatial queries
+  @@index([role, isOnline])         // Finding available delivery partners
+  @@index([planType, planExpiresAt]) // Cron job — find expired PRO plans daily
 }
 
 model Crop {
@@ -278,7 +299,7 @@ model DeliveryJob {
 
   // Job Details
   cropWeightKg Decimal           @db.Decimal(10, 2)
-  deliveryFee  Decimal           @db.Decimal(10, 2)
+  //deliveryFee  Decimal           @db.Decimal(10, 2)
   status       DeliveryJobStatus @default(ASSIGNED)
 
   // Live location (updated every 30s during delivery) 
@@ -296,6 +317,10 @@ model DeliveryJob {
   deliveredAt         DateTime?
   estimatedDeliveryAt DateTime?
   createdAt           DateTime  @default(now())
+  offeredAt           DateTime  @default(now())  // when backend started looking
+  acceptanceDeadline  DateTime?                 // if not accepted by this time → re-search
+  notifiedPartners    String[]  @default([])     // IDs of partners who were notified
+
 
   // Fast indexing for delivery partner dashboard
   @@index([deliveryPartnerId, status])
@@ -401,33 +426,30 @@ model Notification {
   @@index([createdAt])      // Admin audit queries
 }
 
-enum PlanType {
-  FREE
-  PRO_MONTHLY
-  PRO_ANNUAL
-}
+// Tracks every plan purchase — history of all payments
+// Plan limits are enforced by counting from DB, not from counters here
+// planType and planExpiresAt on User are the source of truth for current plan
+model MembershipPayment {
+  id String @id @default(cuid())
 
-model PlatformMembership {
-  id              String    @id @default(cuid())
-  
-  // Relation to Farmer
-  farmer          User      @relation(fields: [farmerId], references: [id])
-  farmerId        String    @unique // Ek kisaan ki ek hi active membership hogi
-  
-  planType        PlanType  @default(FREE)
-  
-  // Limits tracking for free tier
-  listingsUsed    Int       @default(0)
-  ordersUsed      Int       @default(0)
-  
-  // Billing cycle
-  startDate       DateTime  @default(now())
-  endDate         DateTime? // FREE tier ke liye null rahega
-  
-  isActive        Boolean   @default(true)
-  
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  // Which user bought this plan
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
 
-  @@index([farmerId])
+  // What they bought
+  planType  PlanType // PRO_MONTHLY or PRO_ANNUAL
+  amount    Decimal  @db.Decimal(10, 2)
+
+  // When it is valid
+  startDate DateTime
+  endDate   DateTime
+
+  // Payment tracking
+  razorpayPaymentId String?
+  paymentStatus     PaymentStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([paymentStatus])
 }
