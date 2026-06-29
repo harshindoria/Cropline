@@ -5,6 +5,7 @@ import cors from 'cors';
 import authRoutes from './routes/auth.routes';
 import userRoutes from './routes/user.routes';
 import cropRoutes from './routes/crop.routes';
+import orderRoutes from './routes/order.routes';
 
 const app : Express = express();
 // process.env.PORT check karega, nahi mila toh 5000 assign karega
@@ -16,7 +17,7 @@ app.use(cors());
 app.use('/api/v1/auth',authRoutes);
 app.use('/api/v1/user',userRoutes);
 app.use('/api/v1/crops',cropRoutes);
-
+app.use('/api/v1/order', orderRoutes);
 app.listen(PORT, () => {
     console.log(`Server is running at PORT: ${PORT}`);
 });

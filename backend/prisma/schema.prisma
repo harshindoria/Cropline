@@ -262,6 +262,7 @@ model Order {
   paymentStatus PaymentStatus @default(PENDING)
   paymentId     String?       // Razorpay payment ID yahan aayega
   qrCode        String?       // Self-pickup Pay Now orders ke liye QR code string
+  pickupOtp     String?
 
   cancellationReason String?
 
