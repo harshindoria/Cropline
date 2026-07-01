@@ -32,9 +32,14 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     const { cropId, quantityKg, deliveryType, paymentType, deliveryLatitude, deliveryLongitude, deliveryAddress } = parsed.data;
     const buyerId = req.user!.id;
 
+    // 💡 UPDATE: Included 'catalog' and 'offer' relations
     const crop = await prisma.crop.findUnique({
       where: { id: cropId },
-      include: { farmer: { include: { roleAccess: { where: { role: Role.FARMER } } } } },
+      include: { 
+        catalog: true, 
+        offer: true, 
+        farmer: { include: { roleAccess: { where: { role: Role.FARMER } } } } 
+      },
     });
 
     if (!crop) {
@@ -57,7 +62,6 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    // 4. Quantity Checks
     if (quantityKg < Number(crop.minOrderKg)) {
       res.status(400).json({ success: false, message: `Minimum order quantity is ${crop.minOrderKg} kg` });
       return;
@@ -81,12 +85,8 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    // 6. Spam Protection
     const pendingOrdersCount = await prisma.order.count({
-      where: { 
-        buyerId, 
-        status: OrderStatus.PENDING 
-      }
+      where: { buyerId, status: OrderStatus.PENDING }
     });
     
     if (pendingOrdersCount >= 5) {
@@ -103,11 +103,20 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       deliveryFee = new Prisma.Decimal(calculateDeliveryFee(distanceKm, quantityKg)).toDecimalPlaces(2);
     }
 
+    // 💡 UPDATE: Apply Bulk Discount logic
+    let discountAmount = new Prisma.Decimal(0);
+    const quantity = new Prisma.Decimal(quantityKg);
+    const baseTotal = crop.basePricePerKg.mul(quantity);
+
+    if (crop.offer && quantityKg >= Number(crop.offer.minQuantityKg)) {
+      discountAmount = baseTotal.mul(crop.offer.discountPercentage.div(100)).toDecimalPlaces(2);
+    }
+    
+    const farmerEarnings = baseTotal.minus(discountAmount).toDecimalPlaces(2);
     const cropMarkupRate = new Prisma.Decimal(process.env.CROP_MARKUP_RATE || '0.05');
     const deliveryCommissionRate = deliveryType === DeliveryType.DELIVERY
       ? new Prisma.Decimal(process.env.DELIVERY_COMMISSION_RATE || '0.20') : new Prisma.Decimal(0);
-    const quantity = new Prisma.Decimal(quantityKg);
-    const farmerEarnings = crop.basePricePerKg.mul(quantity).toDecimalPlaces(2);
+    
     const platformFee = farmerEarnings.mul(cropMarkupRate).toDecimalPlaces(2);
     const deliveryPlatformFee = deliveryFee.mul(deliveryCommissionRate).toDecimalPlaces(2);
     const deliveryPartnerPayout = deliveryFee.minus(deliveryPlatformFee);
@@ -127,7 +136,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
           buyerId,
           quantityKg: quantity, basePricePerKg: crop.basePricePerKg, farmerEarnings,
           cropMarkupRate, platformFee, deliveryFee, deliveryCommissionRate,
-          deliveryPlatformFee, deliveryPartnerPayout, discountAmount: new Prisma.Decimal(0), totalBuyerPrice,
+          deliveryPlatformFee, deliveryPartnerPayout, discountAmount, totalBuyerPrice, // 💡 Updated with discountAmount
           deliveryType,
           paymentType,
           deliveryLatitude,
@@ -140,7 +149,6 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       });
     });
 
-    // 9. Success Response
     res.status(201).json({ 
       success: true, 
       message: 'Order placed successfully',
@@ -189,7 +197,7 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
         include: { 
           crop: { 
             select: { 
-              cropName: true, 
+              catalog : {select : {englishName : true, hindiName : true, imageTemplate : true}},
               photos: true 
             } 
           } 
@@ -221,7 +229,6 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-
 export const getOrderById = async (req: Request<{id : string}>, res: Response): Promise<void> => {
   try {
     // 1. Extract ID
@@ -233,7 +240,7 @@ export const getOrderById = async (req: Request<{id : string}>, res: Response): 
       include: {
         crop: {
           select: {
-            cropName: true,
+            catalog : {select : {englishName : true, hindiName : true, imageTemplate : true}},
             photos: true,
             farmLatitude: true,
             farmLongitude: true,

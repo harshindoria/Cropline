@@ -1,16 +1,15 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client-js"
-  //output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
 }
+
+// ── ENUMS ─────────────────────────────────────────────────────────────────
 
 enum Role {
   FARMER
@@ -26,7 +25,6 @@ enum VehicleType {
   MINI_TRUCK
 }
 
-// Status Enum ko update kar diya gaya hai
 enum CropStatus {
   ACTIVE
   PAUSED
@@ -70,143 +68,6 @@ enum LedgerEntryStatus {
   VOIDED
 }
 
-model User {
-  id          String  @id @default(cuid())
-  firebaseUid String  @unique
-  name        String?
-  email       String? @unique
-  phone       String? @unique
-  // A user can unlock multiple workspaces while operating in exactly one at a time.
-  roles       Role[]  @default([BUYER])
-  activeRole  Role    @default(BUYER)
-
-  // Identity
-  aadhaarLast4 String?
-
-  // Location
-  latitude  Float?
-  longitude Float?
-  village   String?
-  district  String?
-  state     String?
-  pincode   String?
-
-  // Delivery partner specific
-  vehicleType      VehicleType?
-  coverageRadiusKm Int?
-  isOnline         Boolean      @default(false)
-
-  // Financial
-  bankAccount   String? // Encrypted before storing
-  bankIfsc      String? // Encrypted before storing
-  walletBalance Decimal @default(0) @db.Decimal(10, 2)
-
-  // Trust
-  rating      Float   @default(0)
-  ratingCount Int     @default(0)
-  isVerified  Boolean @default(false)
-  isActive    Boolean @default(true)
-  strikeCount Int     @default(0)
-
-  // Push notifications
-  fcmToken String?
-
-  // Timestamps
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  crops                 Crop[]
-  ordersAsBuyer         Order[]          @relation("BuyerOrders")
-  ordersAsFarmer        Order[]          @relation("FarmerOrders")
-  deliveryJobs          DeliveryJob[]
-  reviewsGiven          Review[]         @relation("GivenReviews")
-  reviewsReceived       Review[]         @relation("ReceivedReviews")
-  subscriptionsAsBuyer  Subscription[]   @relation("BuyerSubscriptions")
-  subscriptionsAsFarmer Subscription[]   @relation("FarmerSubscriptions")
-  notifications         Notification[]
-  roleAccess            UserRoleAccess[] @relation("RoleAccessUser")
-  roleBlocksIssued      UserRoleAccess[] @relation("RoleAccessBlockedBy")
-  deliveryOffers        DeliveryOffer[]
-  ledgerEntries         LedgerEntry[]
-  cashLiabilities       CashLiability[]
-
-  @@index([latitude, longitude]) // Geospatial queries
-  @@index([activeRole, isOnline]) // Finding available delivery partners in DELIVERY workspace
-}
-
-model UserRoleAccess {
-  id               String           @id @default(cuid())
-  user             User             @relation("RoleAccessUser", fields: [userId], references: [id], onDelete: Cascade)
-  userId           String
-  role             Role
-  status           RoleAccessStatus @default(ACTIVE)
-  reason           String?
-  blockedAt        DateTime?
-  blockedUntil     DateTime?
-  blockedByAdmin   User?            @relation("RoleAccessBlockedBy", fields: [blockedByAdminId], references: [id], onDelete: SetNull)
-  blockedByAdminId String?
-  strikeCount      Int              @default(0)
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-
-  @@unique([userId, role])
-  @@index([role, status, blockedUntil])
-}
-
-model Crop {
-  id String @id @default(cuid())
-
-  // Relation with User (Farmer)
-  farmer   User   @relation(fields: [farmerId], references: [id])
-  farmerId String
-
-  // Basic Info
-  cropName    String
-  category    CropCategory
-  description String?
-
-  // Financial & Weights (Decimal is mandatory for financial precision)
-  quantityKg          Decimal @db.Decimal(10, 2)
-  quantityRemainingKg Decimal @db.Decimal(10, 2)
-  basePricePerKg      Decimal @db.Decimal(10, 2)
-  minOrderKg          Decimal @db.Decimal(10, 2)
-
-  // Dates & Media
-  harvestDate DateTime
-  photos      String[] // Cloudinary URLs array
-
-  // Farm Location (Consolidated)
-  farmLatitude  Float
-  farmLongitude Float
-  farmVillage   String
-  farmDistrict  String
-  farmState     String
-
-  // Toggles & Constraints
-  selfPickupEnabled  Boolean   @default(false)
-  isPreHarvest       Boolean   @default(false)
-  preHarvestDeadline DateTime?
-
-  // Status & Analytics
-  status     CropStatus @default(ACTIVE)
-  viewsCount Int        @default(0)
-
-  // Timestamps
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // relations
-  orders        Order[]
-  subscriptions Subscription[]
-
-  // Indexes for faster querying (Search optimization)
-  @@index([farmerId])
-  @@index([status, category])
-  @@index([harvestDate])
-  @@index([farmLatitude, farmLongitude])
-}
-
 enum CropCategory {
   VEGETABLES
   FRUITS
@@ -214,6 +75,14 @@ enum CropCategory {
   HERBS
   DAIRY
   OTHER
+}
+
+// Naya Enum: Notifications ki priority set karne ke liye (Warnings ke liye)
+enum NotificationAlertLevel {
+  INFO       // Normal updates (e.g., "Order placed")
+  WARNING    // Strike/Warning (e.g., "You have 5 complaints")
+  CRITICAL   // Ban/Block (e.g., "Account suspended")
+  SUCCESS    // Positive actions (e.g., "Payment received")
 }
 
 enum OrderStatus {
@@ -272,25 +141,190 @@ enum ReviewTargetType {
   DELIVERY
 }
 
+// ── MODELS ────────────────────────────────────────────────────────────────
+
+model User {
+  id          String  @id @default(cuid())
+  firebaseUid String  @unique
+  name        String?
+  email       String? @unique
+  phone       String? @unique
+  roles       Role[]  @default([BUYER])
+  activeRole  Role    @default(BUYER)
+
+  // Identity
+  aadhaarLast4 String?
+
+  // Location
+  latitude  Float?
+  longitude Float?
+  village   String?
+  district  String?
+  state     String?
+  pincode   String?
+
+  // Delivery partner specific
+  vehicleType      VehicleType?
+  coverageRadiusKm Int?
+  isOnline         Boolean      @default(false)
+
+  // Financial
+  bankAccount   String? 
+  bankIfsc      String? 
+  walletBalance Decimal @default(0) @db.Decimal(10, 2)
+
+  // Trust & Penalties
+  rating      Float   @default(0)
+  ratingCount Int     @default(0)
+  isVerified  Boolean @default(false)
+  isActive    Boolean @default(true)
+  strikeCount Int     @default(0) // Yeh complaints track karega (5, 7, 10 rules ke liye)
+
+  // Push notifications
+  fcmToken String?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  crops                 Crop[]
+  ordersAsBuyer         Order[]          @relation("BuyerOrders")
+  ordersAsFarmer        Order[]          @relation("FarmerOrders")
+  deliveryJobs          DeliveryJob[]
+  reviewsGiven          Review[]         @relation("GivenReviews")
+  reviewsReceived       Review[]         @relation("ReceivedReviews")
+  subscriptionsAsBuyer  Subscription[]   @relation("BuyerSubscriptions")
+  subscriptionsAsFarmer Subscription[]   @relation("FarmerSubscriptions")
+  notifications         Notification[]
+  roleAccess            UserRoleAccess[] @relation("RoleAccessUser")
+  roleBlocksIssued      UserRoleAccess[] @relation("RoleAccessBlockedBy")
+  deliveryOffers        DeliveryOffer[]
+  ledgerEntries         LedgerEntry[]
+  cashLiabilities       CashLiability[]
+
+  @@index([latitude, longitude]) 
+  @@index([activeRole, isOnline]) 
+}
+
+model UserRoleAccess {
+  id               String           @id @default(cuid())
+  user             User             @relation("RoleAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId           String
+  role             Role
+  status           RoleAccessStatus @default(ACTIVE)
+  reason           String?
+  blockedAt        DateTime?
+  blockedUntil     DateTime?
+  blockedByAdmin   User?            @relation("RoleAccessBlockedBy", fields: [blockedByAdminId], references: [id], onDelete: SetNull)
+  blockedByAdminId String?
+  strikeCount      Int              @default(0)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([userId, role])
+  @@index([role, status, blockedUntil])
+}
+
+// NAYA MODEL: Admin dwara set kiye gaye fasalon ke naam (English/Hindi)
+model CropCatalog {
+  id            String       @id @default(cuid())
+  englishName   String       // e.g., "Potato"
+  hindiName     String       // e.g., "Aloo (आलू)"
+  category      CropCategory // Fruits, Vegetables etc.
+  imageTemplate String?      // Default image URL agar farmer apni photo na daale
+  isActive      Boolean      @default(true) // Admin chahe toh kisi fasal ko temporarily band kar de
+  createdAt     DateTime     @default(now())
+  
+  crops         Crop[]       // Ek catalog item se hazaron kisaan fasal bech sakte hain
+
+  @@index([category, isActive])
+}
+
+model Crop {
+  id String @id @default(cuid())
+
+  // Relation with User (Farmer)
+  farmer   User   @relation(fields: [farmerId], references: [id])
+  farmerId String
+
+  // NAYA LOGIC: Fasal ka naam ab direct string nahi, Catalog se aayega
+  catalog   CropCatalog @relation(fields: [catalogId], references: [id])
+  catalogId String
+
+  description String?
+
+  // Financial & Weights
+  quantityKg          Decimal @db.Decimal(10, 2)
+  quantityRemainingKg Decimal @db.Decimal(10, 2)
+  basePricePerKg      Decimal @db.Decimal(10, 2)
+  minOrderKg          Decimal @db.Decimal(10, 2)
+
+  // Dates & Media
+  harvestDate DateTime
+  photos      String[] 
+
+  // Farm Location
+  farmLatitude  Float
+  farmLongitude Float
+  farmVillage   String
+  farmDistrict  String
+  farmState     String
+
+  // Toggles & Constraints
+  selfPickupEnabled  Boolean   @default(false)
+  isPreHarvest       Boolean   @default(false)
+  preHarvestDeadline DateTime?
+
+  // Status & Analytics
+  status     CropStatus @default(ACTIVE)
+  viewsCount Int        @default(0)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // relations
+  orders        Order[]
+  subscriptions Subscription[]
+  offer         CropOffer?     // Optional Bulk Offer Relation
+
+  @@index([farmerId])
+  @@index([status, catalogId]) // Update kiya gaya index
+  @@index([harvestDate])
+  @@index([farmLatitude, farmLongitude])
+}
+
+// NAYA MODEL: Bulk Quantity par discount dene ke liye (e.g., 50kg lo, 20% off pao)
+model CropOffer {
+  id                 String   @id @default(cuid())
+  
+  // 1-to-1 Relation: Ek fasal par ek hi discount offer lag sakta hai
+  crop               Crop     @relation(fields: [cropId], references: [id], onDelete: Cascade)
+  cropId             String   @unique 
+  
+  minQuantityKg      Decimal  @db.Decimal(10, 2) // Discount tab milega jab order kam se kam itna ho
+  discountPercentage Decimal  @db.Decimal(5, 2)  // Kitne % chhoot deni hai
+  
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
 model Order {
   id String @id @default(cuid())
 
-  // Relations
   crop   Crop   @relation(fields: [cropId], references: [id])
   cropId String
 
-  // Named relations kyunki ek hi order mein do User (Farmer aur Buyer) hain
   farmer   User   @relation("FarmerOrders", fields: [farmerId], references: [id])
   farmerId String
   buyer    User   @relation("BuyerOrders", fields: [buyerId], references: [id])
   buyerId  String
 
-  // Subscription Relation (Added)
   isSubscription Boolean       @default(false)
   subscriptionId String?
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
 
-  // Quantity and pricing — locked at order time (Sabhi Decimal)
   quantityKg             Decimal @db.Decimal(10, 2)
   basePricePerKg         Decimal @db.Decimal(10, 2)
   farmerEarnings         Decimal @db.Decimal(10, 2)
@@ -300,24 +334,21 @@ model Order {
   deliveryCommissionRate Decimal @default(0) @db.Decimal(5, 4)
   deliveryPlatformFee    Decimal @default(0) @db.Decimal(10, 2)
   deliveryPartnerPayout  Decimal @default(0) @db.Decimal(10, 2)
-  discountAmount         Decimal @default(0) @db.Decimal(10, 2)
+  discountAmount         Decimal @default(0) @db.Decimal(10, 2) // NAYA: Bulk discount amount yahan save hoga
   totalBuyerPrice        Decimal @db.Decimal(10, 2)
 
-  // Delivery details
   deliveryType DeliveryType
   paymentType  PaymentType
 
-  // Delivery address (Delivery type orders ke liye, isliye optional hain)
   deliveryLatitude  Float?
   deliveryLongitude Float?
   deliveryAddress   String?
   deliveryDate      DateTime?
 
-  // Status and Tracking
   status        OrderStatus   @default(PENDING)
   paymentStatus PaymentStatus @default(PENDING)
-  paymentId     String? // Razorpay payment ID yahan aayega
-  qrCode        String? // Self-pickup Pay Now orders ke liye QR code string
+  paymentId     String? 
+  qrCode        String? 
   pickupOtp     String?
 
   cancellationReason     String?
@@ -328,11 +359,9 @@ model Order {
   dispatchStartedAt      DateTime?
   completedAt            DateTime?
 
-  // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations
   deliveryJob        DeliveryJob?
   reviews            Review[]
   deliveryOffers     DeliveryOffer[]
@@ -341,7 +370,6 @@ model Order {
   ledgerEntries      LedgerEntry[]
   cashLiability      CashLiability?
 
-  // Indexes for fast querying dashboard data
   @@index([buyerId, status])
   @@index([farmerId, status])
   @@index([createdAt])
@@ -350,48 +378,39 @@ model Order {
 model DeliveryJob {
   id String @id @default(cuid())
 
-  // 1-to-1 Relation with Order
   order   Order  @relation(fields: [orderId], references: [id])
-  orderId String @unique // @unique makes it 1-to-1 
+  orderId String @unique 
 
-  // Relation with User (Delivery Partner)
   deliveryPartner   User   @relation(fields: [deliveryPartnerId], references: [id])
   deliveryPartnerId String
 
-  // Locations (copied from Crop and Order at job creation time)
   pickupLatitude  Float
   pickupLongitude Float
   dropLatitude    Float
   dropLongitude   Float
   distanceKm      Float
 
-  // Job Details
   cropWeightKg Decimal           @db.Decimal(10, 2)
-  //deliveryFee  Decimal           @db.Decimal(10, 2)
   status       DeliveryJobStatus @default(ASSIGNED)
 
-  // Live location (updated every 30s during delivery) 
   liveLatitude          Float?
   liveLongitude         Float?
   liveLocationUpdatedAt DateTime?
 
-  // Proof photos (Cloudinary URLs) 
   pickupPhoto   String?
   deliveryPhoto String?
 
-  // Timestamps 
   acceptedAt          DateTime  @default(now())
   pickedUpAt          DateTime?
   deliveredAt         DateTime?
   estimatedDeliveryAt DateTime?
   createdAt           DateTime  @default(now())
-  offeredAt           DateTime  @default(now()) // when backend started looking
-  acceptanceDeadline  DateTime? // if not accepted by this time → re-search
-  notifiedPartners    String[]  @default([]) // IDs of partners who were notified
+  offeredAt           DateTime  @default(now()) 
+  acceptanceDeadline  DateTime? 
+  notifiedPartners    String[]  @default([]) 
 
-  // Fast indexing for delivery partner dashboard
   @@index([deliveryPartnerId, status])
-  @@index([pickupLatitude, pickupLongitude]) // Geospatial index added
+  @@index([pickupLatitude, pickupLongitude]) 
 }
 
 model DeliveryOffer {
@@ -478,43 +497,33 @@ model CashLiability {
 model Review {
   id String @id @default(cuid())
 
-  // Jis order ke basis par review diya gaya hai
   order   Order  @relation(fields: [orderId], references: [id])
   orderId String
 
-  // Kisne review diya (Reviewer)
   reviewer   User   @relation("GivenReviews", fields: [reviewerId], references: [id])
   reviewerId String
 
-  // Kisko review mila (Target)
   target   User   @relation("ReceivedReviews", fields: [targetId], references: [id])
   targetId String
 
-  // Enum jo batayega ki target kaun hai (FARMER, BUYER, ya DELIVERY)
   targetType ReviewTargetType
 
-  // Rating and feedback
-  rating  Int // 1 se 5 stars ke liye
-  comment String? // Optional text feedback
+  rating  Int 
+  comment String? 
 
-  // Flagging System (Added)
   isFlagged Boolean @default(false)
   flagCount Int     @default(0)
 
-  // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Ek order par ek user dusre user ko ek hi baar review de sake (Prevent duplicate reviews)
   @@unique([orderId, reviewerId, targetId])
-  // Profile loading fast karne ke liye index
   @@index([targetId])
 }
 
 model Subscription {
   id String @id @default(cuid())
 
-  // Relations (Named relations kyunki 2 User hain)
   buyer   User   @relation("BuyerSubscriptions", fields: [buyerId], references: [id])
   buyerId String
 
@@ -524,52 +533,48 @@ model Subscription {
   crop   Crop   @relation(fields: [cropId], references: [id])
   cropId String
 
-  // Subscription logic
   quantityKgPerDelivery Decimal               @db.Decimal(10, 2)
   frequency             SubscriptionFrequency
-  deliveryType          DeliveryType // Added
-  deliveryDay           String // Added
-  lockPrice             Boolean               @default(false) // Added
-  lockedPrice           Decimal?              @db.Decimal(10, 2) // Added
+  deliveryType          DeliveryType 
+  deliveryDay           String 
+  lockPrice             Boolean               @default(false) 
+  lockedPrice           Decimal?              @db.Decimal(10, 2) 
 
-  // Dates
   startDate        DateTime
-  endDate          DateTime? // Optional (user kabhi bhi cancel kar sakta hai)
-  nextDeliveryDate DateTime // Har order banne ke baad yeh aage badh jayegi
+  endDate          DateTime? 
+  nextDeliveryDate DateTime 
 
-  // Delivery Location
   deliveryLatitude  Float
   deliveryLongitude Float
   deliveryAddress   String
 
-  // Tracking
   status SubscriptionStatus @default(ACTIVE)
 
-  // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations (Added)
   orders Order[]
 
-  // Indexes
   @@index([buyerId, status])
   @@index([farmerId, status])
-  @@index([nextDeliveryDate, status]) // Cron job ke liye index (taaki roz raat ko fast search ho)
+  @@index([nextDeliveryDate, status]) 
 }
 
-// New Notification Model
 model Notification {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id])
   userId    String
-  type      String // "NEW_ORDER" | "ORDER_CONFIRMED" | "PICKED_UP" etc.
+  
+  type      String   // e.g., "NEW_ORDER", "WARNING"
+  alertLevel NotificationAlertLevel @default(INFO) // NAYA: Warning ko highlight karne ke liye
+
   title     String
   body      String
-  data      Json? // Reference IDs (orderId, cropId) for deep linking
+  data      Json?    
   isRead    Boolean  @default(false)
+  
   createdAt DateTime @default(now())
 
-  @@index([userId, isRead]) // Fast unread count query per user
-  @@index([createdAt]) // Admin audit queries
+  @@index([userId, isRead]) 
+  @@index([createdAt]) 
 }

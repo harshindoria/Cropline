@@ -6,8 +6,8 @@ import { CropCategory, Prisma, CropStatus, OrderStatus, Role, RoleAccessStatus }
 import { haversineDistance } from '../utils/geoUtils'
 
 const createCropSchema = z.object({
-  cropName: z.string().min(1, 'Crop name is required'),
-  category: z.nativeEnum(CropCategory),
+  // NAYA: cropName aur category hata diye gaye hain, ab sirf catalogId aayega
+  catalogId: z.string().min(1, 'Catalog item selection is required'),
   description: z.string().optional(),
   quantityKg: z.coerce.number().positive('Quantity must be positive'),
   basePricePerKg: z.coerce.number().positive('Price must be positive'),
@@ -21,84 +21,99 @@ const createCropSchema = z.object({
   selfPickupEnabled: z.coerce.boolean().optional().default(false),
   isPreHarvest: z.coerce.boolean().optional().default(false),
   preHarvestDeadline: z.string().optional(),
+  
+  // NAYA: Bulk Offer Logic (Optional)
+  offerMinQuantityKg: z.coerce.number().positive('Offer minimum quantity must be positive').optional(),
+  offerDiscountPercentage: z.coerce.number().min(1).max(100, 'Discount cannot exceed 100%').optional(),
 });
 
 const updateCropSchema = z.object({
-  description : z.string().optional(),
-  basePricePerKg : z.coerce.number().positive().optional(),
-  minOrderKg : z.coerce.number().positive().optional(),
-  selfPickupEnabled : z.coerce.boolean().optional(),
+  description: z.string().optional(),
+  basePricePerKg: z.coerce.number().positive().optional(),
+  minOrderKg: z.coerce.number().positive().optional(),
+  selfPickupEnabled: z.coerce.boolean().optional(),
+  
+  // NAYA: Bulk Offer Update karne ke liye
+  offerMinQuantityKg: z.coerce.number().positive().optional(),
+  offerDiscountPercentage: z.coerce.number().min(1).max(100).optional(),
 });
 
 export const createCrop = async (req: Request, res: Response): Promise<void> => {
   try {
     // 1. Validate request body
-    const parsed = createCropSchema.safeParse(req.body)
+    const parsed = createCropSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({
         success: false,
         message: 'Validation failed',
         errors: parsed.error.issues,
-      })
+      });
       return;
     }
 
     // 2. Check photos exist
-    const files = req.files as Express.Multer.File[]
+    const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) {
       res.status(400).json({
         success: false,
         message: 'At least one crop photo is required',
-      })
+      });
       return;
     }
 
-    // 3. Business logic validation BEFORE any upload
+    // 3. Extract data
     const {
+      catalogId,
       quantityKg,
       minOrderKg,
       basePricePerKg,
       isPreHarvest,
       preHarvestDeadline,
-    } = parsed.data
+      offerMinQuantityKg,
+      offerDiscountPercentage
+    } = parsed.data;
 
+    // 4. Business logic validations
     if (minOrderKg > quantityKg) {
-      res.status(400).json({
-        success: false,
-        message: 'Minimum order quantity cannot exceed total quantity',
-      })
-      return
+      res.status(400).json({ success: false, message: 'Minimum order quantity cannot exceed total quantity' });
+      return;
     }
 
     if (isPreHarvest && !preHarvestDeadline) {
-      res.status(400).json({
-        success: false,
-        message: 'Pre-harvest deadline is required for pre-harvest listings',
-      })
-      return
+      res.status(400).json({ success: false, message: 'Pre-harvest deadline is required for pre-harvest listings' });
+      return;
     }
 
-    // 5. Upload photos to Cloudinary AFTER all validations pass
-    let photoUrls: string[]
+    // NAYA: Offer ki dono fields ek sath honi chahiye
+    if ((offerMinQuantityKg && !offerDiscountPercentage) || (!offerMinQuantityKg && offerDiscountPercentage)) {
+      res.status(400).json({ success: false, message: 'Both minimum quantity and discount percentage are required to set a bulk offer.' });
+      return;
+    }
+
+    // NAYA: Validate Catalog Item
+    const catalogItem = await prisma.cropCatalog.findUnique({ where: { id: catalogId } });
+    if (!catalogItem || !catalogItem.isActive) {
+      res.status(400).json({ success: false, message: 'Selected crop type is invalid or currently inactive.' });
+      return;
+    }
+
+    // 5. Upload photos to Cloudinary
+    let photoUrls: string[];
     try {
       photoUrls = await Promise.all(
         files.map((file) => uploadToCloudinary(file.buffer, 'khetse/crops'))
-      )
+      );
     } catch (uploadError) {
-      console.error('Cloudinary upload failed:', uploadError)
-      res.status(500).json({
-        success: false,
-        message: 'Failed to upload photos. Please try again.',
-      })
-      return
+      console.error('Cloudinary upload failed:', uploadError);
+      res.status(500).json({ success: false, message: 'Failed to upload photos. Please try again.' });
+      return;
     }
 
-    // 6. Save to database
+    // 6. THE MAGIC: Save Crop and Optional Offer in one Atomic query
     const crop = await prisma.crop.create({
       data: {
         farmerId: req.user!.id,
-        cropName: parsed.data.cropName,
-        category: parsed.data.category,
+        catalogId: catalogItem.id, // Linked to the catalog
         description: parsed.data.description,
         quantityKg: new Prisma.Decimal(quantityKg),
         quantityRemainingKg: new Prisma.Decimal(quantityKg),
@@ -113,34 +128,45 @@ export const createCrop = async (req: Request, res: Response): Promise<void> => 
         farmState: parsed.data.farmState,
         selfPickupEnabled: parsed.data.selfPickupEnabled,
         isPreHarvest: parsed.data.isPreHarvest,
-        preHarvestDeadline: preHarvestDeadline
-          ? new Date(preHarvestDeadline)
-          : null,
+        preHarvestDeadline: preHarvestDeadline ? new Date(preHarvestDeadline) : null,
+        
+        // Agar kisaan ne offer daala hai, toh usko bhi sath mein create karo
+        ...(offerMinQuantityKg && offerDiscountPercentage ? {
+          offer: {
+            create: {
+              minQuantityKg: new Prisma.Decimal(offerMinQuantityKg),
+              discountPercentage: new Prisma.Decimal(offerDiscountPercentage)
+            }
+          }
+        } : {})
       },
-    })
+      include: {
+        catalog: true, // Response mein hindi/english naam bhejne ke liye
+        offer: true    // Response mein offer details bhejne ke liye
+      }
+    });
 
     res.status(201).json({
       success: true,
       message: 'Crop listed successfully',
       data: {
         id: crop.id,
-        cropName: crop.cropName,
-        category: crop.category,
+        cropName: crop.catalog.englishName, // Frontend ko dikhane ke liye
+        hindiName: crop.catalog.hindiName,
+        category: crop.catalog.category,
         quantityKg: crop.quantityKg,
         basePricePerKg: crop.basePricePerKg,
+        offer: crop.offer,
         status: crop.status,
         photos: crop.photos,
         createdAt: crop.createdAt,
       },
-    })
+    });
   } catch (error) {
-    console.error('Create Crop Error:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create crop listing',
-    })
+    console.error('Create Crop Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to create crop listing' });
   }
-}
+};
 
 export const getCrops = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -156,9 +182,13 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
       farmer: { roleAccess: { some: { role: Role.FARMER, status: RoleAccessStatus.ACTIVE } } },
     }
 
+    // 💡 THE FIX: Category ab CropCatalog table ke andar check hogi
     if (category && Object.values(CropCategory).includes(category as CropCategory)) {
-      where.category = category as CropCategory
+      where.catalog = {
+        category: category as CropCategory
+      }
     }
+    
     if (maxPrice) {
       where.basePricePerKg = { lte: new Prisma.Decimal(Number(maxPrice)) }
     }
@@ -181,25 +211,7 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
     if (sort === 'newest')     orderBy = { createdAt: 'desc' }
 
     // ── Geo query or normal query ─────────────────────────────────────────────
-    // THE FIX FOR ISSUE 4:
-    //
-    // Problem: When lat/lng/radius is provided, we fetch only 'limitNum' crops
-    // from DB (e.g. 12), then filter by distance. After filtering we might have
-    // only 2-3 crops left, but there could be more within radius on the next
-    // page that we never even fetched. Pagination also becomes wrong because
-    // 'total' from DB count includes crops outside the radius.
-    //
-    // Solution: When geo filter is active, fetch a larger batch from DB (100)
-    // starting from skip=0, filter ALL of them by distance, then manually
-    // slice for pagination. This way we always have enough results.
-    //
-    // Note: This is an MVP solution. Phase 2 will use PostGIS ST_DWithin
-    // which does the distance filter inside PostgreSQL — much faster at scale.
-
     const isGeoQuery = !!(lat && lng && radius)
-
-    // When geo query: fetch up to 100 from DB (ignore pagination at DB level)
-    // When normal:    fetch only limitNum with proper skip (standard pagination)
     const dbLimit = isGeoQuery ? 100 : limitNum
     const dbSkip  = isGeoQuery ? 0   : skip
 
@@ -207,6 +219,9 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
       prisma.crop.findMany({
         where,
         include: {
+          // 💡 NAYA: Catalog aur Offer ko DB se nikalna zaroori hai frontend ke liye
+          catalog: true, 
+          offer: true,   
           farmer: {
             select: {
               id: true,
@@ -244,26 +259,25 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
     }
 
     // ── Manual pagination for geo queries ─────────────────────────────────────
-    // For geo queries: cropsAfterGeo has all matching crops (up to 100)
-    // We now manually slice it to give the correct page
-    // For normal queries: DB already handled pagination, no slicing needed
     const geoTotal     = cropsAfterGeo.length
     const geoSkip      = (pageNum - 1) * limitNum
     const finalCrops   = isGeoQuery
       ? cropsAfterGeo.slice(geoSkip, geoSkip + limitNum)
       : cropsAfterGeo
 
-    // ── Add freshnessDays ─────────────────────────────────────────────────────
+    // ── Add freshnessDays & Reshape Data for Frontend ─────────────────────────
     const cropsWithFreshness = finalCrops.map((crop) => ({
       ...crop,
+      // 💡 NAYA: Frontend ko sidha naam aur category bahar hi de dete hain
+      cropName: crop.catalog?.englishName,
+      hindiName: crop.catalog?.hindiName,
+      category: crop.catalog?.category,
       freshnessDays: Math.floor(
         (Date.now() - new Date(crop.harvestDate).getTime()) / (1000 * 60 * 60 * 24)
       ),
     }))
 
     // ── Correct pagination numbers ────────────────────────────────────────────
-    // For geo queries: total and totalPages are based on distance-filtered count
-    // For normal queries: total and totalPages are based on DB count
     const total      = isGeoQuery ? geoTotal : dbTotal
     const totalPages = Math.ceil(total / limitNum)
 
@@ -290,39 +304,34 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
 
 export const getCropById = async (req : Request<{id : string}>, res : Response) : Promise<void> => {
   try {
-    
-    const {id}  = req.params;
-
+    const { id } = req.params;
     if (!id) {
-      res.status(400).json({
-        success: false,
-        message: 'Crop id is required',
-      });
+      res.status(400).json({ success: false, message: 'Crop id is required' });
       return;
     }
 
-    const [crop] = await Promise.all([
-      prisma.crop.findUnique({
-        where : {id},
-        include : {
-          farmer : {
-            select : {id : true, name : true, village : true,district : true, state : true, rating : true, ratingCount : true, isVerified : true, createdAt : true},
-          }
+    const crop = await prisma.crop.findUnique({
+      where : {id},
+      include : {
+        catalog: true, // 👈 New: Name aur Category ke liye
+        offer: true,   // 👈 New: Discount offer ke liye
+        farmer : {
+          select : {id : true, name : true, village : true, district : true, state : true, rating : true, ratingCount : true, isVerified : true, createdAt : true},
         }
-      }),
-
-      prisma.crop.updateMany({
-        where : {id},
-        data : {viewsCount : {increment : 1}}
-      }),
-    ]);
+      }
+    });
 
     if (!crop) {
-      res.status(404).json({
-        success: false,
-        message: 'Crop not found',
-      });
+      res.status(404).json({ success: false, message: 'Crop not found' });
       return;
+    }
+
+    // Security check: views increment
+    if(req.user?.id !== crop.farmerId){
+      await prisma.crop.update({
+        where : {id},
+        data : {viewsCount : {increment : 1}}
+      });
     }
 
     const freshnessDays = Math.floor(
@@ -333,36 +342,28 @@ export const getCropById = async (req : Request<{id : string}>, res : Response) 
       success : true,
       data : {
         ...crop,
+        // Frontend convenience ke liye flat fields
+        cropName: crop.catalog.englishName,
+        hindiName: crop.catalog.hindiName,
         freshnessDays
       },
     });
-
   } catch (error) {
     console.error('Get Crop By ID Error : ',error);
-    res.status(500).json({
-      success : false,
-      message : 'Failed to fetch crop'
-    });
+    res.status(500).json({ success : false, message: 'Failed to fetch crop' });
   }
 }
 
 export const getMyCrops = async (req : Request, res : Response) : Promise<void> => {
   try {
     const {status} = req.query;
-
-    const where : Prisma.CropWhereInput = {
-      farmerId : req.user!.id
-    }
+    const where : Prisma.CropWhereInput = { farmerId : req.user!.id }
 
     if(status){
       if(Object.values(CropStatus).includes(status as CropStatus)){
         where.status = status as CropStatus;
-      }
-      else{
-        res.status(400).json({
-          success : false,
-          message : "Invalid request"
-        });
+      } else {
+        res.status(400).json({ success : false, message : "Invalid request" });
         return;
       }
     }
@@ -371,35 +372,31 @@ export const getMyCrops = async (req : Request, res : Response) : Promise<void> 
       where,
       orderBy : {createdAt : 'desc'},
       include : {
+        catalog: true, // 👈 New: Name ke liye
+        offer: true,   // 👈 New: Offer status ke liye
         _count : {select : {orders : true}}
       }
     });
 
     const cropsWithMetaData = crops.map((crop)=>({
       ...crop,
+      cropName: crop.catalog.englishName,
+      hindiName: crop.catalog.hindiName,
       freshnessDays : Math.floor(
         (Date.now()-new Date(crop.harvestDate).getTime())/(1000*60*60*24)
       )
-    }) );
+    }));
 
-    res.status(200).json({
-      success : true,
-      data : cropsWithMetaData
-    });
-
-    
+    res.status(200).json({ success : true, data : cropsWithMetaData });
   } catch (error) {
     console.error('Get My Crops Error : ',error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch your crops',
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch your crops' });
   }
 }
 
-export const updateCrop = async (req: Request<{id : string}>, res: Response): Promise<void> => {
+export const updateCrop = async (req: Request<{id: string}>, res: Response): Promise<void> => {
   try {
-    const { id } = req.params; // Express mein direct id mil jati hai
+    const { id } = req.params; 
     const crop = await prisma.crop.findUnique({ where: { id } });
 
     if (!crop) {
@@ -428,6 +425,13 @@ export const updateCrop = async (req: Request<{id : string}>, res: Response): Pr
       return;
     }
 
+    // NAYA: Offer validation
+    const { offerMinQuantityKg, offerDiscountPercentage } = parsed.data;
+    if ((offerMinQuantityKg && !offerDiscountPercentage) || (!offerMinQuantityKg && offerDiscountPercentage)) {
+      res.status(400).json({ success: false, message: 'Both minimum quantity and discount percentage are required to update the offer.' });
+      return;
+    }
+
     const updatedCrop = await prisma.crop.update({
       where: { id },
       data: {
@@ -435,19 +439,39 @@ export const updateCrop = async (req: Request<{id : string}>, res: Response): Pr
         ...(parsed.data.basePricePerKg !== undefined && { basePricePerKg: new Prisma.Decimal(parsed.data.basePricePerKg) }),
         ...(parsed.data.minOrderKg !== undefined && { minOrderKg: new Prisma.Decimal(parsed.data.minOrderKg) }),
         ...(parsed.data.selfPickupEnabled !== undefined && { selfPickupEnabled: parsed.data.selfPickupEnabled }),
+        
+        // NAYA: Handle Offer Add/Update logic securely
+        ...(offerMinQuantityKg && offerDiscountPercentage ? {
+          offer: {
+            upsert: {
+              create: {
+                minQuantityKg: new Prisma.Decimal(offerMinQuantityKg),
+                discountPercentage: new Prisma.Decimal(offerDiscountPercentage)
+              },
+              update: {
+                minQuantityKg: new Prisma.Decimal(offerMinQuantityKg),
+                discountPercentage: new Prisma.Decimal(offerDiscountPercentage)
+              }
+            }
+          }
+        } : {})
+      },
+      include: {
+        catalog: true,
+        offer: true
       }
     });
 
     res.status(200).json({
       success: true,
-      data: updatedCrop,
-      message: "Crop updated successfully"
+      message: "Crop updated successfully",
+      data: updatedCrop
     });
   } catch (error) {
     console.error('Update Crop Error:', error);
     res.status(500).json({ success: false, message: 'Failed to update crop' });
   }
-}
+};
 
 export const pauseCrop = async(req : Request<{id : string}>, res : Response) : Promise<void> => {
   try {
@@ -492,7 +516,6 @@ export const pauseCrop = async(req : Request<{id : string}>, res : Response) : P
   }
 }
 
-
 export const resumeCrop = async (req : Request<{id : string}>, res : Response) : Promise<void> => {
   try {
     const { id } = req.params;
@@ -536,9 +559,6 @@ export const resumeCrop = async (req : Request<{id : string}>, res : Response) :
     res.status(500).json({ success: false, message: 'Failed to resume crop' });
   }
 }
-
-
-
 
 // ── DELETE CROP (soft delete) ─────────────────────────────────────────────────
 export const deleteCrop = async (req: Request<{ id: string }>, res: Response): Promise<void> => {
