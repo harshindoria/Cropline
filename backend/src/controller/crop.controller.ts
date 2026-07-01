@@ -2,7 +2,7 @@ import { Request, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../config/db'
 import { uploadToCloudinary } from '../utils/cloudinaryUpload'
-import { CropCategory, Prisma, PlanType, CropStatus , OrderStatus} from '@prisma/client'
+import { CropCategory, Prisma, CropStatus, OrderStatus, Role, RoleAccessStatus } from '@prisma/client'
 import { haversineDistance } from '../utils/geoUtils'
 
 const createCropSchema = z.object({
@@ -10,7 +10,7 @@ const createCropSchema = z.object({
   category: z.nativeEnum(CropCategory),
   description: z.string().optional(),
   quantityKg: z.coerce.number().positive('Quantity must be positive'),
-  pricePerKg: z.coerce.number().positive('Price must be positive'),
+  basePricePerKg: z.coerce.number().positive('Price must be positive'),
   minOrderKg: z.coerce.number().positive('Minimum order must be positive'),
   harvestDate: z.string().min(1, 'Harvest date is required'),
   farmLatitude: z.coerce.number(),
@@ -25,7 +25,7 @@ const createCropSchema = z.object({
 
 const updateCropSchema = z.object({
   description : z.string().optional(),
-  pricePerKg : z.coerce.number().positive().optional(),
+  basePricePerKg : z.coerce.number().positive().optional(),
   minOrderKg : z.coerce.number().positive().optional(),
   selfPickupEnabled : z.coerce.boolean().optional(),
 });
@@ -57,7 +57,7 @@ export const createCrop = async (req: Request, res: Response): Promise<void> => 
     const {
       quantityKg,
       minOrderKg,
-      pricePerKg,
+      basePricePerKg,
       isPreHarvest,
       preHarvestDeadline,
     } = parsed.data
@@ -76,29 +76,6 @@ export const createCrop = async (req: Request, res: Response): Promise<void> => 
         message: 'Pre-harvest deadline is required for pre-harvest listings',
       })
       return
-    }
-
-    // 4. Plan limit check
-    const membership = await prisma.membershipPayment.findUnique({
-      where: { id: req.user!.id },
-      select: { planType: true },
-    })
-
-    // Fix — use req.user directly, zero DB queries:
-    if (req.user!.planType === PlanType.FREE) {
-      const activeListings = await prisma.crop.count({
-        where: {
-          farmerId: req.user!.id,
-          status: { in: [CropStatus.ACTIVE, CropStatus.PAUSED] },
-        },
-      })
-      if (activeListings >= 3) {
-        res.status(403).json({
-          success: false,
-          message: 'Free plan allows maximum 3 listings. Upgrade to Pro.',
-        })
-        return
-      }
     }
 
     // 5. Upload photos to Cloudinary AFTER all validations pass
@@ -125,7 +102,7 @@ export const createCrop = async (req: Request, res: Response): Promise<void> => 
         description: parsed.data.description,
         quantityKg: new Prisma.Decimal(quantityKg),
         quantityRemainingKg: new Prisma.Decimal(quantityKg),
-        pricePerKg: new Prisma.Decimal(pricePerKg),
+        basePricePerKg: new Prisma.Decimal(basePricePerKg),
         minOrderKg: new Prisma.Decimal(minOrderKg),
         harvestDate: new Date(parsed.data.harvestDate),
         photos: photoUrls,
@@ -150,7 +127,7 @@ export const createCrop = async (req: Request, res: Response): Promise<void> => 
         cropName: crop.cropName,
         category: crop.category,
         quantityKg: crop.quantityKg,
-        pricePerKg: crop.pricePerKg,
+        basePricePerKg: crop.basePricePerKg,
         status: crop.status,
         photos: crop.photos,
         createdAt: crop.createdAt,
@@ -175,13 +152,15 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
     // ── Where clause ─────────────────────────────────────────────────────────
     const where: Prisma.CropWhereInput = {
       status: CropStatus.ACTIVE,
+      isPreHarvest: preHarvest === 'true',
+      farmer: { roleAccess: { some: { role: Role.FARMER, status: RoleAccessStatus.ACTIVE } } },
     }
 
     if (category && Object.values(CropCategory).includes(category as CropCategory)) {
       where.category = category as CropCategory
     }
     if (maxPrice) {
-      where.pricePerKg = { lte: new Prisma.Decimal(Number(maxPrice)) }
+      where.basePricePerKg = { lte: new Prisma.Decimal(Number(maxPrice)) }
     }
     if (maxFreshnessDays) {
       const cutoffDate = new Date()
@@ -189,7 +168,6 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
       where.harvestDate = { gte: cutoffDate }
     }
     if (selfPickup === 'true') where.selfPickupEnabled = true
-    if (preHarvest === 'true') where.isPreHarvest = true
 
     // ── Pagination ────────────────────────────────────────────────────────────
     const pageNum  = Math.max(Number(page) || 1, 1)
@@ -198,8 +176,8 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
 
     // ── Sorting ───────────────────────────────────────────────────────────────
     let orderBy: Prisma.CropOrderByWithRelationInput = { harvestDate: 'desc' }
-    if (sort === 'price_asc')  orderBy = { pricePerKg: 'asc' }
-    if (sort === 'price_desc') orderBy = { pricePerKg: 'desc' }
+    if (sort === 'price_asc')  orderBy = { basePricePerKg: 'asc' }
+    if (sort === 'price_desc') orderBy = { basePricePerKg: 'desc' }
     if (sort === 'newest')     orderBy = { createdAt: 'desc' }
 
     // ── Geo query or normal query ─────────────────────────────────────────────
@@ -454,7 +432,7 @@ export const updateCrop = async (req: Request<{id : string}>, res: Response): Pr
       where: { id },
       data: {
         ...(parsed.data.description !== undefined && { description: parsed.data.description }),
-        ...(parsed.data.pricePerKg !== undefined && { pricePerKg: new Prisma.Decimal(parsed.data.pricePerKg) }),
+        ...(parsed.data.basePricePerKg !== undefined && { basePricePerKg: new Prisma.Decimal(parsed.data.basePricePerKg) }),
         ...(parsed.data.minOrderKg !== undefined && { minOrderKg: new Prisma.Decimal(parsed.data.minOrderKg) }),
         ...(parsed.data.selfPickupEnabled !== undefined && { selfPickupEnabled: parsed.data.selfPickupEnabled }),
       }

@@ -35,10 +35,39 @@ enum CropStatus {
   CLOSED
 }
 
-enum PlanType {
-  FREE
-  PRO_MONTHLY
-  PRO_ANNUAL
+enum RoleAccessStatus {
+  ACTIVE
+  BLOCKED
+}
+
+enum DeliveryOfferStatus {
+  OFFERED
+  DECLINED
+  EXPIRED
+  ACCEPTED
+  LOST
+}
+
+enum VerificationPurpose {
+  FARMER_HANDOVER
+  BUYER_DELIVERY
+}
+
+enum LedgerEntryType {
+  FARMER_EARNING
+  DELIVERY_EARNING
+  PLATFORM_CROP_FEE
+  PLATFORM_DELIVERY_FEE
+  CASH_LIABILITY
+  REFUND
+  PAYOUT
+}
+
+enum LedgerEntryStatus {
+  PENDING
+  AVAILABLE
+  SETTLED
+  VOIDED
 }
 
 model User {
@@ -47,7 +76,9 @@ model User {
   name        String?
   email       String? @unique
   phone       String? @unique
-  role        Role
+  // A user can unlock multiple workspaces while operating in exactly one at a time.
+  roles       Role[]  @default([BUYER])
+  activeRole  Role    @default(BUYER)
 
   // Identity
   aadhaarLast4 String?
@@ -66,14 +97,9 @@ model User {
   isOnline         Boolean      @default(false)
 
   // Financial
-  bankAccount   String?  // Encrypted before storing
-  bankIfsc      String?  // Encrypted before storing
-  walletBalance Decimal  @default(0) @db.Decimal(10, 2)
-
-  // Plan — stored directly on User for fast access in middleware
-  // No extra join needed when protect middleware attaches req.user
-  planType      PlanType  @default(FREE)
-  planExpiresAt DateTime? // null for FREE tier, set for PRO_MONTHLY and PRO_ANNUAL
+  bankAccount   String? // Encrypted before storing
+  bankIfsc      String? // Encrypted before storing
+  walletBalance Decimal @default(0) @db.Decimal(10, 2)
 
   // Trust
   rating      Float   @default(0)
@@ -91,19 +117,41 @@ model User {
 
   // Relations
   crops                 Crop[]
-  ordersAsBuyer         Order[]        @relation("BuyerOrders")
-  ordersAsFarmer        Order[]        @relation("FarmerOrders")
+  ordersAsBuyer         Order[]          @relation("BuyerOrders")
+  ordersAsFarmer        Order[]          @relation("FarmerOrders")
   deliveryJobs          DeliveryJob[]
-  reviewsGiven          Review[]       @relation("GivenReviews")
-  reviewsReceived       Review[]       @relation("ReceivedReviews")
-  subscriptionsAsBuyer  Subscription[] @relation("BuyerSubscriptions")
-  subscriptionsAsFarmer Subscription[] @relation("FarmerSubscriptions")
+  reviewsGiven          Review[]         @relation("GivenReviews")
+  reviewsReceived       Review[]         @relation("ReceivedReviews")
+  subscriptionsAsBuyer  Subscription[]   @relation("BuyerSubscriptions")
+  subscriptionsAsFarmer Subscription[]   @relation("FarmerSubscriptions")
   notifications         Notification[]
-  membershipPayments    MembershipPayment[]
+  roleAccess            UserRoleAccess[] @relation("RoleAccessUser")
+  roleBlocksIssued      UserRoleAccess[] @relation("RoleAccessBlockedBy")
+  deliveryOffers        DeliveryOffer[]
+  ledgerEntries         LedgerEntry[]
+  cashLiabilities       CashLiability[]
 
-  @@index([latitude, longitude])    // Geospatial queries
-  @@index([role, isOnline])         // Finding available delivery partners
-  @@index([planType, planExpiresAt]) // Cron job — find expired PRO plans daily
+  @@index([latitude, longitude]) // Geospatial queries
+  @@index([activeRole, isOnline]) // Finding available delivery partners in DELIVERY workspace
+}
+
+model UserRoleAccess {
+  id               String           @id @default(cuid())
+  user             User             @relation("RoleAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId           String
+  role             Role
+  status           RoleAccessStatus @default(ACTIVE)
+  reason           String?
+  blockedAt        DateTime?
+  blockedUntil     DateTime?
+  blockedByAdmin   User?            @relation("RoleAccessBlockedBy", fields: [blockedByAdminId], references: [id], onDelete: SetNull)
+  blockedByAdminId String?
+  strikeCount      Int              @default(0)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([userId, role])
+  @@index([role, status, blockedUntil])
 }
 
 model Crop {
@@ -121,7 +169,7 @@ model Crop {
   // Financial & Weights (Decimal is mandatory for financial precision)
   quantityKg          Decimal @db.Decimal(10, 2)
   quantityRemainingKg Decimal @db.Decimal(10, 2)
-  pricePerKg          Decimal @db.Decimal(10, 2)
+  basePricePerKg      Decimal @db.Decimal(10, 2)
   minOrderKg          Decimal @db.Decimal(10, 2)
 
   // Dates & Media
@@ -167,10 +215,13 @@ enum CropCategory {
   DAIRY
   OTHER
 }
+
 enum OrderStatus {
   PENDING
   CONFIRMED
   READY_FOR_PICKUP
+  DELIVERY_SEARCHING
+  DELIVERY_UNAVAILABLE
   ASSIGNED
   PICKED_UP
   IN_DELIVERY
@@ -240,12 +291,17 @@ model Order {
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
 
   // Quantity and pricing — locked at order time (Sabhi Decimal)
-  quantityKg     Decimal @db.Decimal(10, 2)
-  pricePerKg     Decimal @db.Decimal(10, 2)
-  farmerEarnings Decimal @db.Decimal(10, 2)
-  deliveryFee    Decimal @default(0) @db.Decimal(10, 2)
-  platformFee    Decimal @db.Decimal(10, 2)
-  totalAmount    Decimal @db.Decimal(10, 2)
+  quantityKg             Decimal @db.Decimal(10, 2)
+  basePricePerKg         Decimal @db.Decimal(10, 2)
+  farmerEarnings         Decimal @db.Decimal(10, 2)
+  cropMarkupRate         Decimal @db.Decimal(5, 4)
+  platformFee            Decimal @db.Decimal(10, 2)
+  deliveryFee            Decimal @default(0) @db.Decimal(10, 2)
+  deliveryCommissionRate Decimal @default(0) @db.Decimal(5, 4)
+  deliveryPlatformFee    Decimal @default(0) @db.Decimal(10, 2)
+  deliveryPartnerPayout  Decimal @default(0) @db.Decimal(10, 2)
+  discountAmount         Decimal @default(0) @db.Decimal(10, 2)
+  totalBuyerPrice        Decimal @db.Decimal(10, 2)
 
   // Delivery details
   deliveryType DeliveryType
@@ -260,19 +316,30 @@ model Order {
   // Status and Tracking
   status        OrderStatus   @default(PENDING)
   paymentStatus PaymentStatus @default(PENDING)
-  paymentId     String?       // Razorpay payment ID yahan aayega
-  qrCode        String?       // Self-pickup Pay Now orders ke liye QR code string
+  paymentId     String? // Razorpay payment ID yahan aayega
+  qrCode        String? // Self-pickup Pay Now orders ke liye QR code string
   pickupOtp     String?
 
-  cancellationReason String?
+  cancellationReason     String?
+  farmerResponseDeadline DateTime?
+  farmerAcceptedAt       DateTime?
+  paymentAuthorizedAt    DateTime?
+  paymentCapturedAt      DateTime?
+  dispatchStartedAt      DateTime?
+  completedAt            DateTime?
 
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  deliveryJob DeliveryJob?
-  reviews     Review[]
+  deliveryJob        DeliveryJob?
+  reviews            Review[]
+  deliveryOffers     DeliveryOffer[]
+  verificationTokens VerificationToken[]
+  paymentRecord      PaymentRecord?
+  ledgerEntries      LedgerEntry[]
+  cashLiability      CashLiability?
 
   // Indexes for fast querying dashboard data
   @@index([buyerId, status])
@@ -318,14 +385,94 @@ model DeliveryJob {
   deliveredAt         DateTime?
   estimatedDeliveryAt DateTime?
   createdAt           DateTime  @default(now())
-  offeredAt           DateTime  @default(now())  // when backend started looking
-  acceptanceDeadline  DateTime?                 // if not accepted by this time → re-search
-  notifiedPartners    String[]  @default([])     // IDs of partners who were notified
-
+  offeredAt           DateTime  @default(now()) // when backend started looking
+  acceptanceDeadline  DateTime? // if not accepted by this time → re-search
+  notifiedPartners    String[]  @default([]) // IDs of partners who were notified
 
   // Fast indexing for delivery partner dashboard
   @@index([deliveryPartnerId, status])
   @@index([pickupLatitude, pickupLongitude]) // Geospatial index added
+}
+
+model DeliveryOffer {
+  id          String              @id @default(cuid())
+  order       Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId     String
+  partner     User                @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  partnerId   String
+  wave        Int
+  radiusKm    Int
+  status      DeliveryOfferStatus @default(OFFERED)
+  offeredAt   DateTime            @default(now())
+  expiresAt   DateTime
+  respondedAt DateTime?
+
+  @@unique([orderId, partnerId])
+  @@index([partnerId, status, expiresAt])
+  @@index([orderId, wave])
+}
+
+model VerificationToken {
+  id             String              @id @default(cuid())
+  order          Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId        String
+  purpose        VerificationPurpose
+  jti            String              @unique
+  issuedToUserId String
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime            @default(now())
+
+  @@index([orderId, purpose, consumedAt])
+}
+
+model PaymentRecord {
+  id                String        @id @default(cuid())
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId           String        @unique
+  provider          String
+  providerOrderId   String?
+  providerPaymentId String?
+  status            PaymentStatus @default(PENDING)
+  amount            Decimal       @db.Decimal(10, 2)
+  authorizedAt      DateTime?
+  capturedAt        DateTime?
+  refundedAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+model LedgerEntry {
+  id             String            @id @default(cuid())
+  order          Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderId        String
+  user           User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId         String?
+  type           LedgerEntryType
+  status         LedgerEntryStatus @default(PENDING)
+  amount         Decimal           @db.Decimal(10, 2)
+  idempotencyKey String            @unique
+  availableAt    DateTime?
+  settledAt      DateTime?
+  createdAt      DateTime          @default(now())
+
+  @@index([userId, status])
+  @@index([orderId, type])
+}
+
+model CashLiability {
+  id                  String    @id @default(cuid())
+  order               Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderId             String    @unique
+  deliveryPartner     User      @relation(fields: [deliveryPartnerId], references: [id], onDelete: Restrict)
+  deliveryPartnerId   String
+  amount              Decimal   @db.Decimal(10, 2)
+  reconciledAt        DateTime?
+  reconciledByAdminId String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([deliveryPartnerId, reconciledAt])
 }
 
 model Review {
@@ -347,7 +494,7 @@ model Review {
   targetType ReviewTargetType
 
   // Rating and feedback
-  rating  Int     // 1 se 5 stars ke liye
+  rating  Int // 1 se 5 stars ke liye
   comment String? // Optional text feedback
 
   // Flagging System (Added)
@@ -380,15 +527,15 @@ model Subscription {
   // Subscription logic
   quantityKgPerDelivery Decimal               @db.Decimal(10, 2)
   frequency             SubscriptionFrequency
-  deliveryType          DeliveryType          // Added
-  deliveryDay           String                // Added
+  deliveryType          DeliveryType // Added
+  deliveryDay           String // Added
   lockPrice             Boolean               @default(false) // Added
   lockedPrice           Decimal?              @db.Decimal(10, 2) // Added
 
   // Dates
   startDate        DateTime
   endDate          DateTime? // Optional (user kabhi bhi cancel kar sakta hai)
-  nextDeliveryDate DateTime  // Har order banne ke baad yeh aage badh jayegi
+  nextDeliveryDate DateTime // Har order banne ke baad yeh aage badh jayegi
 
   // Delivery Location
   deliveryLatitude  Float
@@ -416,41 +563,13 @@ model Notification {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id])
   userId    String
-  type      String   // "NEW_ORDER" | "ORDER_CONFIRMED" | "PICKED_UP" etc.
+  type      String // "NEW_ORDER" | "ORDER_CONFIRMED" | "PICKED_UP" etc.
   title     String
   body      String
-  data      Json?    // Reference IDs (orderId, cropId) for deep linking
+  data      Json? // Reference IDs (orderId, cropId) for deep linking
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
 
   @@index([userId, isRead]) // Fast unread count query per user
-  @@index([createdAt])      // Admin audit queries
-}
-
-// Tracks every plan purchase — history of all payments
-// Plan limits are enforced by counting from DB, not from counters here
-// planType and planExpiresAt on User are the source of truth for current plan
-model MembershipPayment {
-  id String @id @default(cuid())
-
-  // Which user bought this plan
-  user   User   @relation(fields: [userId], references: [id])
-  userId String
-
-  // What they bought
-  planType  PlanType // PRO_MONTHLY or PRO_ANNUAL
-  amount    Decimal  @db.Decimal(10, 2)
-
-  // When it is valid
-  startDate DateTime
-  endDate   DateTime
-
-  // Payment tracking
-  razorpayPaymentId String?
-  paymentStatus     PaymentStatus @default(PENDING)
-
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([paymentStatus])
+  @@index([createdAt]) // Admin audit queries
 }

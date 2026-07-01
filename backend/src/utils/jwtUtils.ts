@@ -4,11 +4,12 @@ import { Role } from '@prisma/client';
 // Yeh hamare pass (token) ke andar ka data hai
 export interface JwtPayload {
   userId: string;
-  role: Role;
+  roles: Role[];
+  activeRole: Role;
 }
 
 // 1. Naya Token Generate Karne Wala Function
-export const signToken = (userId: string, role: Role): string => {
+export const signToken = (userId: string, roles: Role[], activeRole: Role): string => {
   // .env file se secret key nikalenge
   const secret = process.env.JWT_SECRET;
   
@@ -17,7 +18,7 @@ export const signToken = (userId: string, role: Role): string => {
   }
 
   // Token banate hain jo 30 din tak valid rahega
-  return jwt.sign({ userId, role }, secret, {
+  return jwt.sign({ userId, roles, activeRole }, secret, {
     expiresIn:process.env.JWT_EXPIRES_IN as any || '30d',
   });
 };

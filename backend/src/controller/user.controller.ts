@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import prisma from '../config/db';
 import { sanitizeUser } from '../utils/helper';
 import { z } from 'zod';
+import { Role, RoleAccessStatus } from '@prisma/client';
+import { signToken } from '../utils/jwtUtils';
 
 // 💡 Zod Schema (Updated to include bank and aadhaar)
 const updateProfileSchema = z.object({
@@ -86,4 +88,68 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
      console.error("Update Profile Error:", error);
      res.status(500).json({ success: false, message: "Could not update profile" });
   }
+};
+
+const workspaceRoles = [Role.BUYER, Role.FARMER, Role.DELIVERY] as const;
+
+export const switchRole = async (req: Request, res: Response): Promise<void> => {
+  const parsed = z.object({ role: z.enum(workspaceRoles) }).safeParse(req.body);
+  if (!parsed.success || !req.user) {
+    res.status(req.user ? 400 : 401).json({ success: false, code: req.user ? 'INVALID_ROLE' : 'AUTH_REQUIRED' });
+    return;
+  }
+  if (!req.user.roles.includes(parsed.data.role)) {
+    res.status(403).json({ success: false, code: 'ROLE_NOT_ONBOARDED', role: parsed.data.role });
+    return;
+  }
+  const user = await prisma.user.update({ where: { id: req.user.id }, data: { activeRole: parsed.data.role } });
+  res.json({ success: true, user: sanitizeUser(user), token: signToken(user.id, user.roles, user.activeRole) });
+};
+
+export const onboardRole = async (req: Request, res: Response): Promise<void> => {
+  if (!req.user) { res.status(401).json({ success: false, code: 'AUTH_REQUIRED' }); return; }
+  const parsed = z.object({
+    role: z.enum([Role.FARMER, Role.DELIVERY]),
+    vehicleType: z.enum(['BIKE', 'AUTO', 'TEMPO', 'MINI_TRUCK']).optional(),
+  }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ success: false, code: 'INVALID_ONBOARDING', errors: parsed.error.issues }); return; }
+  if (parsed.data.role === Role.DELIVERY && !(parsed.data.vehicleType || req.user.vehicleType)) {
+    res.status(400).json({ success: false, code: 'VEHICLE_REQUIRED', message: 'A vehicle is required for delivery onboarding.' }); return;
+  }
+
+  const user = await prisma.$transaction(async tx => {
+    await tx.userRoleAccess.upsert({
+      where: { userId_role: { userId: req.user!.id, role: parsed.data.role } }, update: {},
+      create: { userId: req.user!.id, role: parsed.data.role },
+    });
+    return tx.user.update({
+      where: { id: req.user!.id },
+      data: {
+        roles: { push: req.user!.roles.includes(parsed.data.role) ? [] : parsed.data.role },
+        activeRole: parsed.data.role,
+        ...(parsed.data.vehicleType ? { vehicleType: parsed.data.vehicleType } : {}),
+      },
+    });
+  });
+  res.status(201).json({ success: true, user: sanitizeUser(user), token: signToken(user.id, user.roles, user.activeRole) });
+};
+
+export const setRoleBlock = async (req: Request, res: Response): Promise<void> => {
+  if (!req.user) { res.status(401).json({ success: false }); return; }
+  const parsed = z.object({
+    userId: z.string().min(1), role: z.enum(workspaceRoles), blocked: z.boolean(),
+    reason: z.string().trim().min(3).max(500).optional(), blockedUntil: z.coerce.date().optional(),
+  }).safeParse(req.body);
+  if (!parsed.success || (parsed.data.blocked && !parsed.data.reason)) {
+    res.status(400).json({ success: false, code: 'INVALID_ROLE_BLOCK', errors: parsed.success ? undefined : parsed.error.issues }); return;
+  }
+  const access = await prisma.userRoleAccess.upsert({
+    where: { userId_role: { userId: parsed.data.userId, role: parsed.data.role } },
+    create: { userId: parsed.data.userId, role: parsed.data.role },
+    update: parsed.data.blocked ? {
+      status: RoleAccessStatus.BLOCKED, reason: parsed.data.reason, blockedAt: new Date(),
+      blockedUntil: parsed.data.blockedUntil, blockedByAdminId: req.user.id,
+    } : { status: RoleAccessStatus.ACTIVE, reason: null, blockedAt: null, blockedUntil: null, blockedByAdminId: null },
+  });
+  res.json({ success: true, access });
 };

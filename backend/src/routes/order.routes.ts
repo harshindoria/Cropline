@@ -9,10 +9,11 @@ import {
   scanQR,
   getPickupToken,
   sendPickupOtp,
-  verifyPickupOtp
+  verifyPickupOtp,
+  getHandoverToken
 } from '../controller/order.controller';
 import { protect } from '../middleware/auth.middleware';
-import { restrictTo } from '../middleware/role.middleware'; // Aapka naya middleware
+import { restrictTo, requireRoleOperational } from '../middleware/role.middleware';
 import { Role } from '@prisma/client';
 
 const router = Router();
@@ -23,7 +24,7 @@ router.use(protect);
 
 // ── BUYER ROUTES (Sirf Grahak ke liye) ──────────────────────────────────────
 // Order create karne ka haq sirf Buyer ko hai
-router.post('/', restrictTo(Role.BUYER), createOrder);
+router.post('/', restrictTo(Role.BUYER), requireRoleOperational(Role.BUYER), createOrder);
 
 // Digital Ticket (QR Token) dekhne ka haq sirf Buyer ko hai
 router.get('/:id/pickup-token', restrictTo(Role.BUYER), getPickupToken);
@@ -39,8 +40,8 @@ router.patch('/:id/ready', restrictTo(Role.FARMER), markReady);
 router.post('/scan-qr', restrictTo(Role.FARMER), scanQR);
 
 // (Optional) OTP Flow ke routes
-router.post('/:id/pickup-otp/send', restrictTo(Role.FARMER), sendPickupOtp);
-router.post('/:id/pickup-otp/verify', restrictTo(Role.FARMER), verifyPickupOtp);
+//router.post('/:id/pickup-otp/send', restrictTo(Role.FARMER), sendPickupOtp);
+//router.post('/:id/pickup-otp/verify', restrictTo(Role.FARMER), verifyPickupOtp);
 
 
 // ── SHARED ROUTES (Smart APIs) ──────────────────────────────────────────────
@@ -48,5 +49,6 @@ router.post('/:id/pickup-otp/verify', restrictTo(Role.FARMER), verifyPickupOtp);
 // Isliye yahan humne alag se restrictTo() nahi lagaya hai, koi bhi logged-in user inhe call kar sakta hai.
 router.get('/', getOrders);
 router.get('/:id', getOrderById);
+router.get('/:id/handover-token',restrictTo(Role.FARMER),getHandoverToken);
 
 export default router;

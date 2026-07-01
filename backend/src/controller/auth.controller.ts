@@ -15,7 +15,7 @@ const getErrorMessage = (error: unknown): string => {
 
 export const loginWithPhone = async (req : Request, res : Response) : Promise<void> => {
     try {
-        const {idToken, role} = req.body;
+        const {idToken} = req.body;
         if(!idToken){
             res.status(400).json({
                 success : false,
@@ -23,16 +23,6 @@ export const loginWithPhone = async (req : Request, res : Response) : Promise<vo
             });
             return;
         }
-        const userRole = (role as Role) || Role.BUYER;
-        const allowedSignupRoles: Role[] = [Role.FARMER, Role.BUYER, Role.DELIVERY];
-        if(!role || !allowedSignupRoles.includes(userRole as Role)){
-            res.status(400).json({
-                success : false,
-                error : "Role is invalid"
-            });
-            return;
-        }
-
         const decodedToken = await verifyFirebaseToken(idToken);
         const userPhoneNumber  = decodedToken.phoneNumber;
         const userId = decodedToken.uid;
@@ -46,11 +36,11 @@ export const loginWithPhone = async (req : Request, res : Response) : Promise<vo
         }
 
         // Controller sirf request lega aur service ko pass karega
-        const {user, isNewUser} = await processPhoneLogin(userId, userPhoneNumber, userRole);
+        const {user, isNewUser} = await processPhoneLogin(userId, userPhoneNumber);
         const safeUser = sanitizeUser(user);
         // Agar pehli baar mein UID se mil gaya tha, toh code seedha yahan aayega 
         // aur bina kisi extra database call ke aage badh jayega!
-        const token = signToken(user.id, user.role);
+        const token = signToken(user.id, user.roles, user.activeRole);
         res.status(200).json({
             success : true,
             safeUser,
@@ -77,7 +67,7 @@ export const loginWithPhone = async (req : Request, res : Response) : Promise<vo
 
 export const loginWithEmail = async (req : Request , res : Response) :Promise<void> => {
     try {
-        const {idToken, role} = req.body;
+        const {idToken} = req.body;
         if(!idToken){
             res.status(400).json({
                 success : false,
@@ -85,16 +75,6 @@ export const loginWithEmail = async (req : Request , res : Response) :Promise<vo
             });
             return;
         }
-        const userRole = (role as Role) || Role.BUYER;
-        const allowedSignupRoles: Role[] = [Role.FARMER, Role.BUYER, Role.DELIVERY];
-        if(!role || !allowedSignupRoles.includes(userRole as Role)){
-            res.status(400).json({
-                success : false,
-                error : "Role is invalid"
-            });
-            return;
-        }
-
         const decodedToken = await verifyFirebaseToken(idToken);
         const userEmail = decodedToken.email;
         const userId = decodedToken.uid;
@@ -108,9 +88,9 @@ export const loginWithEmail = async (req : Request , res : Response) :Promise<vo
             return;
         }
 
-        const { user, isNewUser } = await processGoogleLogin(userId, userEmail, userRole);
+        const { user, isNewUser } = await processGoogleLogin(userId, userEmail);
         const safeUser = sanitizeUser(user);
-        const token = signToken(user.id, user.role);
+        const token = signToken(user.id, user.roles, user.activeRole);
 
         res.status(200).json({
             success: true,

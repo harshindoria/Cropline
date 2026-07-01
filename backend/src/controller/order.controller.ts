@@ -19,7 +19,6 @@ const createOrderSchema = z.object({
 
 export const createOrder = async (req: Request, res: Response): Promise<void> => {
   try {
-    // 1. Validate request body
     const parsed = createOrderSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ 
@@ -33,9 +32,9 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     const { cropId, quantityKg, deliveryType, paymentType, deliveryLatitude, deliveryLongitude, deliveryAddress } = parsed.data;
     const buyerId = req.user!.id;
 
-    // 2. Fetch Crop
     const crop = await prisma.crop.findUnique({
-      where: { id: cropId }
+      where: { id: cropId },
+      include: { farmer: { include: { roleAccess: { where: { role: Role.FARMER } } } } },
     });
 
     if (!crop) {
@@ -43,10 +42,14 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    // 3. Gatekeepers (Status and Ownership check)
-    if (crop.status !== CropStatus.ACTIVE) {
+    if (crop.status !== CropStatus.ACTIVE || crop.isPreHarvest) {
       res.status(400).json({ success: false, message: 'This crop is not currently active for sale' });
       return;
+    }
+    const farmerAccess = crop.farmer.roleAccess[0];
+    const farmerBlocked = farmerAccess?.status === 'BLOCKED' && (!farmerAccess.blockedUntil || farmerAccess.blockedUntil > new Date());
+    if (!farmerAccess || farmerBlocked) {
+      res.status(409).json({ success: false, code: 'FARMER_UNAVAILABLE', message: 'This farmer is not accepting new orders.' }); return;
     }
     
     if (crop.farmerId === buyerId) {
@@ -65,7 +68,9 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    // 5. Delivery & Payment Rules Check
+    if (deliveryType === DeliveryType.SELF_PICKUP && process.env.SELF_PICKUP_ENABLED !== 'true') {
+      res.status(409).json({ success: false, code: 'SELF_PICKUP_DISABLED', message: 'Self pickup is currently unavailable.' }); return;
+    }
     if (deliveryType === DeliveryType.DELIVERY && (!deliveryLatitude || !deliveryLongitude || !deliveryAddress)) {
       res.status(400).json({ success: false, message: 'Delivery coordinates and address are required for delivery' });
       return;
@@ -89,53 +94,51 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    // 7. Money & Math (Calculate Fees)
-    let deliveryFee = 0;
+    let deliveryFee = new Prisma.Decimal(0);
     if (deliveryType === DeliveryType.DELIVERY) {
       const distanceKm = haversineDistance(
         crop.farmLatitude, crop.farmLongitude, 
         deliveryLatitude!, deliveryLongitude!
       );
-      deliveryFee = calculateDeliveryFee(distanceKm, quantityKg);
+      deliveryFee = new Prisma.Decimal(calculateDeliveryFee(distanceKm, quantityKg)).toDecimalPlaces(2);
     }
 
-    const pricePerKgNum = Number(crop.pricePerKg);
-    const farmerEarnings = pricePerKgNum * quantityKg;
-    const platformFee = farmerEarnings * 0.05; // 5% platform commission
-    const totalAmount = farmerEarnings + platformFee + deliveryFee;
+    const cropMarkupRate = new Prisma.Decimal(process.env.CROP_MARKUP_RATE || '0.05');
+    const deliveryCommissionRate = deliveryType === DeliveryType.DELIVERY
+      ? new Prisma.Decimal(process.env.DELIVERY_COMMISSION_RATE || '0.20') : new Prisma.Decimal(0);
+    const quantity = new Prisma.Decimal(quantityKg);
+    const farmerEarnings = crop.basePricePerKg.mul(quantity).toDecimalPlaces(2);
+    const platformFee = farmerEarnings.mul(cropMarkupRate).toDecimalPlaces(2);
+    const deliveryPlatformFee = deliveryFee.mul(deliveryCommissionRate).toDecimalPlaces(2);
+    const deliveryPartnerPayout = deliveryFee.minus(deliveryPlatformFee);
+    const totalBuyerPrice = farmerEarnings.plus(platformFee).plus(deliveryFee).toDecimalPlaces(2);
+    const farmerResponseDeadline = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    // 8. THE ATOMIC TRANSACTION (Race Condition Protection)
-    const [, newOrder] = await prisma.$transaction([
-      
-      // Query 1: Decrement the stock safely
-      prisma.crop.update({
-        where: { id: cropId },
-        data: { 
-          quantityRemainingKg: { decrement: quantityKg } 
-        }
-      }),
-      
-      // Query 2: Create the order
-      prisma.order.create({
+    const newOrder = await prisma.$transaction(async tx => {
+      const reserved = await tx.crop.updateMany({
+        where: { id: cropId, status: CropStatus.ACTIVE, isPreHarvest: false, quantityRemainingKg: { gte: quantity } },
+        data: { quantityRemainingKg: { decrement: quantity } },
+      });
+      if (reserved.count !== 1) throw new Error('INSUFFICIENT_STOCK');
+      return tx.order.create({
         data: {
           cropId,
-          farmerId: crop.farmerId, // Extracted from crop table
+          farmerId: crop.farmerId,
           buyerId,
-          quantityKg: new Prisma.Decimal(quantityKg),
-          pricePerKg: crop.pricePerKg, // Direct from DB, already Decimal
-          farmerEarnings: new Prisma.Decimal(farmerEarnings),
-          deliveryFee: new Prisma.Decimal(deliveryFee),
-          platformFee: new Prisma.Decimal(platformFee),
-          totalAmount: new Prisma.Decimal(totalAmount),
+          quantityKg: quantity, basePricePerKg: crop.basePricePerKg, farmerEarnings,
+          cropMarkupRate, platformFee, deliveryFee, deliveryCommissionRate,
+          deliveryPlatformFee, deliveryPartnerPayout, discountAmount: new Prisma.Decimal(0), totalBuyerPrice,
           deliveryType,
           paymentType,
           deliveryLatitude,
           deliveryLongitude,
           deliveryAddress,
-          status: OrderStatus.PENDING
-        }
-      })
-    ]);
+          status: OrderStatus.PENDING,
+          farmerResponseDeadline,
+          paymentRecord: { create: { provider: paymentType === PaymentType.ONLINE ? 'RAZORPAY' : 'CASH', amount: totalBuyerPrice } },
+        },
+      });
+    });
 
     // 9. Success Response
     res.status(201).json({ 
@@ -145,6 +148,9 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     });
 
   } catch (error) {
+    if (error instanceof Error && error.message === 'INSUFFICIENT_STOCK') {
+      res.status(409).json({ success: false, code: 'INSUFFICIENT_STOCK', message: 'The requested stock is no longer available.' }); return;
+    }
     console.error('Create Order Error:', error);
     res.status(500).json({ success: false, message: 'Failed to place order' });
   }
@@ -162,11 +168,11 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
     // 2. The Smart Filter (Role ke hisaab se)
     const where: Prisma.OrderWhereInput = {};
     
-    if (req.user!.role === Role.BUYER) {
+    if (req.user!.activeRole === Role.BUYER) {
       where.buyerId = req.user!.id;
-    } else if (req.user!.role === Role.FARMER) {
+    } else if (req.user!.activeRole === Role.FARMER) {
       where.farmerId = req.user!.id;
-    } else if (req.user!.role === Role.DELIVERY) {
+    } else if (req.user!.activeRole === Role.DELIVERY) {
       where.deliveryJob = { deliveryPartnerId: req.user!.id };
     }
     // ADMIN falls through intentionally — sees everything
@@ -263,7 +269,7 @@ export const getOrderById = async (req: Request<{id : string}>, res: Response): 
 
     // 3. The Security Gatekeeper (Privacy Check)
     const userId = req.user!.id;
-    const role = req.user!.role;
+    const role = req.user!.activeRole;
 
     const isInvolved = 
       role === Role.ADMIN ||
@@ -743,5 +749,74 @@ export const getPickupToken = async (req: Request<{id : string}>, res: Response)
   } catch (error) {
     console.error('Get Pickup Token Error:', error);
     res.status(500).json({ success: false, message: 'Failed to generate pickup token' });
+  }
+};
+
+// ── GET HANDOVER TOKEN (For Farmer's QR Code) ───────────────────────────────
+export const getHandoverToken = async (req: Request<{id : string}>, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params; // Order ID
+
+    // 1. Order fetch karna
+    const order = await prisma.order.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        farmerId: true,
+        status: true,
+        deliveryType: true,
+      }
+    });
+
+    if (!order) {
+      res.status(404).json({ 
+        success: false, 
+        message: 'Order not found.' 
+      });
+      return;
+    }
+
+    // 2. Ownership Guard: Sirf order ka kisaan hi token maang sakta hai
+    if (order.farmerId !== req.user!.id) {
+      res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized. You are not the farmer for this order.' 
+      });
+      return;
+    }
+
+    // 3. State Guard: Order ASSIGNED hona zaroori hai tabhi handover hoga
+    // (Agar SELF_PICKUP hai toh READY_FOR_PICKUP par buyer ko QR milta hai jo humne pehle hi bana liya tha)
+    if (order.deliveryType === 'DELIVERY' && order.status !== OrderStatus.ASSIGNED) {
+      res.status(400).json({ 
+        success: false, 
+        message: `Handover not allowed. Current order status is ${order.status}. Waiting for a delivery partner to be assigned.` 
+      });
+      return;
+    }
+
+    // 4. Secure Token Generation
+    const token = jwt.sign(
+      { 
+        orderId: order.id, 
+        farmerId: order.farmerId, 
+        type: 'HANDOVER_QR' // Strictly validating this in delivery controller
+      },
+      process.env.QR_SECRET as string,
+      { expiresIn: '1d' } // 24 hours validity
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Handover token generated successfully.',
+      data: { token }
+    });
+
+  } catch (error) {
+    console.error('[Order] Get Handover Token Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to generate handover token.' 
+    });
   }
 };
