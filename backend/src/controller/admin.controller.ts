@@ -15,7 +15,7 @@ export const getRoleApplications = async (req: Request, res: Response): Promise<
   }
 };
 
-export const processRoleApplication = async (req: Request, res: Response): Promise<void> => {
+export const processRoleApplication = async (req: Request<{id : string}>, res: Response): Promise<void> => {
   try {
     const { id } = req.params; // UserRoleAccess ID
     const parsed = z.object({
@@ -54,7 +54,7 @@ export const processRoleApplication = async (req: Request, res: Response): Promi
     } else {
       // Reject application
       await prisma.userRoleAccess.update({
-        where: { id },
+        where: { id},
         data: { 
           status: RoleAccessStatus.BLOCKED, 
           reason: parsed.data.reason || 'Application rejected by Admin' 
@@ -79,7 +79,7 @@ export const getUsers = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-export const deleteReview = async (req: Request, res: Response): Promise<void> => {
+export const deleteReview = async (req: Request<{id : string}>, res: Response): Promise<void> => {
   try {
     await prisma.review.delete({ where: { id: req.params.id } });
     res.json({ success: true, message: "Review deleted" });
@@ -88,7 +88,7 @@ export const deleteReview = async (req: Request, res: Response): Promise<void> =
   }
 };
 
-export const deleteComplaint = async (req: Request, res: Response): Promise<void> => {
+export const deleteComplaint = async (req: Request<{id : string}>, res: Response): Promise<void> => {
   try {
     await prisma.complaint.delete({ where: { id: req.params.id } });
     res.json({ success: true, message: "Complaint deleted" });

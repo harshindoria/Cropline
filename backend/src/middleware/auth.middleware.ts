@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from '../utils/jwtUtils';
 import prisma from '../config/db';
-import { User } from '@prisma/client';
+import { User, Role } from '@prisma/client';
 
 // Extending Express Request to attach the authenticated user object
 declare global {
@@ -65,4 +65,22 @@ export const protect = async (req: Request, res: Response, next: NextFunction): 
     });
     return;
   }
+};
+
+export const requireRole = (...roles: Role[]) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: 'Unauthorized access.' });
+      return;
+    }
+
+    const hasRole = roles.some((role) => req.user!.roles.includes(role));
+    
+    if (!hasRole) {
+      res.status(403).json({ success: false, message: 'Forbidden. You do not have the required permissions.' });
+      return;
+    }
+
+    next();
+  };
 };
