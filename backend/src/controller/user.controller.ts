@@ -19,6 +19,7 @@ const updateProfileSchema = z.object({
   aadhaarLast4: z.string().length(4, "Aadhaar must be exactly 4 digits").optional(),
   bankAccount: z.string().min(5).optional(),
   bankIfsc: z.string().min(11).optional(),
+  farmArea: z.number().positive().optional(),
 });
 
 // 1. Apna Profile Dekhne ka function
@@ -117,21 +118,28 @@ export const onboardRole = async (req: Request, res: Response): Promise<void> =>
     res.status(400).json({ success: false, code: 'VEHICLE_REQUIRED', message: 'A vehicle is required for delivery onboarding.' }); return;
   }
 
-  const user = await prisma.$transaction(async tx => {
-    await tx.userRoleAccess.upsert({
-      where: { userId_role: { userId: req.user!.id, role: parsed.data.role } }, update: {},
-      create: { userId: req.user!.id, role: parsed.data.role },
-    });
-    return tx.user.update({
-      where: { id: req.user!.id },
-      data: {
-        roles: { push: req.user!.roles.includes(parsed.data.role) ? [] : parsed.data.role },
-        activeRole: parsed.data.role,
-        ...(parsed.data.vehicleType ? { vehicleType: parsed.data.vehicleType } : {}),
-      },
+  const access = await prisma.$transaction(async tx => {
+    if (parsed.data.vehicleType) {
+      await tx.user.update({
+        where: { id: req.user!.id },
+        data: { vehicleType: parsed.data.vehicleType },
+      });
+    }
+    return tx.userRoleAccess.upsert({
+      where: { userId_role: { userId: req.user!.id, role: parsed.data.role } }, 
+      update: { status: RoleAccessStatus.PENDING_APPROVAL },
+      create: { userId: req.user!.id, role: parsed.data.role, status: RoleAccessStatus.PENDING_APPROVAL },
     });
   });
-  res.status(201).json({ success: true, user: sanitizeUser(user), token: signToken(user.id, user.roles, user.activeRole) });
+  
+  // We don't update user.roles or activeRole here. Admin will do it.
+  const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
+  res.status(201).json({ 
+    success: true, 
+    message: "Application submitted for admin approval.",
+    user: sanitizeUser(user!), 
+    access 
+  });
 };
 
 export const setRoleBlock = async (req: Request, res: Response): Promise<void> => {

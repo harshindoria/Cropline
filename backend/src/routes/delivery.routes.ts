@@ -1,7 +1,7 @@
 import { Router } from 'express';
 // Assuming aapke auth middlewares hain
 import { protect} from '../middleware/auth.middleware'; 
-import { restrictTo, requireRoleOperational } from '../middleware/role.middleware';
+import { restrictTo, requireRoleOperational, checkDeliveryLiabilityLimit } from '../middleware/role.middleware';
 // Assuming aapka multer setup hai
 import { upload } from '../config/multer'; 
 import { Role } from '@prisma/client';
@@ -21,8 +21,8 @@ const router = Router();
 router.use(protect); 
 
 // ── THE ROUTES ──
-router.get('/nearby', restrictTo(Role.DELIVERY), requireRoleOperational(Role.DELIVERY), getNearbyJobs);
-router.post('/jobs/:orderId/accept', restrictTo(Role.DELIVERY), requireRoleOperational(Role.DELIVERY), acceptJob);
+router.get('/nearby', restrictTo(Role.DELIVERY), requireRoleOperational(Role.DELIVERY),checkDeliveryLiabilityLimit, getNearbyJobs);
+router.post('/jobs/:orderId/accept', restrictTo(Role.DELIVERY), requireRoleOperational(Role.DELIVERY),checkDeliveryLiabilityLimit, acceptJob);
 router.patch('/location', restrictTo(Role.DELIVERY), updateLocation);
 
 // (Aapka naya QR wala pickup logic)

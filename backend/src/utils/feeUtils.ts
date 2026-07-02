@@ -1,18 +1,34 @@
+import { VehicleType } from '@prisma/client';
+
 export function calculateDeliveryFee(
     distanceKm : number,
-    weightKg : number
+    weightKg : number,
+    vehicleType?: VehicleType | null
 ) : number {
-    if(distanceKm<=5){
-        if(weightKg<=5)return 50;
-        else return 100;
+    let baseFee = 50;
+    let perKm = 10;
+
+    switch(vehicleType) {
+        case 'BIKE':
+            baseFee = 40;
+            perKm = 5;
+            break;
+        case 'AUTO':
+            baseFee = 80;
+            perKm = 10;
+            break;
+        case 'TEMPO':
+            baseFee = 150;
+            perKm = 15;
+            break;
+        case 'MINI_TRUCK':
+            baseFee = 300;
+            perKm = 25;
+            break;
     }
 
-    if(distanceKm<=15){
-        if(weightKg<=10)return 150;
-        else return 250;
-    }
-
-    const perKmCharge = 10;
-
-    return Math.round(perKmCharge*distanceKm);
+    const fee = baseFee + (distanceKm * perKm);
+    const weightPenalty = weightKg > 50 ? (weightKg - 50) * 2 : 0;
+    
+    return Math.round(fee + weightPenalty);
 }

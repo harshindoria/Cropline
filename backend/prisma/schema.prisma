@@ -36,6 +36,13 @@ enum CropStatus {
 enum RoleAccessStatus {
   ACTIVE
   BLOCKED
+  PENDING_APPROVAL
+}
+
+enum UnbanFeeStatus {
+  NONE
+  PENDING
+  PAID
 }
 
 enum DeliveryOfferStatus {
@@ -162,6 +169,7 @@ model User {
   district  String?
   state     String?
   pincode   String?
+  farmArea  Float?
 
   // Delivery partner specific
   vehicleType      VehicleType?
@@ -202,6 +210,8 @@ model User {
   deliveryOffers        DeliveryOffer[]
   ledgerEntries         LedgerEntry[]
   cashLiabilities       CashLiability[]
+  complaintsFiled       Complaint[]      @relation("ComplaintsFiled")
+  complaintsReceived    Complaint[]      @relation("ComplaintsReceived")
 
   @@index([latitude, longitude]) 
   @@index([activeRole, isOnline]) 
@@ -219,6 +229,8 @@ model UserRoleAccess {
   blockedByAdmin   User?            @relation("RoleAccessBlockedBy", fields: [blockedByAdminId], references: [id], onDelete: SetNull)
   blockedByAdminId String?
   strikeCount      Int              @default(0)
+  unbanFeeStatus   UnbanFeeStatus   @default(NONE)
+  unbanFeeAmount   Decimal?         @db.Decimal(10, 2)
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
@@ -369,6 +381,7 @@ model Order {
   paymentRecord      PaymentRecord?
   ledgerEntries      LedgerEntry[]
   cashLiability      CashLiability?
+  complaints         Complaint[]
 
   @@index([buyerId, status])
   @@index([farmerId, status])
@@ -577,4 +590,34 @@ model Notification {
 
   @@index([userId, isRead]) 
   @@index([createdAt]) 
+}
+
+model Complaint {
+  id              String   @id @default(cuid())
+  orderId         String?  
+  order           Order?   @relation(fields: [orderId], references: [id])
+  
+  complainerId    String
+  complainer      User     @relation("ComplaintsFiled", fields: [complainerId], references: [id])
+  
+  accusedId       String
+  accused         User     @relation("ComplaintsReceived", fields: [accusedId], references: [id])
+  
+  accusedRole     Role     
+  
+  reason          String   
+  description     String?  
+  
+  status          ComplaintStatus @default(PENDING) 
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([accusedId, accusedRole])
+}
+
+enum ComplaintStatus {
+  PENDING
+  RESOLVED
+  DISMISSED
 }
