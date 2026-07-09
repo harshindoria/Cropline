@@ -180,7 +180,8 @@ export const confirmOrder = async (req: Request<{id : string}>, res: Response): 
     const { id } = req.params;
 
     const order = await prisma.order.findUnique({
-      where: { id }
+      where: { id },
+      include: { farmer: true }
     });
 
     if (!order) {
@@ -201,14 +202,48 @@ export const confirmOrder = async (req: Request<{id : string}>, res: Response): 
       return;
     }
 
+    let nextStatus: OrderStatus = OrderStatus.CONFIRMED;
+    let assignedDeliveryBoy = null;
+
+    if (order.deliveryType === 'DELIVERY') {
+      const deliveryBoys = await prisma.user.findMany({
+        where: { activeRole: 'DELIVERY' }
+      });
+      if (deliveryBoys.length > 0) {
+        // Just pick the first available one for now as nearest
+        assignedDeliveryBoy = deliveryBoys[0];
+        nextStatus = OrderStatus.ASSIGNED;
+      }
+    }
+
     const updatedOrder = await prisma.order.update({
       where: { id },
-      data: { status: OrderStatus.CONFIRMED }
+      data: { status: nextStatus }
     });
+
+    if (assignedDeliveryBoy) {
+      const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours deadline
+      await prisma.deliveryJob.create({
+        data: {
+          orderId: order.id,
+          deliveryPartnerId: assignedDeliveryBoy.id,
+          pickupLatitude: order.farmer.latitude || 0,
+          pickupLongitude: order.farmer.longitude || 0,
+          dropLatitude: order.deliveryLatitude || 0,
+          dropLongitude: order.deliveryLongitude || 0,
+          distanceKm: 5.0, // mock distance
+          cropWeightKg: order.quantityKg,
+          status: 'ASSIGNED', // enum DeliveryJobStatus is ASSIGNED
+          estimatedDeliveryAt: deadline
+        }
+      });
+    }
 
     res.status(200).json({
       success: true,
-      message: 'Order confirmed successfully. Please prepare it for pickup/delivery.',
+      message: assignedDeliveryBoy 
+        ? 'Order confirmed and assigned to a delivery partner.' 
+        : 'Order confirmed successfully. Please prepare it for pickup/delivery.',
       data: updatedOrder
     });
 
@@ -699,8 +734,51 @@ export const getHandoverToken = async (req: Request<{id : string}>, res: Respons
   }
 };
 
+const autoRejectExpiredOrders = async () => {
+  try {
+    const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
+    const expiredOrders = await prisma.order.findMany({
+      where: {
+        status: OrderStatus.PENDING,
+        createdAt: { lt: sixHoursAgo }
+      },
+      include: { paymentRecord: true }
+    });
+
+    if (expiredOrders.length === 0) return;
+
+    await prisma.$transaction(async (tx) => {
+      for (const order of expiredOrders) {
+        // Restore stock
+        await tx.crop.update({
+          where: { id: order.cropId },
+          data: { quantityRemainingKg: { increment: order.quantityKg } }
+        });
+        // Cancel order
+        await tx.order.update({
+          where: { id: order.id },
+          data: { 
+            status: OrderStatus.CANCELLED,
+            cancellationReason: 'Auto-rejected after 6 hours without farmer acceptance'
+          }
+        });
+        // Process refund DB state
+        if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.RELEASED) {
+          await tx.paymentRecord.update({
+            where: { id: order.paymentRecord.id },
+            data: { status: PaymentStatus.REFUNDED }
+          });
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Auto-reject error:", error);
+  }
+};
+
 export const getOrders = async (req: Request, res: Response): Promise<void> => {
   try {
+    await autoRejectExpiredOrders();
     const orders = await prisma.order.findMany({
       where: {
         OR: [
@@ -708,7 +786,14 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
           { farmerId: req.user!.id }
         ]
       },
-      include: { crop: true }
+      include: { 
+        crop: { include: { catalog: true } },
+        farmer: { select: { id: true, name: true, village: true, district: true, rating: true, ratingCount: true, isVerified: true } },
+        buyer: { select: { id: true, name: true, village: true, district: true } },
+        paymentRecord: true,
+        deliveryJob: { include: { deliveryPartner: { select: { id: true, name: true, phone: true } } } }
+      },
+      orderBy: { createdAt: 'desc' }
     });
     res.json({ success: true, orders });
   } catch (error) {
@@ -718,12 +803,24 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
 
 export const getOrderById = async (req: Request, res: Response): Promise<void> => {
   try {
+    await autoRejectExpiredOrders();
     const order = await prisma.order.findUnique({
-      where: { id: req.params.id },
-      include: { crop: true, buyer: true, farmer: true }
+      where: { id: req.params.id as string },
+      include: { 
+        crop: { include: { catalog: true } },
+        buyer: { select: { id: true, name: true, email: true, phone: true, village: true, district: true, state: true, pincode: true } },
+        farmer: { select: { id: true, name: true, email: true, phone: true, village: true, district: true, state: true, rating: true, ratingCount: true, isVerified: true } },
+        paymentRecord: true,
+        deliveryJob: { include: { deliveryPartner: { select: { id: true, name: true, phone: true, vehicleType: true } } } }
+      }
     });
     if (!order) {
       res.status(404).json({ success: false, message: 'Order not found' });
+      return;
+    }
+    // Access control: only buyer or farmer can view
+    if (order.buyerId !== req.user!.id && order.farmerId !== req.user!.id) {
+      res.status(403).json({ success: false, message: 'Unauthorized' });
       return;
     }
     res.json({ success: true, order });
@@ -732,9 +829,12 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
   }
 };
 
-export const cancelOrder = async (req: Request, res: Response): Promise<void> => {
+export const cancelOrder = async (req: Request<{id: string}>, res: Response): Promise<void> => {
   try {
-    const order = await prisma.order.findUnique({ where: { id: req.params.id } });
+    const order = await prisma.order.findUnique({ 
+      where: { id: req.params.id },
+      include: { paymentRecord: true }
+    });
     if (!order || order.buyerId !== req.user!.id) {
       res.status(404).json({ success: false, message: 'Order not found' });
       return;
@@ -743,12 +843,33 @@ export const cancelOrder = async (req: Request, res: Response): Promise<void> =>
       res.status(400).json({ success: false, message: 'Cannot cancel order at this stage' });
       return;
     }
-    await prisma.order.update({
-      where: { id: req.params.id },
-      data: { status: OrderStatus.CANCELLED, cancellationReason: 'Buyer cancelled' }
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Restore reserved stock
+      await tx.crop.update({
+        where: { id: order.cropId },
+        data: { quantityRemainingKg: { increment: order.quantityKg } }
+      });
+
+      // 2. Cancel the order
+      await tx.order.update({
+        where: { id: req.params.id },
+        data: { status: OrderStatus.CANCELLED, cancellationReason: 'Buyer cancelled' }
+      });
+
+      // 3. If payment was captured, mark for refund
+      if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.RELEASED) {
+        await tx.paymentRecord.update({
+          where: { id: order.paymentRecord.id },
+          data: { status: PaymentStatus.REFUNDED, refundedAt: new Date() }
+        });
+        // TODO: Trigger actual Razorpay refund API
+      }
     });
-    res.json({ success: true, message: 'Order cancelled' });
+
+    res.json({ success: true, message: 'Order cancelled and stock restored' });
   } catch (error) {
+    console.error('Cancel Order Error:', error);
     res.status(500).json({ success: false, message: 'Failed to cancel order' });
   }
 };

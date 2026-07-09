@@ -7,10 +7,12 @@ import {
   getCrops, 
   getCropById, 
   getMyCrops,
-  updateCrop,   // Naya
-  pauseCrop,    // Naya
-  resumeCrop,   // Naya
-  deleteCrop    // Naya
+  updateCrop,
+  pauseCrop,
+  resumeCrop,
+  deleteCrop,
+  getCatalog,
+  getFarmerStats
 } from "../controller/crop.controller";
 import { Role } from "@prisma/client";
 
@@ -18,9 +20,11 @@ const router = Router();
 
 // ── 1. PUBLIC ROUTES ──────────────────────────────────────────────────────────
 router.get('/', getCrops); 
+router.get('/catalog', getCatalog);
 
 // ── 2. SPECIFIC PROTECTED ROUTES (Hamesha /:id ke upar aayenge) ───────────────
 router.get('/farmer/mine', protect, restrictTo(Role.FARMER), getMyCrops);
+router.get('/farmer/stats', protect, restrictTo(Role.FARMER), getFarmerStats);
 
 // ── 3. DYNAMIC PARAM ROUTES (Hamesha static routes ke neeche aayenge) ─────────
 router.get('/:id', getCropById);

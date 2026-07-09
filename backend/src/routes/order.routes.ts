@@ -10,7 +10,8 @@ import {
   getPickupToken,
   sendPickupOtp,
   verifyPickupOtp,
-  getHandoverToken
+  getHandoverToken,
+  cancelOrder
 } from '../controller/order.controller';
 import { protect } from '../middleware/auth.middleware';
 import { restrictTo, requireRoleOperational } from '../middleware/role.middleware';
@@ -28,6 +29,9 @@ router.post('/', restrictTo(Role.BUYER), requireRoleOperational(Role.BUYER), cre
 
 // Digital Ticket (QR Token) dekhne ka haq sirf Buyer ko hai
 router.get('/:id/pickup-token', restrictTo(Role.BUYER), getPickupToken);
+
+// Buyer can cancel a pending order
+router.patch('/:id/cancel', restrictTo(Role.BUYER), cancelOrder);
 
 
 // ── FARMER ROUTES (Sirf Kisaan ke liye) ─────────────────────────────────────

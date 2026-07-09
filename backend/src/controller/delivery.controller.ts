@@ -58,7 +58,11 @@ export const getNearbyJobs = async (req: Request, res: Response): Promise<void> 
       include: {
         crop: {
           select: {
-            cropName: true,
+            catalog: {
+              select: {
+                englishName: true
+              }
+            },
             farmLatitude: true,
             farmLongitude: true,
             farmVillage: true,
@@ -96,7 +100,7 @@ export const getNearbyJobs = async (req: Request, res: Response): Promise<void> 
 
         return {
           orderId: order.id,
-          cropName: order.crop.cropName,
+          cropName: order.crop.catalog.englishName,
           cropPhoto: order.crop.photos[0] || null,
           farmLocation: {
             village: order.crop.farmVillage,

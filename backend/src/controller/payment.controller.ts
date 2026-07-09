@@ -221,29 +221,82 @@ export const getDriverOutstandingSummary = async (req: Request, res: Response): 
 // ============================================================================
 export const initiateOrderPayment = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orderId, amountInRupees } = req.body;
+    const { orderId } = req.params;
     
-    const receiptId = `receipt_${orderId}`;
-    const razorpayOrder = await createRazorpayOrder(amountInRupees, receiptId);
-
-    // FIXED: Matched exact schema requirements
-    const newPaymentRecord = await prisma.paymentRecord.create({
-      data: {
-        orderId: orderId,
-        provider: 'RAZORPAY', // Provider is required in your schema
-        providerOrderId: razorpayOrder.id,
-        amount: amountInRupees,
-        status: 'PENDING'
-      }
+    const order = await prisma.order.findUnique({
+      where: { id: orderId as string },
+      include: { paymentRecord: true }
     });
+
+    if (!order) {
+      res.status(404).json({ success: false, message: 'Order not found' });
+      return;
+    }
+
+    if (order.buyerId !== req.user!.id) {
+      res.status(403).json({ success: false, message: 'Unauthorized' });
+      return;
+    }
+
+    if (order.paymentType !== 'ONLINE') {
+      res.status(400).json({ success: false, message: 'This order uses Cash on Delivery' });
+      return;
+    }
+
+    // If payment already completed
+    if (order.paymentRecord?.status === 'RELEASED') {
+      res.status(400).json({ success: false, message: 'Payment already completed' });
+      return;
+    }
+
+    // If we already have a Razorpay order ID that hasn't been paid, reuse it
+    if (order.paymentRecord?.providerOrderId) {
+      res.status(200).json({
+        success: true,
+        data: {
+          providerOrderId: order.paymentRecord.providerOrderId,
+          paymentRecordId: order.paymentRecord.id,
+          amount: Number(order.totalBuyerPrice) * 100, // paise
+          currency: 'INR',
+          orderId: order.id
+        }
+      });
+      return;
+    }
+
+    const amountInRupees = Number(order.totalBuyerPrice);
+    const receiptId = `receipt_${orderId}`;
+    const razorpayOrder = await createRazorpayOrder(amountInRupees, receiptId, {
+      orderId: order.id,
+      buyerId: order.buyerId
+    });
+
+    // Update the existing payment record with the Razorpay order ID
+    if (order.paymentRecord) {
+      await prisma.paymentRecord.update({
+        where: { id: order.paymentRecord.id },
+        data: { providerOrderId: razorpayOrder.id }
+      });
+    } else {
+      // Fallback: create if somehow missing
+      await prisma.paymentRecord.create({
+        data: {
+          orderId: order.id,
+          provider: 'RAZORPAY',
+          providerOrderId: razorpayOrder.id,
+          amount: amountInRupees,
+          status: 'PENDING'
+        }
+      });
+    }
 
     res.status(200).json({
       success: true,
       data: {
         providerOrderId: razorpayOrder.id,
-        paymentRecordId: newPaymentRecord.id,
-        amount: razorpayOrder.amount,
-        currency: razorpayOrder.currency
+        amount: razorpayOrder.amount, // in paise
+        currency: razorpayOrder.currency,
+        orderId: order.id
       }
     });
   } catch (error) {

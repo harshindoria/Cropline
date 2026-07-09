@@ -1,26 +1,101 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    /* Primary Colors */
+    --forest-green: #1B5E20;
+    --leaf-green: #2E7D32;
+    --meadow-green: #66BB6A;
+    --pastel-green: #A5D6A7;
+
+    /* Accent Colors */
+    --sunshine-yellow: #FFC107;
+    --warm-yellow: #FFD54F;
+
+    /* Neutral Colors */
+    --mint-cream: #F1F8E9;
+    --soft-mint: #E8F5E9;
+    --off-white: #F9FAF7;
+    --stone-gray: #757575;
+    --charcoal: #424242;
+    --dark-gray: #212121;
+
+    --background: #F9FAF7;
+    --foreground: #212121;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: 'Nunito', sans-serif;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Poppins', sans-serif;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--soft-mint);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--meadow-green);
+    border-radius: 3px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  /* Floating animations */
+  .float-1 { animation: float 6s ease-in-out infinite; }
+  .float-2 { animation: floatReverse 7s ease-in-out infinite; }
+  .float-3 { animation: float 5s ease-in-out infinite 1s; }
+
+  /* Card hover */
+  .card-hover {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  .card-hover:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 60px rgba(27, 94, 32, 0.15);
+  }
+
+  /* 3D image container */
+  .image-3d {
+    border-radius: 2rem;
+    box-shadow:
+      0 20px 60px rgba(0, 0, 0, 0.2),
+      0 8px 20px rgba(27, 94, 32, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    border: 3px solid rgba(255, 255, 255, 0.15);
+    background: linear-gradient(145deg, rgba(255,255,255,0.08), rgba(0,0,0,0.05));
+    overflow: hidden;
+    transition: transform 0.4s ease, box-shadow 0.4s ease;
+  }
+  .image-3d:hover {
+    transform: translateY(-6px) scale(1.02);
+    box-shadow:
+      0 30px 80px rgba(0, 0, 0, 0.25),
+      0 12px 30px rgba(27, 94, 32, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  33% { transform: translateY(-15px) rotate(2deg); }
+  66% { transform: translateY(-8px) rotate(-2deg); }
+}
+
+@keyframes floatReverse {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  33% { transform: translateY(12px) rotate(-3deg); }
+  66% { transform: translateY(5px) rotate(3deg); }
 }

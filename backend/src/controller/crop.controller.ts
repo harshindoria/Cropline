@@ -5,6 +5,14 @@ import { uploadToCloudinary } from '../utils/cloudinaryUpload'
 import { CropCategory, Prisma, CropStatus, OrderStatus, Role, RoleAccessStatus } from '@prisma/client'
 import { haversineDistance } from '../utils/geoUtils'
 
+const preprocessBoolean = (val: unknown) => {
+  if (typeof val === 'string') {
+    if (val.toLowerCase() === 'true') return true;
+    if (val.toLowerCase() === 'false') return false;
+  }
+  return val;
+};
+
 const createCropSchema = z.object({
   // NAYA: cropName aur category hata diye gaye hain, ab sirf catalogId aayega
   catalogId: z.string().min(1, 'Catalog item selection is required'),
@@ -18,8 +26,8 @@ const createCropSchema = z.object({
   farmVillage: z.string().min(1),
   farmDistrict: z.string().min(1),
   farmState: z.string().min(1),
-  selfPickupEnabled: z.coerce.boolean().optional().default(false),
-  isPreHarvest: z.coerce.boolean().optional().default(false),
+  selfPickupEnabled: z.preprocess(preprocessBoolean, z.boolean().optional().default(false)),
+  isPreHarvest: z.preprocess(preprocessBoolean, z.boolean().optional().default(false)),
   preHarvestDeadline: z.string().optional(),
   
   // NAYA: Bulk Offer Logic (Optional)
@@ -31,7 +39,7 @@ const updateCropSchema = z.object({
   description: z.string().optional(),
   basePricePerKg: z.coerce.number().positive().optional(),
   minOrderKg: z.coerce.number().positive().optional(),
-  selfPickupEnabled: z.coerce.boolean().optional(),
+  selfPickupEnabled: z.preprocess(preprocessBoolean, z.boolean().optional()),
   
   // NAYA: Bulk Offer Update karne ke liye
   offerMinQuantityKg: z.coerce.number().positive().optional(),
@@ -178,8 +186,13 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
     // ── Where clause ─────────────────────────────────────────────────────────
     const where: Prisma.CropWhereInput = {
       status: CropStatus.ACTIVE,
-      isPreHarvest: preHarvest === 'true',
       farmer: { roleAccess: { some: { role: Role.FARMER, status: RoleAccessStatus.ACTIVE } } },
+    }
+
+    if (preHarvest === 'true') {
+      where.isPreHarvest = true
+    } else if (preHarvest === 'false') {
+      where.isPreHarvest = false
     }
 
     // 💡 THE FIX: Category ab CropCatalog table ke andar check hogi
@@ -265,13 +278,20 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
       ? cropsAfterGeo.slice(geoSkip, geoSkip + limitNum)
       : cropsAfterGeo
 
-    // ── Add freshnessDays & Reshape Data for Frontend ─────────────────────────
+    // ── Add freshnessDays, marketPrice & Reshape Data for Frontend ─────────────
+    const avgPrices = await prisma.crop.groupBy({
+      by: ['catalogId'],
+      where: { status: CropStatus.ACTIVE },
+      _avg: { basePricePerKg: true }
+    });
+    const priceMap = new Map(avgPrices.map(p => [p.catalogId, p._avg.basePricePerKg ? Number(p._avg.basePricePerKg) : null]));
+
     const cropsWithFreshness = finalCrops.map((crop) => ({
       ...crop,
-      // 💡 NAYA: Frontend ko sidha naam aur category bahar hi de dete hain
       cropName: crop.catalog?.englishName,
       hindiName: crop.catalog?.hindiName,
       category: crop.catalog?.category,
+      marketPrice: priceMap.get(crop.catalogId) || (crop.basePricePerKg ? Number(crop.basePricePerKg) : null),
       freshnessDays: Math.floor(
         (Date.now() - new Date(crop.harvestDate).getTime()) / (1000 * 60 * 60 * 24)
       ),
@@ -334,6 +354,16 @@ export const getCropById = async (req : Request<{id : string}>, res : Response) 
       });
     }
 
+    const avgPrice = await prisma.crop.aggregate({
+      where: {
+        catalogId: crop.catalogId,
+        status: CropStatus.ACTIVE
+      },
+      _avg: {
+        basePricePerKg: true
+      }
+    });
+
     const freshnessDays = Math.floor(
       (Date.now() - new Date(crop.harvestDate).getTime())/(1000*60*60*24)
     );
@@ -345,6 +375,7 @@ export const getCropById = async (req : Request<{id : string}>, res : Response) 
         // Frontend convenience ke liye flat fields
         cropName: crop.catalog.englishName,
         hindiName: crop.catalog.hindiName,
+        marketPrice: avgPrice._avg.basePricePerKg ? Number(avgPrice._avg.basePricePerKg) : (crop.basePricePerKg ? Number(crop.basePricePerKg) : null),
         freshnessDays
       },
     });
@@ -378,10 +409,18 @@ export const getMyCrops = async (req : Request, res : Response) : Promise<void> 
       }
     });
 
+    const avgPrices = await prisma.crop.groupBy({
+      by: ['catalogId'],
+      where: { status: CropStatus.ACTIVE },
+      _avg: { basePricePerKg: true }
+    });
+    const priceMap = new Map(avgPrices.map(p => [p.catalogId, p._avg.basePricePerKg ? Number(p._avg.basePricePerKg) : null]));
+
     const cropsWithMetaData = crops.map((crop)=>({
       ...crop,
       cropName: crop.catalog.englishName,
       hindiName: crop.catalog.hindiName,
+      marketPrice: priceMap.get(crop.catalogId) || (crop.basePricePerKg ? Number(crop.basePricePerKg) : null),
       freshnessDays : Math.floor(
         (Date.now()-new Date(crop.harvestDate).getTime())/(1000*60*60*24)
       )
@@ -625,5 +664,144 @@ export const deleteCrop = async (req: Request<{ id: string }>, res: Response): P
   } catch (error) {
     console.error('Delete Crop Error:', error);
     res.status(500).json({ success: false, message: 'Failed to close crop' });
+  }
+};
+
+// ── GET CATALOG ─ Returns all active CropCatalog items grouped by category ──
+export const getCatalog = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const items = await prisma.cropCatalog.findMany({
+      where: { isActive: true },
+      orderBy: { englishName: 'asc' },
+    });
+
+    const avgPrices = await prisma.crop.groupBy({
+      by: ['catalogId'],
+      where: { status: CropStatus.ACTIVE },
+      _avg: { basePricePerKg: true }
+    });
+    const priceMap = new Map(avgPrices.map(p => [p.catalogId, p._avg.basePricePerKg ? Number(p._avg.basePricePerKg) : null]));
+
+    const itemsWithMarketPrice = items.map(item => ({
+      ...item,
+      marketPrice: priceMap.get(item.id) || null
+    }));
+
+    // Group by category
+    const grouped: Record<string, typeof itemsWithMarketPrice> = {};
+    for (const item of itemsWithMarketPrice) {
+      if (!grouped[item.category]) grouped[item.category] = [];
+      grouped[item.category].push(item);
+    }
+
+    res.json({ success: true, catalog: itemsWithMarketPrice, grouped });
+  } catch (error) {
+    console.error('Get Catalog Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch catalog' });
+  }
+};
+
+// ── GET FARMER STATS ─ Aggregated earnings, monthly breakdown, crop sales ──
+export const getFarmerStats = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.user) { res.status(401).json({ success: false }); return; }
+    const farmerId = req.user.id;
+
+    // 1. Crop counts
+    const crops = await prisma.crop.findMany({
+      where: { farmerId },
+      select: {
+        id: true, status: true, quantityKg: true, quantityRemainingKg: true,
+        basePricePerKg: true, catalogId: true,
+        catalog: { select: { englishName: true, hindiName: true, category: true } },
+      },
+    });
+
+    const activeCrops = crops.filter(c => c.status === CropStatus.ACTIVE).length;
+    const totalCrops = crops.length;
+
+    // 2. Order stats
+    const orders = await prisma.order.findMany({
+      where: { farmerId },
+      select: {
+        id: true, status: true, farmerEarnings: true, quantityKg: true,
+        createdAt: true,
+        crop: { select: { catalog: { select: { englishName: true } } } },
+      },
+    });
+
+    const completedOrders = orders.filter(o =>
+      o.status === OrderStatus.COMPLETED || o.status === OrderStatus.DELIVERED
+    );
+    const pendingOrders = orders.filter(o =>
+      o.status === OrderStatus.PENDING || o.status === OrderStatus.CONFIRMED ||
+      o.status === OrderStatus.READY_FOR_PICKUP
+    );
+
+    // 3. Total earnings
+    const totalEarnings = completedOrders.reduce(
+      (sum, o) => sum + Number(o.farmerEarnings), 0
+    );
+    const totalQuantitySold = completedOrders.reduce(
+      (sum, o) => sum + Number(o.quantityKg), 0
+    );
+
+    // 4. Monthly earnings (last 6 months)
+    const now = new Date();
+    const monthlyEarnings: { month: string; earnings: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+      const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+      const monthName = d.toLocaleString('en-IN', { month: 'short', year: '2-digit' });
+
+      const monthOrders = completedOrders.filter(o =>
+        o.createdAt >= monthStart && o.createdAt <= monthEnd
+      );
+      const earnings = monthOrders.reduce((s, o) => s + Number(o.farmerEarnings), 0);
+      monthlyEarnings.push({ month: monthName, earnings });
+    }
+
+    // 5. Crop-wise sales
+    const cropSalesMap: Record<string, { name: string; sold: number; earned: number }> = {};
+    for (const o of completedOrders) {
+      const name = o.crop?.catalog?.englishName || 'Unknown';
+      if (!cropSalesMap[name]) cropSalesMap[name] = { name, sold: 0, earned: 0 };
+      cropSalesMap[name].sold += Number(o.quantityKg);
+      cropSalesMap[name].earned += Number(o.farmerEarnings);
+    }
+    const cropSales = Object.values(cropSalesMap).sort((a, b) => b.earned - a.earned);
+
+    // 6. Recent transactions (last 10 completed orders)
+    const recentTransactions = completedOrders
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 10)
+      .map(o => ({
+        id: o.id,
+        cropName: o.crop?.catalog?.englishName || 'Unknown',
+        quantityKg: Number(o.quantityKg),
+        earned: Number(o.farmerEarnings),
+        date: o.createdAt,
+      }));
+
+    res.json({
+      success: true,
+      stats: {
+        totalCrops,
+        activeCrops,
+        totalOrders: orders.length,
+        pendingOrders: pendingOrders.length,
+        completedOrders: completedOrders.length,
+        totalEarnings,
+        totalQuantitySold,
+        walletBalance: Number(req.user.walletBalance),
+        monthlyEarnings,
+        cropSales,
+        recentTransactions,
+      },
+    });
+  } catch (error) {
+    console.error('Get Farmer Stats Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch farmer stats' });
   }
 };
