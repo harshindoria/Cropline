@@ -180,6 +180,7 @@ model User {
   bankAccount   String? 
   bankIfsc      String? 
   walletBalance Decimal @default(0) @db.Decimal(10, 2)
+  dailyEarningsGoal Decimal @default(2000) @db.Decimal(10, 2)
 
   // Trust & Penalties
   rating      Float   @default(0)

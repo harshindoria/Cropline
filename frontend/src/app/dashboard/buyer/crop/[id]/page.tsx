@@ -280,13 +280,16 @@ export default function CropDetailPage() {
           </div>
 
           {/* Farmer Info */}
-          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-5">
+          <div 
+            onClick={() => router.push(`/dashboard/buyer/farmer/${crop.farmerId}`)}
+            className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-center gap-5 cursor-pointer hover:border-[#1B5E20] hover:shadow-md transition-all"
+          >
             <div className="w-16 h-16 bg-green-50 rounded-2xl flex items-center justify-center shrink-0">
               <span className="text-3xl">👨‍🌾</span>
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <h3 className="text-xl font-bold text-[#212121]">{crop.farmer?.name || "Farmer"}</h3>
+                <h3 className="text-xl font-bold text-[#1B5E20] hover:underline">{crop.farmer?.name || "Farmer"}</h3>
                 {crop.farmer?.isVerified && (
                   <ShieldCheck size={18} className="text-blue-500" />
                 )}

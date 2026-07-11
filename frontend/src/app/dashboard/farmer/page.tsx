@@ -9,7 +9,7 @@ import {
   HelpCircle, Search, Bell, ChevronDown, Package, Clock, TrendingUp,
   Wallet, Pause, Play, Trash2, Upload, Check, X, Edit3, Save,
   MapPin, Phone, Mail, Shield, BarChart3, ShoppingCart, CheckCircle2,
-  ChevronRight
+  ChevronRight, Star
 } from "lucide-react";
 
 type TabType = "dashboard" | "mycrops" | "addcrop" | "earnings" | "profile" | "help";
@@ -207,10 +207,11 @@ export default function FarmerDashboard() {
             ["addcrop", PlusCircle, "Add Crop"],
             ["orders", ShoppingCart, "Orders"],
             ["earnings", BarChart3, "Earnings"],
+            ["reviews", Star, "Reviews"],
             ["profile", UserIcon, "Profile"],
             ["help", HelpCircle, "Help"],
-          ] as [TabType | "orders", any, string][]).map(([id, Icon, label]) => (
-            <button key={id} onClick={() => id === "profile" ? router.push("/dashboard/farmer/profile") : id === "orders" ? router.push("/dashboard/farmer/orders") : setActiveTab(id as TabType)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-bold ${activeTab === id ? "bg-white text-[#1B5E20] shadow-sm" : "text-gray-500 hover:bg-white/50 hover:text-[#1B5E20]"}`}>
+          ] as [TabType | "orders" | "reviews", any, string][]).map(([id, Icon, label]) => (
+            <button key={id} onClick={() => id === "profile" ? router.push("/dashboard/farmer/profile") : id === "orders" ? router.push("/dashboard/farmer/orders") : id === "reviews" ? router.push("/dashboard/farmer/reviews") : setActiveTab(id as TabType)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-bold ${activeTab === id ? "bg-white text-[#1B5E20] shadow-sm" : "text-gray-500 hover:bg-white/50 hover:text-[#1B5E20]"}`}>
               <Icon className={`w-5 h-5 ${activeTab === id ? "text-[#1B5E20]" : "text-gray-400"}`} />
               {label}
             </button>

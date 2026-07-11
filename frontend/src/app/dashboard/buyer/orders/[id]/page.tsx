@@ -33,6 +33,13 @@ export default function OrderDetailPage() {
   const [processing, setProcessing] = useState(false);
   const [cropLang, setCropLang] = useState<"en" | "hi">("en");
 
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [ratingTargetId, setRatingTargetId] = useState("");
+  const [ratingTargetType, setRatingTargetType] = useState<"FARMER" | "DELIVERY">("FARMER");
+  const [ratingValue, setRatingValue] = useState(5);
+  const [ratingComment, setRatingComment] = useState("");
+  const [submittingRating, setSubmittingRating] = useState(false);
+
   useEffect(() => {
     const saved = localStorage.getItem("cropline_crop_lang");
     if (saved === "en" || saved === "hi") {
@@ -96,8 +103,32 @@ export default function OrderDetailPage() {
     } catch (err: any) {
       console.error("Failed to cancel order", err);
       alert(err.response?.data?.message || "Failed to cancel order");
-    } finally {
       setProcessing(false);
+    }
+  };
+
+  const handleSubmitRating = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSubmittingRating(true);
+      const res = await api.post('/reviews', {
+        orderId: order.id,
+        targetId: ratingTargetId,
+        targetType: ratingTargetType,
+        rating: ratingValue,
+        comment: ratingComment
+      });
+      if (res.data.success) {
+        alert("Review submitted successfully!");
+        setShowRatingModal(false);
+        setRatingComment("");
+        setRatingValue(5);
+      }
+    } catch (err: any) {
+      console.error("Failed to submit review", err);
+      alert(err.response?.data?.message || "Failed to submit review");
+    } finally {
+      setSubmittingRating(false);
     }
   };
 
@@ -216,10 +247,10 @@ export default function OrderDetailPage() {
             <h2 className="text-lg font-bold text-[#212121] mb-4 flex items-center gap-2">
               <span className="text-2xl leading-none">👨‍🌾</span> Farmer Details
             </h2>
-            <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between cursor-pointer hover:opacity-80 transition-opacity" onClick={() => router.push(`/dashboard/buyer/farmer/${order.farmerId}`)}>
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <h3 className="text-base font-bold text-[#212121]">{order.farmer?.name || "Farmer"}</h3>
+                  <h3 className="text-base font-bold text-[#1B5E20] hover:underline">{order.farmer?.name || "Farmer"}</h3>
                   {order.farmer?.isVerified && <ShieldCheck size={16} className="text-blue-500" />}
                 </div>
                 <p className="text-sm text-gray-500 font-medium flex items-center gap-1.5 mb-1">
@@ -372,8 +403,90 @@ export default function OrderDetailPage() {
             </button>
           )}
 
+          {order.status !== 'PENDING' && (
+            <div className="flex flex-col gap-3 mt-4">
+              <button
+                onClick={() => {
+                  setRatingTargetId(order.farmerId);
+                  setRatingTargetType('FARMER');
+                  setShowRatingModal(true);
+                }}
+                className="w-full py-4 bg-white border-2 border-gray-100 text-[#1B5E20] hover:bg-green-50 rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
+              >
+                <Star size={18} /> Rate Farmer
+              </button>
+              {order.deliveryJob?.deliveryPartnerId && (
+                <button
+                  onClick={() => {
+                    setRatingTargetId(order.deliveryJob.deliveryPartnerId);
+                    setRatingTargetType('DELIVERY');
+                    setShowRatingModal(true);
+                  }}
+                  className="w-full py-4 bg-white border-2 border-gray-100 text-[#1B5E20] hover:bg-green-50 rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
+                >
+                  <Star size={18} /> Rate Delivery Partner
+                </button>
+              )}
+            </div>
+          )}
+
         </div>
       </main>
+
+      {/* Rating Modal */}
+      {showRatingModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-black text-[#212121]">
+                Rate {ratingTargetType === 'FARMER' ? 'Farmer' : 'Delivery Partner'}
+              </h3>
+              <button onClick={() => setShowRatingModal(false)} className="text-gray-400 hover:text-gray-600">
+                <XCircle size={24} />
+              </button>
+            </div>
+            
+            <form onSubmit={handleSubmitRating} className="flex flex-col gap-4">
+              <div className="flex justify-center gap-2 mb-4">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setRatingValue(star)}
+                    className="focus:outline-none transition-transform hover:scale-110"
+                  >
+                    <Star
+                      size={40}
+                      fill={star <= ratingValue ? "#FFC107" : "transparent"}
+                      className={star <= ratingValue ? "text-[#FFC107]" : "text-gray-300"}
+                    />
+                  </button>
+                ))}
+              </div>
+              
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Review (Optional)</label>
+                <textarea
+                  value={ratingComment}
+                  onChange={(e) => setRatingComment(e.target.value)}
+                  placeholder="Share your experience..."
+                  className="w-full border-2 border-gray-100 rounded-xl p-3 focus:border-[#1B5E20] focus:ring-0 resize-none h-24"
+                ></textarea>
+                <p className="text-xs text-gray-400 mt-1">If left blank, your rating will remain anonymous.</p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={submittingRating}
+                className="w-full bg-[#1B5E20] text-white py-4 rounded-xl font-bold mt-2 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {submittingRating ? <RefreshCw size={18} className="animate-spin" /> : 'Submit Rating'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -58,7 +58,8 @@ export default function BuyerOrdersPage() {
         setLoadingOrders(true);
         const res = await api.get("/orders");
         if (res.data.success) {
-          setOrders(res.data.orders || []);
+          const allOrders = res.data.orders || [];
+          setOrders(allOrders.filter((o: any) => o.buyerId === user?.id));
         }
       } catch (err) {
         console.error("Failed to fetch orders", err);

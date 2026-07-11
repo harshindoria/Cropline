@@ -170,3 +170,94 @@ export const setRoleBlock = async (req: Request, res: Response): Promise<void> =
   });
   res.json({ success: true, access });
 };
+
+export const getFarmerPublicProfile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const farmerId = req.params.id as string;
+
+    const farmer = await prisma.user.findFirst({
+      where: { id: farmerId, roles: { has: 'FARMER' } },
+      select: {
+        id: true,
+        name: true,
+        village: true,
+        district: true,
+        state: true,
+        farmArea: true,
+        rating: true,
+        ratingCount: true,
+      }
+    });
+
+    if (!farmer) {
+      res.status(404).json({ success: false, message: 'Farmer not found' });
+      return;
+    }
+
+    const activeCrops = await prisma.crop.findMany({
+      where: { farmerId, status: 'ACTIVE' },
+      include: { catalog: true }
+    });
+
+    const allReviews = await prisma.review.findMany({
+      where: { targetId: farmerId, targetType: 'FARMER' },
+      include: {
+        reviewer: { select: { id: true, name: true } },
+        order: { include: { crop: { select: { catalog: true } } } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    const textReviews: any[] = [];
+
+    allReviews.forEach((r: any) => {
+      distribution[r.rating as keyof typeof distribution] += 1;
+      if (r.comment && r.comment.trim() !== '') {
+        textReviews.push(r);
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        ...farmer,
+        activeCrops,
+        reviews: {
+          distribution,
+          totalCount: allReviews.length,
+          textReviews
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get Farmer Public Profile Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch public profile' });
+  }
+};
+
+export const toggleOnlineStatus = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const { isOnline } = req.body; // Expect boolean
+    
+    if (typeof isOnline !== 'boolean') {
+      res.status(400).json({ success: false, message: 'isOnline must be a boolean' });
+      return;
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { isOnline }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `You are now ${isOnline ? 'online' : 'offline'}`,
+      data: { isOnline: updatedUser.isOnline }
+    });
+  } catch (error) {
+    console.error('Toggle Online Status Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update online status' });
+  }
+};

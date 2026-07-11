@@ -3,30 +3,77 @@
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { 
-  Navigation, CheckCircle2, TrendingUp, AlertCircle, Leaf, User, LogOut, 
-  MapPin, ShoppingBag, Truck, Calendar, Wallet, Check
+  Leaf, Home, ShoppingBag, Truck, Wallet, Star, User, Settings, HelpCircle,
+  Search, Bell, ChevronDown, CheckCircle2, Navigation, AlertCircle, ArrowRight,
+  MapPin
 } from "lucide-react";
 
+import api from "@/lib/axios";
+
 export default function DeliveryDashboard() {
-  const { user, logout, switchRole, loading } = useAuth();
+  const { user, loading } = useAuth();
   const router = useRouter();
-
-  const [activeTab, setActiveTab] = useState<"available" | "active">("available");
   
-  // Mock delivery jobs
-  const [availableJobs, setAvailableJobs] = useState([
-    { id: "job1", farmerName: "Kisan Singh", pickupVillage: "Kalyanpura", buyerName: "Rahul Sharma", dropDistrict: "Jaipur", weight: "200 kg", distance: "4.8 km", fee: 180 },
-    { id: "job2", farmerName: "Rajesh Kumar", pickupVillage: "Rampur", buyerName: "Sohan Lal", dropDistrict: "Ajmer Rd, Jaipur", weight: "50 kg", distance: "12.2 km", fee: 420 },
-  ]);
+  const [monthlyEarnings, setMonthlyEarnings] = useState<number[]>(new Array(12).fill(0));
+  const [summary, setSummary] = useState({
+    todayEarnings: 0,
+    completedJobs: 0,
+    totalDistanceKm: 0,
+    avgTimeMins: 0,
+    dailyGoal: 2000
+  });
+  const [nearbyActivity, setNearbyActivity] = useState({ within5: 0, within10: 0, priority: 0 });
+  const [recentUpdates, setRecentUpdates] = useState<any[]>([]);
+  const [isGoalFlipped, setIsGoalFlipped] = useState(false);
+  const [newGoalInput, setNewGoalInput] = useState("");
+  const [isOnline, setIsOnline] = useState(false);
 
-  const [activeJobs, setActiveJobs] = useState([
-    { id: "job3", farmerName: "Sohan Lal", pickupVillage: "Harinagar", buyerName: "Jaipur Retail Store", dropDistrict: "Mansarovar, Jaipur", weight: "500 kg", distance: "8.5 km", fee: 350, status: "ASSIGNED", pickupOtp: "5612", dropOtp: "8920" },
-  ]);
+  useEffect(() => {
+    if(user && 'isOnline' in user) {
+      setIsOnline(user.isOnline as boolean);
+    }
+  }, [user]);
+
+  const fetchData = async () => {
+    try {
+      if (!user?.latitude || !user?.longitude) return;
+
+      const [monthlyRes, summaryRes, nearbyRes, notificationsRes] = await Promise.all([
+        api.get("/delivery/stats/monthly"),
+        api.get("/delivery/stats/summary"),
+        api.get(`/delivery/nearby?lat=${user.latitude}&lng=${user.longitude}`),
+        api.get("/notifications")
+      ]);
+
+      if (monthlyRes.data.success) setMonthlyEarnings(monthlyRes.data.data);
+      if (summaryRes.data.success) {
+        setSummary(summaryRes.data.data);
+        setNewGoalInput(summaryRes.data.data.dailyGoal.toString());
+      }
+      if (nearbyRes.data.success) {
+        let within5 = 0;
+        let within10 = 0;
+        let priority = 0; // high priority if crop is pre-harvest or urgency
+        nearbyRes.data.data.forEach((job: any) => {
+          if (job.distance <= 5) within5++;
+          else if (job.distance <= 10) within10++;
+          if (job.isPriority) priority++;
+        });
+        setNearbyActivity({ within5, within10, priority });
+      }
+      if (notificationsRes.data.success) setRecentUpdates(notificationsRes.data.data);
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error);
+    }
+  };
 
   useEffect(() => {
     if (!loading && (!user || user.activeRole !== "DELIVERY")) {
       router.push("/dashboard");
+    } else if (user?.activeRole === "DELIVERY") {
+      fetchData();
     }
   }, [user, loading, router]);
 
@@ -38,278 +85,382 @@ export default function DeliveryDashboard() {
     );
   }
 
-  const handleAcceptJob = (jobId: string) => {
-    const jobToAccept = availableJobs.find(j => j.id === jobId);
-    if (!jobToAccept) return;
-    
-    // Add to active jobs
-    setActiveJobs([...activeJobs, { 
-      ...jobToAccept, 
-      status: "ASSIGNED", 
-      pickupOtp: "1234", 
-      dropOtp: "5678" 
-    }]);
-    
-    // Remove from available
-    setAvailableJobs(prev => prev.filter(j => j.id !== jobId));
-    alert("Job accepted! Head to the farm location for pickup.");
-  };
-
-  const handlePickupComplete = (jobId: string) => {
-    setActiveJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: "PICKED_UP" } : j));
-    alert("Crop picked up from farmer! Status updated to In Transit.");
-  };
-
-  const handleDeliveryComplete = (jobId: string) => {
-    // Remove from active
-    setActiveJobs(prev => prev.filter(j => j.id !== jobId));
-    alert("Order delivered successfully to buyer! Fee credited to your wallet.");
-  };
-
   return (
-    <div className="min-h-screen bg-[#F9FAF7] flex">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-green-100 flex flex-col justify-between p-6 shrink-0 hidden md:flex">
-        <div className="space-y-8">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-[#1B5E20] rounded-xl flex items-center justify-center">
-              <Leaf className="w-4.5 h-4.5 text-[#FFC107]" fill="#FFC107" />
+    <>
+      {/* Top Header */}
+        <header className="h-20 bg-white border-b border-gray-100 flex items-center justify-between px-8 shrink-0">
+          {/* Search */}
+          <div className="relative w-96">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Search deliveries, orders..."
+              className="w-full bg-gray-50 rounded-full pl-11 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-green-100 transition-shadow"
+            />
+          </div>
+
+          {/* Right Actions */}
+          <div className="flex items-center gap-6">
+
+            <div className="relative cursor-pointer group">
+              <Bell className="text-gray-500 group-hover:text-gray-700 transition-colors" size={22} />
+              <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[9px] font-bold text-white">3</div>
             </div>
-            <span className="text-lg font-bold text-[#1B5E20] font-[family-name:var(--font-poppins)]">
-              Crop<span className="text-[#FFC107]">Line</span>
-            </span>
-          </div>
 
-          <div className="space-y-1.5">
-            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 mb-2">My Spaces</div>
-            <button 
-              onClick={() => switchRole("BUYER")}
-              className="w-full flex items-center gap-3 hover:bg-gray-50 text-gray-600 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors"
-            >
-              🛒 Switch to Buyer
-            </button>
-            {user.roles.includes("FARMER") && (
-              <button 
-                onClick={() => switchRole("FARMER")}
-                className="w-full flex items-center gap-3 hover:bg-gray-50 text-gray-600 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors"
-              >
-                🌾 Switch to Farmer
-              </button>
-            )}
-            <button className="w-full flex items-center gap-3 bg-[#E8F5E9] text-[#1B5E20] rounded-xl px-3 py-2.5 text-sm font-bold">
-              🛵 Delivery Dashboard
-            </button>
-            {user.roles.includes("ADMIN") && (
-              <button 
-                onClick={() => switchRole("ADMIN")}
-                className="w-full flex items-center gap-3 hover:bg-red-50 text-red-600 rounded-xl px-3 py-2.5 text-sm font-bold transition-colors mt-2"
-              >
-                🔑 Admin Dashboard
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="bg-[#F1F8E9] rounded-2xl p-4 border border-green-100 flex items-center gap-3">
-            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm">
-              <User className="w-5 h-5 text-[#2E7D32]" />
-            </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-bold text-[#212121] truncate">{user.name || "Delivery Guy"}</p>
-              <p className="text-[10px] text-gray-400 truncate">{user.email || user.phone}</p>
-            </div>
-          </div>
-
-          <button 
-            onClick={logout}
-            className="w-full flex items-center justify-center gap-2 text-sm font-bold text-red-600 border border-red-100 hover:bg-red-50 py-3 rounded-xl transition-all"
-          >
-            <LogOut size={16} /> Logout
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <main className="flex-1 p-6 md:p-10 max-h-screen overflow-y-auto">
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-          <div>
-            <h1 className="text-3xl font-extrabold text-[#212121] font-[family-name:var(--font-poppins)]">
-              Delivery Partner Hub
-            </h1>
-            <p className="text-[#757575] text-sm mt-1">Accept delivery jobs, track routes from farm to buyer, and verify pickup with OTPs.</p>
-          </div>
-
-          {/* Top Info Badges */}
-          <div className="flex gap-3">
-            <div className="bg-[#E8F5E9] border border-green-100 rounded-2xl px-4 py-3 flex items-center gap-3">
-              <Wallet className="w-5 h-5 text-[#1B5E20]" />
-              <div>
-                <p className="text-[10px] text-gray-500 font-bold uppercase">Delivery Earnings</p>
-                <p className="text-sm font-extrabold text-[#1B5E20]">₹{user.walletBalance}</p>
+            <div className="flex items-center gap-3 pl-4 border-l border-gray-100 cursor-pointer group">
+              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-xl shrink-0 overflow-hidden border border-green-200">
+                👨🏽‍
               </div>
-            </div>
-
-            <div className="bg-white border border-gray-200 rounded-2xl px-4 py-3 flex items-center gap-3">
-              <Truck className="w-5 h-5 text-[#FFC107]" />
-              <div>
-                <p className="text-[10px] text-gray-500 font-bold uppercase">Vehicle Type</p>
-                <p className="text-sm font-extrabold text-gray-700">{user.vehicleType || "BIKE"}</p>
+              <div className="hidden sm:block">
+                <p className="text-sm font-black text-[#212121]">{user.name || "Harsh Kumar"}</p>
+                <p className="text-[11px] font-bold text-gray-400">Delivery Partner</p>
               </div>
+              <ChevronDown size={16} className="text-gray-400 group-hover:text-[#212121]" />
             </div>
           </div>
         </header>
 
-        {/* Tab Selection */}
-        <div className="flex border-b border-gray-200 mb-8 gap-6">
-          <button 
-            onClick={() => setActiveTab("available")}
-            className={`pb-4 text-sm font-bold border-b-2 transition-all ${
-              activeTab === "available" ? "border-[#1B5E20] text-[#1B5E20]" : "border-transparent text-gray-400 hover:text-gray-600"
-            }`}
-          >
-            Available Jobs Nearby ({availableJobs.length})
-          </button>
-          <button 
-            onClick={() => setActiveTab("active")}
-            className={`pb-4 text-sm font-bold border-b-2 transition-all ${
-              activeTab === "active" ? "border-[#1B5E20] text-[#1B5E20]" : "border-transparent text-gray-400 hover:text-gray-600"
-            }`}
-          >
-            My Active Deliveries ({activeJobs.length})
-          </button>
-        </div>
+        {/* Scrollable Dashboard Content */}
+        <div className="flex-1 overflow-y-auto p-8 space-y-6 bg-[#FAFBFA]">
+          
+          {/* Hero Banner */}
+          <div className="bg-gradient-to-r from-[#E8F5E9] to-[#C8E6C9] rounded-3xl p-8 relative overflow-hidden border border-green-100/50 shadow-sm">
+            <div className="relative z-10 max-w-lg">
+              <h1 className="text-3xl font-black text-[#1B5E20] mb-2 flex items-center gap-2">
+                Good Morning, {user.name?.split(' ')[0] || "Harsh"}! 👋
+              </h1>
+              <p className="text-[#2E7D32] font-medium mb-6">
+                You're online and ready to deliver. <br/>
+                <span className="font-bold">8 delivery requests</span> available near you.
+              </p>
+              <button className="bg-[#1B5E20] text-white px-6 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-[#2E7D32] transition-colors flex items-center gap-2">
+                View Available Deliveries <ArrowRight size={16} />
+              </button>
+            </div>
+            
+            {/* Banner Illustration (CSS Art/Emoji for now to match the vibe) */}
+            <div className="absolute right-0 bottom-0 h-full w-1/2 opacity-90 pointer-events-none flex items-end justify-end pr-10 pb-2 overflow-visible">
+               <div className="text-[160px] leading-none drop-shadow-xl -scale-x-100 rotate-[10deg]">🛵</div>
+            </div>
+          </div>
 
-        {/* Tab 1: Available Jobs */}
-        {activeTab === "available" && (
-          <div className="space-y-4">
-            {availableJobs.length === 0 ? (
-              <div className="bg-white rounded-3xl p-10 border border-gray-100 text-center text-gray-400 py-20 font-semibold">
-                📭 No new delivery jobs available in your coverage radius right now.
+          {/* 4 Stat Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Card 1 */}
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center border border-green-100">
+                  <ShoppingBag className="text-[#1B5E20]" size={20} />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Available Jobs</p>
+                  <p className="text-3xl font-black text-[#212121]">{nearbyActivity.within5 + nearbyActivity.within10}</p>
+                </div>
               </div>
-            ) : (
-              availableJobs.map(job => (
-                <div key={job.id} className="bg-white border border-gray-150 rounded-3xl p-5 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:shadow-md transition-all">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">Job: {job.id}</span>
-                      <span className="text-[10px] bg-green-50 text-[#2E7D32] px-2 py-0.5 rounded font-black">{job.weight}</span>
-                    </div>
+              <p className="text-xs font-bold text-[#1B5E20]">Nearby</p>
+            </div>
 
-                    <div className="flex items-center gap-4 mt-2 flex-wrap">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#212121]">
-                        <span className="w-2.5 h-2.5 rounded-full bg-[#1B5E20]" />
-                        <span>Khet: {job.pickupVillage}</span>
-                      </div>
-                      <span className="text-gray-300 font-bold">→</span>
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#212121]">
-                        <span className="w-2.5 h-2.5 rounded-full bg-[#FFC107]" />
-                        <span>Drop: {job.dropDistrict}</span>
-                      </div>
-                    </div>
+            {/* Card 2 */}
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center border border-blue-100">
+                  <CheckCircle2 className="text-blue-500" size={20} />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Deliveries Today</p>
+                  <p className="text-3xl font-black text-[#212121]">{summary.completedJobs}</p>
+                </div>
+              </div>
+              <p className="text-xs font-bold text-blue-500">Completed</p>
+            </div>
 
-                    <p className="text-[11px] text-gray-400 font-semibold mt-1">
-                      Distance: <span className="text-gray-700 font-bold">{job.distance}</span> | Farmer: {job.farmerName}
-                    </p>
+            {/* Card 3 */}
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center border border-emerald-100">
+                  <Wallet className="text-emerald-600" size={20} />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Today's Earnings</p>
+                  <p className="text-3xl font-black text-[#212121]">₹{summary.todayEarnings}</p>
+                </div>
+              </div>
+              <p className="text-xs font-bold text-emerald-600">Earnings for today</p>
+            </div>
+
+            {/* Card 4 */}
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center border border-purple-100">
+                  <Wallet className="text-purple-600" size={20} />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Wallet Balance</p>
+                  <p className="text-3xl font-black text-[#212121]">₹{user.walletBalance}</p>
+                </div>
+              </div>
+              <p className="text-xs font-bold text-purple-600">Available to withdraw</p>
+            </div>
+          </div>
+
+          {/* Row 2: Charts and Goal */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Line Chart */}
+            <div className="lg:col-span-2 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
+              <div className="flex items-center justify-between mb-8">
+                <h3 className="text-sm font-black text-[#212121]">Earnings Overview</h3>
+                <div className="text-xs font-bold text-gray-500 flex items-center gap-1 cursor-pointer hover:text-gray-700 transition-colors">
+                  This Month <ChevronDown size={14} />
+                </div>
+              </div>
+              
+              {/* Dummy SVG Line Chart */}
+              <div className="relative h-48 w-full pr-2">
+                {/* Y Axis Labels */}
+                <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-[10px] font-bold text-gray-400 pb-6">
+                  <span>₹2.5k</span>
+                  <span>₹2k</span>
+                  <span>₹1.5k</span>
+                  <span>₹1k</span>
+                  <span>₹500</span>
+                  <span>₹0</span>
+                </div>
+                
+                {/* Chart Area */}
+                <div className="ml-10 h-full relative border-b border-gray-100 pb-6">
+                  {/* Grid Lines */}
+                  <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-6">
+                    <div className="w-full border-b border-dashed border-gray-100"></div>
+                    <div className="w-full border-b border-dashed border-gray-100"></div>
+                    <div className="w-full border-b border-dashed border-gray-100"></div>
+                    <div className="w-full border-b border-dashed border-gray-100"></div>
+                    <div className="w-full border-b border-dashed border-gray-100"></div>
+                    <div className="w-full border-b border-dashed border-gray-100"></div>
                   </div>
+                  
+                  {/* The Line & Area */}
+                  <svg className="w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 100">
+                    <defs>
+                      <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#4CAF50" stopOpacity="0.2" />
+                        <stop offset="100%" stopColor="#4CAF50" stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                    
+                    {(() => {
+                      const maxEarning = Math.max(...monthlyEarnings, 1000); // minimum scale 1000
+                      const points = monthlyEarnings.map((val, index) => {
+                        const x = (index / 11) * 100;
+                        const y = 100 - (val / maxEarning) * 100;
+                        return { x, y };
+                      });
+                      
+                      const pathData = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+                      const areaData = `${pathData} L 100 100 L 0 100 Z`;
 
-                  <div className="flex items-center gap-5 w-full md:w-auto justify-between border-t md:border-t-0 pt-4 md:pt-0 border-gray-100">
-                    <div>
-                      <p className="text-[10px] text-gray-400 font-bold uppercase text-right">Payout Fee</p>
-                      <p className="text-lg font-extrabold text-[#2E7D32] text-right">₹{job.fee}</p>
+                      return (
+                        <>
+                          <path d={areaData} fill="url(#chartGradient)" />
+                          <path 
+                            d={pathData} 
+                            fill="none" 
+                            stroke="#4CAF50" 
+                            strokeWidth="2.5" 
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          {points.map((p, i) => (
+                            <circle key={i} cx={p.x} cy={p.y} r="3.5" fill="white" stroke="#4CAF50" strokeWidth="2" className="cursor-pointer hover:r-[5px] transition-all" />
+                          ))}
+                        </>
+                      );
+                    })()}
+                  </svg>
+                  
+                  {/* X Axis Labels */}
+                  <div className="absolute -bottom-6 left-0 w-full flex justify-between text-[10px] font-bold text-gray-400">
+                    <span>Jan</span>
+                    <span>Feb</span>
+                    <span>Mar</span>
+                    <span>Apr</span>
+                    <span>May</span>
+                    <span>Jun</span>
+                    <span>Jul</span>
+                    <span>Aug</span>
+                    <span>Sep</span>
+                    <span>Oct</span>
+                    <span>Nov</span>
+                    <span>Dec</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Today's Goal Ring */}
+            <div className="bg-transparent rounded-3xl [perspective:1000px] h-[300px]">
+              <div className={`relative w-full h-full transition-transform duration-700 [transform-style:preserve-3d] ${isGoalFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
+                
+                {/* Front Side */}
+                <div className="absolute inset-0 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col [backface-visibility:hidden] cursor-pointer" onClick={() => setIsGoalFlipped(true)}>
+                  <h3 className="text-sm font-black text-[#212121] mb-6">Today's Goal</h3>
+                  <div className="flex-1 flex flex-col items-center justify-center">
+                    <div className="relative w-48 h-48">
+                      <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="42" fill="none" stroke="#F3F4F6" strokeWidth="6" />
+                        <circle 
+                          cx="50" cy="50" r="42" fill="none" stroke="#4CAF50" strokeWidth="8" strokeLinecap="round" 
+                          strokeDasharray={`${2 * Math.PI * 42}`} 
+                          strokeDashoffset={`${2 * Math.PI * 42 * (1 - Math.min(summary.todayEarnings / summary.dailyGoal, 1))}`} 
+                          className="transition-all duration-1000 ease-out"
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                        <span className="text-5xl font-black text-[#212121] tracking-tighter">{Math.round((summary.todayEarnings / summary.dailyGoal) * 100)}<span className="text-2xl">%</span></span>
+                        <span className="text-[11px] font-bold text-gray-500 mt-2">₹{summary.todayEarnings} / ₹{summary.dailyGoal}</span>
+                        <span className="text-[10px] font-black text-[#1B5E20] uppercase tracking-wider mt-1">Earnings Goal</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Back Side (Set Goal) */}
+                <div className="absolute inset-0 bg-[#F1F8E9] rounded-3xl p-6 border border-green-100 shadow-sm flex flex-col [backface-visibility:hidden] [transform:rotateY(180deg)]">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-sm font-black text-[#1B5E20]">Set New Goal</h3>
+                    <div onClick={() => setIsGoalFlipped(false)} className="cursor-pointer text-gray-400 hover:text-[#1B5E20]">
+                      <ArrowRight size={16} />
+                    </div>
+                  </div>
+                  <div className="flex-1 flex flex-col items-center justify-center gap-4">
+                    <p className="text-xs font-bold text-gray-500 text-center">What's your target for today?</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl font-black text-[#212121]">₹</span>
+                      <input 
+                        type="number"
+                        value={newGoalInput}
+                        onChange={(e) => setNewGoalInput(e.target.value)}
+                        className="w-32 bg-white rounded-xl px-4 py-2 text-2xl font-black text-[#212121] text-center focus:outline-none focus:ring-2 focus:ring-green-500 shadow-sm border border-green-100"
+                      />
                     </div>
                     <button 
-                      onClick={() => handleAcceptJob(job.id)}
-                      className="bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-5 py-3 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1"
+                      onClick={async () => {
+                        try {
+                          const res = await api.patch("/delivery/stats/goal", { goal: Number(newGoalInput) });
+                          if(res.data.success) {
+                            setSummary({...summary, dailyGoal: Number(newGoalInput)});
+                            setIsGoalFlipped(false);
+                          }
+                        } catch (err) { console.error(err); }
+                      }}
+                      className="mt-2 bg-[#1B5E20] text-white px-6 py-2 rounded-xl text-sm font-bold shadow-md hover:bg-green-800 transition-colors"
                     >
-                      <Check size={14} strokeWidth={3} /> Accept Delivery
+                      Save Goal
                     </button>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
-        )}
 
-        {/* Tab 2: Active Jobs */}
-        {activeTab === "active" && (
-          <div className="space-y-6">
-            {activeJobs.length === 0 ? (
-              <div className="bg-white rounded-3xl p-10 border border-gray-100 text-center text-gray-400 py-20 font-semibold">
-                🛵 You don&apos;t have any active deliveries. Go to the Available tab to accept jobs!
               </div>
-            ) : (
-              activeJobs.map(job => (
-                <div key={job.id} className="bg-white border border-green-100 rounded-3xl p-6 shadow-sm space-y-5">
-                  <div className="flex justify-between items-start border-b border-gray-100 pb-4 flex-wrap gap-2">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">ID: {job.id}</span>
-                        <span className="text-xs font-bold text-[#1B5E20] bg-green-50 px-2.5 py-0.5 rounded">{job.weight}</span>
-                      </div>
-                      <h3 className="text-base font-extrabold text-[#212121] mt-1 flex items-center gap-1.5 font-[family-name:var(--font-poppins)]">
-                        <ShoppingBag size={16} className="text-[#2E7D32]" /> Farm Delivery: ₹{job.fee} Payout
-                      </h3>
-                    </div>
-
-                    <div className="flex items-center gap-1 text-xs font-bold">
-                      <span className="text-gray-400">Status: </span>
-                      <span className={`px-2.5 py-1 rounded-full uppercase ${
-                        job.status === "ASSIGNED" ? "bg-blue-50 text-blue-600 border border-blue-100" : "bg-orange-50 text-orange-600 border border-orange-100"
-                      }`}>
-                        {job.status}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Route Map Steps */}
-                  <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-green-150">
-                    <div className="relative">
-                      <span className="absolute -left-6 top-1 w-4 h-4 bg-[#1B5E20] border-2 border-white rounded-full shadow" />
-                      <p className="text-xs font-bold text-[#212121]">Farmer Pickup: {job.farmerName}</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">Village: {job.pickupVillage}</p>
-                    </div>
-                    <div className="relative">
-                      <span className="absolute -left-6 top-1 w-4 h-4 bg-[#FFC107] border-2 border-white rounded-full shadow" />
-                      <p className="text-xs font-bold text-[#212121]">Buyer Dropoff: {job.buyerName}</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">Address: {job.dropDistrict}</p>
-                    </div>
-                  </div>
-
-                  {/* OTP Verification & Actions */}
-                  <div className="bg-gray-50 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    {job.status === "ASSIGNED" ? (
-                      <>
-                        <div className="text-xs font-bold text-gray-500">
-                          🔑 Handover OTP for Farmer: <span className="bg-[#FFF9C4] text-[#FFC107] px-2 py-0.5 rounded font-black text-sm">{job.pickupOtp}</span>
-                        </div>
-                        <button 
-                          onClick={() => handlePickupComplete(job.id)}
-                          className="bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-5 py-3 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 self-stretch sm:self-auto justify-center"
-                        >
-                          Confirm Farm Pickup Complete
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-xs font-bold text-gray-500">
-                          🔑 Handover OTP for Buyer: <span className="bg-green-100 text-[#2E7D32] px-2 py-0.5 rounded font-black text-sm">{job.dropOtp}</span>
-                        </div>
-                        <button 
-                          onClick={() => handleDeliveryComplete(job.id)}
-                          className="bg-[#2E7D32] hover:bg-[#1B5E20] text-white px-5 py-3 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 self-stretch sm:self-auto justify-center"
-                        >
-                          Confirm Handed over to Buyer
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
+            </div>
           </div>
-        )}
-      </main>
-    </div>
+
+          {/* Row 3: Summaries and Activity */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Today's Summary */}
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
+              <h3 className="text-sm font-black text-[#212121] mb-6">Today's Summary</h3>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center">
+                  <div className="w-12 h-12 mx-auto bg-green-50 rounded-2xl flex items-center justify-center mb-3 border border-green-100">
+                    <CheckCircle2 size={20} className="text-[#1B5E20]" />
+                  </div>
+                  <p className="text-2xl font-black text-[#212121]">{summary.completedJobs}</p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Completed</p>
+                </div>
+                <div className="text-center">
+                  <div className="w-12 h-12 mx-auto bg-blue-50 rounded-2xl flex items-center justify-center mb-3 border border-blue-100">
+                    <Navigation size={20} className="text-blue-500" />
+                  </div>
+                  <p className="text-2xl font-black text-[#212121]">{summary.totalDistanceKm} <span className="text-sm">km</span></p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Distance</p>
+                </div>
+                <div className="text-center">
+                  <div className="w-12 h-12 mx-auto bg-orange-50 rounded-2xl flex items-center justify-center mb-3 border border-orange-100">
+                    <AlertCircle size={20} className="text-orange-500" />
+                  </div>
+                  <p className="text-2xl font-black text-[#212121]">{summary.avgTimeMins} <span className="text-sm">mins</span></p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Avg. Time</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Nearby Activity */}
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-sm font-black text-[#212121]">Nearby Activity</h3>
+                <ArrowRight size={16} className="text-gray-400 cursor-pointer hover:text-[#1B5E20] transition-colors" />
+              </div>
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="text-center">
+                  <div className="w-10 h-10 mx-auto bg-green-50 rounded-full flex items-center justify-center mb-2">
+                    <MapPin size={16} className="text-green-500" />
+                  </div>
+                  <p className="text-2xl font-black text-[#212121]">{nearbyActivity.within5}</p>
+                  <p className="text-[11px] font-bold text-gray-400">within 5 km</p>
+                </div>
+                <div className="text-center">
+                  <div className="w-10 h-10 mx-auto bg-yellow-50 rounded-full flex items-center justify-center mb-2">
+                    <MapPin size={16} className="text-yellow-500" />
+                  </div>
+                  <p className="text-2xl font-black text-[#212121]">{nearbyActivity.within10}</p>
+                  <p className="text-[11px] font-bold text-gray-400">within 10 km</p>
+                </div>
+                <div className="text-center">
+                  <div className="w-10 h-10 mx-auto bg-red-50 rounded-full flex items-center justify-center mb-2">
+                    <Bell size={16} className="text-red-500" />
+                  </div>
+                  <p className="text-2xl font-black text-[#212121]">{nearbyActivity.priority}</p>
+                  <p className="text-[11px] font-bold text-gray-400">High Priority</p>
+                </div>
+              </div>
+              <button className="mt-auto w-full text-center text-xs font-black text-[#1B5E20] hover:underline flex justify-center items-center gap-1 group">
+                View Available Deliveries <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+              </button>
+            </div>
+
+            {/* Recent Updates */}
+            <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col">
+              <h3 className="text-sm font-black text-[#212121] mb-5">Recent Updates</h3>
+              
+              <div className="space-y-6 mb-4">
+                {recentUpdates.length > 0 ? recentUpdates.map((notification, idx) => (
+                  <div key={idx} className="flex gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center shrink-0 border border-green-100">
+                      <Bell size={16} className="text-green-600" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-start mb-0.5">
+                        <p className="text-[13px] font-bold text-[#212121]">{notification.title}</p>
+                        <span className="text-[10px] font-bold text-gray-400">
+                          {new Date(notification.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        </span>
+                      </div>
+                      <p className="text-xs font-semibold text-gray-500">{notification.body}</p>
+                    </div>
+                  </div>
+                )) : (
+                  <div className="text-center text-sm font-bold text-gray-400 py-6">No recent updates</div>
+                )}
+              </div>
+
+              <button className="mt-auto w-full text-center text-xs font-black text-[#1B5E20] hover:underline flex justify-center items-center gap-1 group">
+                View All Updates <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+              </button>
+            </div>
+
+          </div>
+
+        </div>
+    </>
   );
 }

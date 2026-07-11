@@ -98,6 +98,14 @@ export const getNearbyJobs = async (req: Request, res: Response): Promise<void> 
 
         const estimatedFee = calculateDeliveryFee(deliveryDistanceKm, Number(order.quantityKg));
 
+        const totalDistanceKm = distanceToFarmKm + deliveryDistanceKm;
+        const estimatedTimeMins = Math.round((totalDistanceKm / 30) * 60);
+        
+        let expiresAt = null;
+        if (order.farmerAcceptedAt) {
+          expiresAt = new Date(new Date(order.farmerAcceptedAt).getTime() + 6 * 60 * 60 * 1000);
+        }
+
         return {
           orderId: order.id,
           cropName: order.crop.catalog.englishName,
@@ -111,14 +119,16 @@ export const getNearbyJobs = async (req: Request, res: Response): Promise<void> 
           },
           dropAddress: order.deliveryAddress,
           weightKg: Number(order.quantityKg),
-          distanceToFarmKm: Math.round(distanceToFarmKm * 10) / 10,
-          deliveryDistanceKm: Math.round(deliveryDistanceKm * 10) / 10,
+          pickupDistanceKm: Math.round(distanceToFarmKm * 10) / 10,
+          totalDistanceKm: Math.round(totalDistanceKm * 10) / 10,
           estimatedFee,
+          estimatedTimeMins,
           farmerName: order.farmer.name,
+          expiresAt,
         };
       })
-      .filter((job) => job.distanceToFarmKm <= radiusKm)
-      .sort((a, b) => a.distanceToFarmKm - b.distanceToFarmKm); // Nearest first
+      .filter((job) => job.pickupDistanceKm <= radiusKm)
+      .sort((a, b) => a.pickupDistanceKm - b.pickupDistanceKm); // Nearest first
 
     res.status(200).json({
       success: true,
@@ -604,5 +614,75 @@ export const markDelivered = async (req: Request, res: Response): Promise<void> 
       success: false, 
       message: 'Internal server error while confirming delivery.' 
     });
+  }
+};
+
+// ── GET ACTIVE JOBS ─────────────────────────────────────────────
+export const getActiveJobs = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const activeJobsRaw = await prisma.deliveryJob.findMany({
+      where: {
+        deliveryPartnerId: req.user!.id,
+        OR: [
+          { status: { in: [DeliveryJobStatus.ASSIGNED, DeliveryJobStatus.PICKED_UP, DeliveryJobStatus.IN_DELIVERY] } },
+          { status: DeliveryJobStatus.DELIVERED, deliveredAt: { gte: startOfDay } }
+        ]
+      },
+      include: {
+        order: {
+          include: {
+            crop: { include: { catalog: true } },
+            farmer: { select: { name: true, phone: true } },
+            buyer: { select: { name: true, phone: true } }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const mappedJobs = activeJobsRaw.map(job => {
+      return {
+        jobId: job.id,
+        orderId: job.order.id,
+        status: job.status,
+        cropName: job.order.crop.catalog.englishName,
+        weightKg: Number(job.cropWeightKg),
+        estimatedFee: job.order.deliveryFee,
+        pickupLocation: {
+          latitude: job.pickupLatitude,
+          longitude: job.pickupLongitude,
+          village: job.order.crop.farmVillage,
+          district: job.order.crop.farmDistrict,
+          state: job.order.crop.farmState,
+        },
+        dropLocation: {
+          latitude: job.dropLatitude,
+          longitude: job.dropLongitude,
+          address: job.order.deliveryAddress,
+        },
+        farmer: job.order.farmer,
+        buyer: job.order.buyer,
+        estimatedDeliveryAt: job.estimatedDeliveryAt,
+        acceptedAt: job.acceptedAt,
+        pickedUpAt: job.pickedUpAt,
+        deliveredAt: job.deliveredAt,
+        distanceKm: job.distanceKm
+      };
+    });
+
+    const inProgress = mappedJobs.filter(j => j.status !== DeliveryJobStatus.DELIVERED);
+    const completedToday = mappedJobs.filter(j => j.status === DeliveryJobStatus.DELIVERED);
+
+    res.status(200).json({
+      success: true,
+      data: { inProgress, completedToday }
+    });
+
+  } catch (error) {
+    console.error('[Delivery] Get Active Jobs Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch active jobs' });
   }
 };

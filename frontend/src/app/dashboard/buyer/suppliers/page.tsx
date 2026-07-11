@@ -157,7 +157,10 @@ export default function SuppliersDirectory() {
               <div key={farmer.id} className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow group flex flex-col">
                 
                 {/* Card Header (Farmer Info) */}
-                <div className="p-5 flex gap-4">
+                <div 
+                  onClick={() => router.push(`/dashboard/buyer/farmer/${farmer.id}`)}
+                  className="p-5 flex gap-4 cursor-pointer hover:bg-gray-50/50 transition-colors"
+                >
                   <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#1B5E20] to-emerald-400 flex items-center justify-center text-white font-black text-xl shrink-0 shadow-inner">
                     {farmer.name ? farmer.name.charAt(0).toUpperCase() : "F"}
                   </div>
@@ -165,7 +168,7 @@ export default function SuppliersDirectory() {
                   <div className="flex-1">
                     <div className="flex items-start justify-between">
                       <div>
-                        <h3 className="text-base font-black text-[#212121] flex items-center gap-1.5">
+                        <h3 className="text-base font-black text-[#1B5E20] hover:underline flex items-center gap-1.5">
                           {farmer.name}
                           {farmer.isVerified && <BadgeCheck className="text-blue-500" size={16} />}
                         </h3>
@@ -215,7 +218,10 @@ export default function SuppliersDirectory() {
                       {farmer.crops.map((crop: any) => (
                         <div 
                           key={crop.id}
-                          onClick={() => router.push(`/dashboard/buyer/crop/${crop.id}`)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            router.push(`/dashboard/buyer/crop/${crop.id}`);
+                          }}
                           className="w-16 shrink-0 bg-white p-1 rounded-xl shadow-xs border border-gray-100 cursor-pointer hover:border-green-300 transition-colors"
                         >
                           <div className="w-full h-12 relative rounded-lg overflow-hidden bg-gray-100 mb-1">
@@ -239,7 +245,7 @@ export default function SuppliersDirectory() {
 
                 {/* View Profile Action */}
                 <button 
-                  onClick={() => setSelectedFarmer(farmer)}
+                  onClick={() => router.push(`/dashboard/buyer/farmer/${farmer.id}`)}
                   className="w-full py-3.5 bg-white border-t border-gray-100 text-xs font-black text-[#1B5E20] hover:bg-green-50 transition-colors flex items-center justify-center gap-1 group/btn"
                 >
                   View Farm Profile <ChevronRight size={14} className="group-hover/btn:translate-x-1 transition-transform" />

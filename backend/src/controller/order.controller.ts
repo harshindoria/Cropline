@@ -181,7 +181,10 @@ export const confirmOrder = async (req: Request<{id : string}>, res: Response): 
 
     const order = await prisma.order.findUnique({
       where: { id },
-      include: { farmer: true }
+      include: { 
+        farmer: true,
+        crop: true
+      }
     });
 
     if (!order) {
@@ -203,46 +206,52 @@ export const confirmOrder = async (req: Request<{id : string}>, res: Response): 
     }
 
     let nextStatus: OrderStatus = OrderStatus.CONFIRMED;
-    let assignedDeliveryBoy = null;
 
     if (order.deliveryType === 'DELIVERY') {
-      const deliveryBoys = await prisma.user.findMany({
-        where: { activeRole: 'DELIVERY' }
+      nextStatus = OrderStatus.READY_FOR_PICKUP;
+      
+      // Find online delivery partners
+      const onlineDeliveryBoys = await prisma.user.findMany({
+        where: { activeRole: 'DELIVERY', isOnline: true }
       });
-      if (deliveryBoys.length > 0) {
-        // Just pick the first available one for now as nearest
-        assignedDeliveryBoy = deliveryBoys[0];
-        nextStatus = OrderStatus.ASSIGNED;
+
+      // Filter by 20 KM radius
+      const nearbyBoys = onlineDeliveryBoys.filter(boy => {
+        if (!boy.latitude || !boy.longitude) return false;
+        const dist = haversineDistance(
+          order.crop.farmLatitude,
+          order.crop.farmLongitude,
+          boy.latitude,
+          boy.longitude
+        );
+        return dist <= 20;
+      });
+
+      if (nearbyBoys.length > 0) {
+        // Create notifications for them
+        const notifications = nearbyBoys.map(boy => ({
+          userId: boy.id,
+          type: 'NEW_DELIVERY_REQUEST',
+          title: 'New delivery request nearby',
+          body: `Pickup from ${order.crop.farmVillage || 'nearby location'}`,
+          data: { orderId: order.id }
+        }));
+        await prisma.notification.createMany({ data: notifications });
       }
     }
 
     const updatedOrder = await prisma.order.update({
       where: { id },
-      data: { status: nextStatus }
+      data: { 
+        status: nextStatus,
+        farmerAcceptedAt: new Date()
+      }
     });
-
-    if (assignedDeliveryBoy) {
-      const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours deadline
-      await prisma.deliveryJob.create({
-        data: {
-          orderId: order.id,
-          deliveryPartnerId: assignedDeliveryBoy.id,
-          pickupLatitude: order.farmer.latitude || 0,
-          pickupLongitude: order.farmer.longitude || 0,
-          dropLatitude: order.deliveryLatitude || 0,
-          dropLongitude: order.deliveryLongitude || 0,
-          distanceKm: 5.0, // mock distance
-          cropWeightKg: order.quantityKg,
-          status: 'ASSIGNED', // enum DeliveryJobStatus is ASSIGNED
-          estimatedDeliveryAt: deadline
-        }
-      });
-    }
 
     res.status(200).json({
       success: true,
-      message: assignedDeliveryBoy 
-        ? 'Order confirmed and assigned to a delivery partner.' 
+      message: order.deliveryType === 'DELIVERY'
+        ? 'Order confirmed and broadcasted to nearby delivery partners.' 
         : 'Order confirmed successfully. Please prepare it for pickup/delivery.',
       data: updatedOrder
     });
