@@ -32,7 +32,7 @@ export default function DeliverySidebar() {
     { name: "Dashboard", href: "/dashboard/delivery", icon: Home },
     { name: "Available Deliveries", href: "/dashboard/delivery/available", icon: ShoppingBag },
     { name: "Active Deliveries", href: "/dashboard/delivery/active", icon: Truck },
-    { name: "Ratings & Reviews", href: "#", icon: Star },
+    { name: "Ratings & Reviews", href: "/dashboard/delivery/reviews", icon: Star },
     { name: "Profile", href: "#", icon: User },
     { name: "Help", href: "#", icon: HelpCircle },
   ];

@@ -175,6 +175,9 @@ model User {
   vehicleType      VehicleType?
   coverageRadiusKm Int?
   isOnline         Boolean      @default(false)
+  onlineStartedAt      DateTime?
+  todayOnlineMinutes   Int          @default(0)
+  lastOnlineResetAt    DateTime?
 
   // Financial
   bankAccount   String? 
