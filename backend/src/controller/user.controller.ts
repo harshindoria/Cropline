@@ -20,6 +20,15 @@ const updateProfileSchema = z.object({
   bankAccount: z.string().min(5).optional(),
   bankIfsc: z.string().min(11).optional(),
   farmArea: z.number().positive().nullable().optional(),
+  
+  // New profile fields
+  dob: z.string().datetime().optional(),
+  gender: z.string().optional(),
+  languagePref: z.string().optional(),
+  vehicleNumber: z.string().optional(),
+  vehicleColor: z.string().optional(),
+  bankName: z.string().optional(),
+  accountHolderName: z.string().optional(),
 });
 
 // 1. Apna Profile Dekhne ka function
@@ -47,7 +56,37 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
     }
 
     const safeUser = sanitizeUser(dbUser);
-    res.status(200).json({ success: true, user: safeUser });
+    
+    let deliveryStats = null;
+    if (dbUser.activeRole === 'DELIVERY') {
+      const allJobs = await prisma.deliveryJob.findMany({
+        where: { deliveryPartnerId: userId }
+      });
+      
+      const totalAssigned = allJobs.length;
+      const completedJobs = allJobs.filter((j: any) => j.status === 'DELIVERED');
+      const cancelledJobs = allJobs.filter((j: any) => j.status === 'CANCELLED');
+      
+      const totalDeliveries = completedJobs.length;
+      const completionRate = totalAssigned > 0 ? Math.round((totalDeliveries / totalAssigned) * 100) : 0;
+      const cancellationRate = totalAssigned > 0 ? Math.round((cancelledJobs.length / totalAssigned) * 100) : 0;
+      
+      const onTimeDeliveries = completedJobs.filter((j: any) => {
+        if (!j.estimatedDeliveryAt || !j.deliveredAt) return true;
+        return j.deliveredAt <= j.estimatedDeliveryAt;
+      }).length;
+      
+      const onTimeRate = totalDeliveries > 0 ? Math.round((onTimeDeliveries / totalDeliveries) * 100) : 0;
+      
+      deliveryStats = {
+        totalDeliveries,
+        completionRate,
+        cancellationRate,
+        onTimeRate
+      };
+    }
+
+    res.status(200).json({ success: true, user: safeUser, deliveryStats });
     
   } catch (error) {
     console.error("Error in fetching user data : ", error);

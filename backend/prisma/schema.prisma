@@ -161,6 +161,13 @@ model User {
 
   // Identity
   aadhaarLast4 String?
+  dob DateTime?
+  gender String?
+  languagePref String?
+  aadhaarVerified Boolean @default(false)
+  dlVerified Boolean @default(false)
+  rcVerified Boolean @default(false)
+  insuranceExpiry DateTime?
 
   // Location
   latitude  Float?
@@ -173,6 +180,8 @@ model User {
 
   // Delivery partner specific
   vehicleType      VehicleType?
+  vehicleNumber    String?
+  vehicleColor     String?
   coverageRadiusKm Int?
   isOnline         Boolean      @default(false)
   onlineStartedAt      DateTime?
@@ -182,6 +191,8 @@ model User {
   // Financial
   bankAccount   String? 
   bankIfsc      String? 
+  bankName      String?
+  accountHolderName String?
   walletBalance Decimal @default(0) @db.Decimal(10, 2)
   dailyEarningsGoal Decimal @default(2000) @db.Decimal(10, 2)
 
