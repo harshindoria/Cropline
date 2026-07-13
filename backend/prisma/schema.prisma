@@ -81,6 +81,8 @@ enum CropCategory {
   GRAINS
   HERBS
   DAIRY
+  PULSES
+  OILSEEDS
   OTHER
 }
 
@@ -160,14 +162,17 @@ model User {
   activeRole  Role    @default(BUYER)
 
   // Identity
+  aboutMe      String?
   aadhaarLast4 String?
   dob DateTime?
   gender String?
   languagePref String?
   aadhaarVerified Boolean @default(false)
+  aadhaarUrl String?
   dlVerified Boolean @default(false)
+  dlUrl String?
   rcVerified Boolean @default(false)
-  insuranceExpiry DateTime?
+  rcUrl String?
 
   // Location
   latitude  Float?
@@ -177,6 +182,10 @@ model User {
   state     String?
   pincode   String?
   farmArea  Float?
+  primaryCrops String?
+  farmingType String?
+  soilType    String?
+  waterSource String?
 
   // Delivery partner specific
   vehicleType      VehicleType?

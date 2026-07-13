@@ -24,43 +24,43 @@ export const processPhoneLogin = async (uid: string, phone: string)  => {
             throw new Error("Phone number is required for Phone login");
         }
 
-        // STEP 1: Pehle strictly UID se check karo (The Ultimate Source of Truth)
+        // STEP 1: Strict UID check first (fastest path)
         let existingUser = await prisma.user.findUnique({ where: { firebaseUid: uid } });
 
-        // STEP 2: Agar UID se nahi mila, toh Phone se check karo
-        if (!existingUser) {
-            existingUser = await prisma.user.findUnique({ where: { phone } });
-            
-            if (existingUser) {
-                // Account Linking (Case A): Phone number DB mein tha, par UID naya aaya hai
-                existingUser = await prisma.user.update({
-                    where: { phone },
-                    data: { firebaseUid: uid }
-                });
-            }
-        } else {
-            // Account Linking (Case B - Your Edge Case!): 
-            // Banda UID se mil gaya (matlab pehle Google se aaya tha), 
-            // par DB mein uska phone number null hai. Toh update kar do!
+        if (existingUser) {
+            // UID found — update phone if missing
             if (!existingUser.phone) {
                 existingUser = await prisma.user.update({
                     where: { id: existingUser.id },
-                    data: { phone } // Ab email aur phone dono ek hi account mein aa gaye
+                    data: { phone }
                 });
             }
-        }
-
-        // STEP 3: Failsafe & Return (Existing User)
-        if (existingUser) {
             await prisma.userRoleAccess.upsert({
                 where: { userId_role: { userId: existingUser.id, role: Role.BUYER } },
-                update: {}, 
-                create : { userId: existingUser.id, role: Role.BUYER }
+                update: {},
+                create: { userId: existingUser.id, role: Role.BUYER }
             });
             return { user: existingUser, isNewUser: false };
         }
 
-        // STEP 4: Fresh User (Naya account)
+        // STEP 2: No UID match — check if this phone belongs to an existing account
+        const phoneUser = await prisma.user.findUnique({ where: { phone } });
+
+        if (phoneUser) {
+            // Link this Firebase UID to the existing phone-based account
+            existingUser = await prisma.user.update({
+                where: { phone },
+                data: { firebaseUid: uid }
+            });
+            await prisma.userRoleAccess.upsert({
+                where: { userId_role: { userId: existingUser.id, role: Role.BUYER } },
+                update: {},
+                create: { userId: existingUser.id, role: Role.BUYER }
+            });
+            return { user: existingUser, isNewUser: false };
+        }
+
+        // STEP 3: Completely new user — create fresh account
         const newUser = await prisma.user.create({ 
             data: {
                 phone, 
@@ -85,34 +85,43 @@ export const processGoogleLogin = async (uid: string, email: string) => {
             throw new Error("Email is required for Google login");
         }
 
-        // STEP 1: Pehle strictly UID se check karo (Fastest & most accurate)
+        // STEP 1: Strict UID check
         let existingUser = await prisma.user.findUnique({ where: { firebaseUid: uid } });
 
-        // STEP 2: Agar UID se nahi mila, toh Email se check karo 
-        // (Ho sakta hai user ne pehle kisi aur tarike se sign up kiya ho aur ab Google use kar raha ho)
-        if (!existingUser) {
-            existingUser = await prisma.user.findUnique({ where: { email } });
-            
-            if (existingUser) {
-                // Account Linking: Purane account mein naya Firebase UID update kar do
+        if (existingUser) {
+            // UID found — update email if missing
+            if (!existingUser.email) {
                 existingUser = await prisma.user.update({
-                    where: { email }, 
-                    data: { firebaseUid: uid }      
+                    where: { id: existingUser.id },
+                    data: { email }
                 });
             }
-        }
-
-        // STEP 3: Agar user mil gaya (kisi bhi tarike se), toh failsafe run karo aur return karo
-        if (existingUser) {
             await prisma.userRoleAccess.upsert({ 
                 where: { userId_role: { userId: existingUser.id, role: Role.BUYER } }, 
                 update: {}, 
-                create : { userId: existingUser.id, role: Role.BUYER } 
+                create: { userId: existingUser.id, role: Role.BUYER } 
             });
             return { user: existingUser, isNewUser: false };
         }
 
-        // STEP 4: Agar na UID mila, na Email, matlab ekdum naya fresh user hai
+        // STEP 2: No UID match — check if this email belongs to an existing account
+        const emailUser = await prisma.user.findUnique({ where: { email } });
+
+        if (emailUser) {
+            // Link this Firebase UID to the existing email-based account
+            existingUser = await prisma.user.update({
+                where: { email }, 
+                data: { firebaseUid: uid }      
+            });
+            await prisma.userRoleAccess.upsert({ 
+                where: { userId_role: { userId: existingUser.id, role: Role.BUYER } }, 
+                update: {}, 
+                create: { userId: existingUser.id, role: Role.BUYER } 
+            });
+            return { user: existingUser, isNewUser: false };
+        }
+
+        // STEP 3: Completely new user
         const newUser = await prisma.user.create({ 
             data: {
                 email, 
@@ -130,6 +139,7 @@ export const processGoogleLogin = async (uid: string, email: string) => {
         throw new Error(error instanceof Error ? error.message : "Could not process user in database");
     }
 }
+
 
 export const verifyFirebaseToken = async (idToken: string) => {
     try {

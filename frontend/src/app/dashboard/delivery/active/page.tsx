@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import { MapPin, Navigation, Camera, CheckCircle2, AlertCircle, Package, Clock, Wallet, ShoppingBag, Waypoints, Calendar, TrendingUp, Headset, PhoneCall, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { MapPin, Navigation, Camera, CheckCircle2, AlertCircle, Package, Clock, Wallet, ShoppingBag, Waypoints, Calendar, TrendingUp, Headset, PhoneCall, ShieldCheck, TriangleAlert, IndianRupee } from 'lucide-react';
 import Image from 'next/image';
 import api from '@/lib/axios';
 

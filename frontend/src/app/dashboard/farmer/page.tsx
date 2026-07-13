@@ -1,8 +1,8 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
-import { useRouter } from "next/navigation";
-import { useState, useEffect, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, useRef, Suspense } from "react";
 import api from "@/lib/axios";
 import {
   LayoutDashboard, Leaf, PlusCircle, IndianRupee, User as UserIcon,
@@ -15,7 +15,7 @@ import {
 type TabType = "dashboard" | "mycrops" | "addcrop" | "earnings" | "profile" | "help";
 
 const CATEGORY_EMOJI: Record<string, string> = {
-  VEGETABLES: "🥬", FRUITS: "🍎", GRAINS: "🌾", HERBS: "🌿", DAIRY: "🥛", OTHER: "📦"
+  VEGETABLES: "🥬", FRUITS: "🍎", GRAINS: "🌾", HERBS: "🌿", DAIRY: "🥛", PULSES: "🫘", OILSEEDS: "🥜", OTHER: "📦"
 };
 const CATEGORY_COLORS: Record<string, string> = {
   VEGETABLES: "bg-green-100 text-green-700",
@@ -23,10 +23,12 @@ const CATEGORY_COLORS: Record<string, string> = {
   GRAINS: "bg-amber-100 text-amber-700",
   HERBS: "bg-emerald-100 text-emerald-700",
   DAIRY: "bg-blue-100 text-blue-700",
-  OTHER: "bg-gray-100 text-gray-700",
+  PULSES: "bg-red-100 text-red-700",
+  OILSEEDS: "bg-yellow-100 text-yellow-700",
+  OTHER: "bg-gray-100 text-gray-700"
 };
 
-export default function FarmerDashboard() {
+function FarmerDashboardContent() {
   const { user, loading, switchRole, logout } = useAuth();
   const router = useRouter();
   const [cropLang, setCropLang] = useState<"en" | "hi">("en");
@@ -43,7 +45,19 @@ export default function FarmerDashboard() {
     setCropLang(next);
     localStorage.setItem("cropline_crop_lang", next);
   };
+  const searchParams = useSearchParams();
+  const tabQuery = searchParams.get('tab');
+
   const [activeTab, setActiveTab] = useState<TabType>("dashboard");
+
+  useEffect(() => {
+    if (tabQuery && ["dashboard", "mycrops", "addcrop", "earnings", "help"].includes(tabQuery)) {
+      setActiveTab(tabQuery as TabType);
+    } else if (!tabQuery) {
+      setActiveTab("dashboard");
+    }
+  }, [tabQuery]);
+
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
 
   // ── Stats ──
@@ -154,7 +168,7 @@ export default function FarmerDashboard() {
       photos.forEach(p => fd.append("photos", p));
       await api.post("/crops", fd, { headers: { "Content-Type": "multipart/form-data" } });
       setSubmitSuccess(true);
-      setTimeout(() => { setSubmitSuccess(false); setAddStep(1); setSelectedCatalog(null); setCropForm({ quantityKg: "", basePricePerKg: "", minOrderKg: "1", harvestDate: "", description: "", selfPickupEnabled: false, isPreHarvest: false }); setPhotos([]); setPhotoPreviews([]); setOfferForm({ offerMinQuantityKg: "", offerDiscountPercentage: "" }); setActiveTab("mycrops"); }, 2000);
+      setTimeout(() => { setSubmitSuccess(false); setAddStep(1); setSelectedCatalog(null); setCropForm({ quantityKg: "", basePricePerKg: "", minOrderKg: "1", harvestDate: "", description: "", selfPickupEnabled: false, isPreHarvest: false }); setPhotos([]); setPhotoPreviews([]); setOfferForm({ offerMinQuantityKg: "", offerDiscountPercentage: "" }); router.push("/dashboard/farmer?tab=mycrops"); }, 2000);
     } catch (e: any) { alert(e.response?.data?.message || "Failed to add crop"); }
     finally { setSubmitting(false); }
   };
@@ -186,43 +200,7 @@ export default function FarmerDashboard() {
     <div className="min-h-screen bg-[#FAFBFA] flex font-[family-name:var(--font-poppins)] text-[#212121]">
 
       {/* ═══ SIDEBAR ═══ */}
-      <aside className="w-64 bg-[#F2F7F2] border-r border-green-100 flex flex-col hidden lg:flex shrink-0">
-        <div className="p-6 border-b border-green-100">
-          <div className="flex items-center gap-2 mb-6">
-            <Leaf className="w-6 h-6 text-[#1B5E20]" />
-            <span className="text-xl font-extrabold text-[#1B5E20] uppercase tracking-wide">Crop<span className="text-[#FFC107]">Line</span></span>
-          </div>
-          <div className="flex items-center gap-3 px-2">
-            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm"><span className="text-lg">🧑‍🌾</span></div>
-            <div>
-              <p className="text-sm font-bold text-gray-800 leading-tight">{user.name}</p>
-              <p className="text-[10px] font-semibold text-[#1B5E20] uppercase tracking-wider">Farmer</p>
-            </div>
-          </div>
-        </div>
-        <nav className="flex-1 p-4 space-y-1">
-          {([
-            ["dashboard", LayoutDashboard, "Dashboard"],
-            ["mycrops", Package, "My Crops"],
-            ["addcrop", PlusCircle, "Add Crop"],
-            ["orders", ShoppingCart, "Orders"],
-            ["earnings", BarChart3, "Earnings"],
-            ["reviews", Star, "Reviews"],
-            ["profile", UserIcon, "Profile"],
-            ["help", HelpCircle, "Help"],
-          ] as [TabType | "orders" | "reviews", any, string][]).map(([id, Icon, label]) => (
-            <button key={id} onClick={() => id === "profile" ? router.push("/dashboard/farmer/profile") : id === "orders" ? router.push("/dashboard/farmer/orders") : id === "reviews" ? router.push("/dashboard/farmer/reviews") : setActiveTab(id as TabType)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-bold ${activeTab === id ? "bg-white text-[#1B5E20] shadow-sm" : "text-gray-500 hover:bg-white/50 hover:text-[#1B5E20]"}`}>
-              <Icon className={`w-5 h-5 ${activeTab === id ? "text-[#1B5E20]" : "text-gray-400"}`} />
-              {label}
-            </button>
-          ))}
-        </nav>
-        <div className="p-4 mx-4 mb-4 bg-white rounded-2xl border border-green-100 text-center">
-          <p className="text-2xl mb-1">🌱</p>
-          <p className="text-xs font-bold text-gray-700">Need Help?</p>
-          <p className="text-[10px] text-gray-400 mt-0.5">support@cropline.com</p>
-        </div>
-      </aside>
+
 
       {/* ═══ MAIN ═══ */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
@@ -337,7 +315,7 @@ export default function FarmerDashboard() {
                   <p className="text-sm text-gray-500 font-medium mb-6 max-w-xs">
                     List more crops on the marketplace to attract more buyers.
                   </p>
-                  <button onClick={() => setActiveTab("addcrop")} className="px-6 py-2.5 bg-green-50 hover:bg-green-100 text-green-700 rounded-full text-sm font-bold transition-all">
+                  <button onClick={() => router.push("/dashboard/farmer?tab=addcrop")} className="px-6 py-2.5 bg-green-50 hover:bg-green-100 text-green-700 rounded-full text-sm font-bold transition-all">
                     Add New Crop
                   </button>
                 </div>
@@ -360,7 +338,7 @@ export default function FarmerDashboard() {
                   <Leaf className="w-12 h-12 text-gray-200 mx-auto mb-3" />
                   <h3 className="text-lg font-bold text-gray-800">No crops listed yet</h3>
                   <p className="text-sm text-gray-400 mb-4">Start selling by adding your first crop!</p>
-                  <button onClick={() => setActiveTab("addcrop")} className="px-6 py-3 bg-[#1B5E20] hover:bg-[#2E7D32] text-white rounded-xl text-sm font-bold">+ Add Your First Crop</button>
+                  <button onClick={() => router.push("/dashboard/farmer?tab=addcrop")} className="px-6 py-3 bg-[#1B5E20] hover:bg-[#2E7D32] text-white rounded-xl text-sm font-bold">+ Add Your First Crop</button>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -440,8 +418,17 @@ export default function FarmerDashboard() {
                     <div className="bg-white rounded-2xl border border-gray-100 p-6">
                       <h3 className="font-bold text-lg mb-4">What are you selling?</h3>
                       <div className="flex flex-wrap gap-2 mb-6">
-                        {[["ALL", "🏷️"], ["VEGETABLES", "🥬"], ["FRUITS", "🍎"], ["GRAINS", "🌾"], ["HERBS", "🌿"], ["DAIRY", "🥛"]].map(([id, em]) => (
-                          <button key={id} onClick={() => setCatFilter(id)} className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1 transition-all ${catFilter === id ? "bg-[#1B5E20] text-white" : "bg-gray-50 border border-gray-200 text-gray-600 hover:border-[#1B5E20]"}`}>{em} {id === "ALL" ? "All" : id.charAt(0) + id.slice(1).toLowerCase()}</button>
+                        {[
+                          ["ALL", "🏷️", "All", "Sabhi (सभी)"],
+                          ["VEGETABLES", "🥬", "Vegetables", "Sabji (सब्जी)"],
+                          ["FRUITS", "🍎", "Fruits", "Fal (फल)"],
+                          ["GRAINS", "🌾", "Grains", "Anaaj (अनाज)"],
+                          ["PULSES", "🫘", "Pulses", "Daalein (दालें)"],
+                          ["OILSEEDS", "🥜", "Oilseeds", "Tilhan (तिलहन)"],
+                          ["HERBS", "🌿", "Herbs", "Jadi-buti (जड़ी-बूटी)"],
+                          ["DAIRY", "🥛", "Dairy", "Dairy (डेयरी)"]
+                        ].map(([id, em, engName, hinName]) => (
+                          <button key={id} onClick={() => setCatFilter(id)} className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1 transition-all ${catFilter === id ? "bg-[#1B5E20] text-white" : "bg-gray-50 border border-gray-200 text-gray-600 hover:border-[#1B5E20]"}`}>{em} {cropLang === "hi" ? hinName : engName}</button>
                         ))}
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -666,6 +653,18 @@ export default function FarmerDashboard() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function FarmerDashboard() {
+  return (
+    <Suspense fallback={
+      <div className="h-screen w-screen flex items-center justify-center bg-[#F9FAF7]">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1B5E20]"></div>
+      </div>
+    }>
+      <FarmerDashboardContent />
+    </Suspense>
   );
 }
 

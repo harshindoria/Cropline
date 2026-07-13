@@ -7,6 +7,7 @@ import api from "@/lib/axios";
 import { 
   ArrowLeft, User, MapPin, Save, Loader2, CheckCircle2, Navigation, AlertCircle, Wallet
 } from "lucide-react";
+import LocationSelector, { LocationValue } from "@/components/LocationSelector";
 
 export default function BuyerProfilePage() {
   const { user, loading } = useAuth();
@@ -20,12 +21,14 @@ export default function BuyerProfilePage() {
   const [formData, setFormData] = useState({
     name: "",
     phone: "",
-    village: "",
-    district: "",
-    state: "",
-    pincode: "",
     latitude: "",
     longitude: ""
+  });
+  const [locationData, setLocationData] = useState<LocationValue>({
+    state: "",
+    district: "",
+    village: "",
+    pincode: "",
   });
 
   useEffect(() => {
@@ -35,12 +38,14 @@ export default function BuyerProfilePage() {
       setFormData({
         name: user.name || "",
         phone: user.phone || "",
-        village: user.village || "",
-        district: user.district || "",
-        state: user.state || "",
-        pincode: user.pincode || "",
         latitude: user.latitude ? String(user.latitude) : "",
         longitude: user.longitude ? String(user.longitude) : ""
+      });
+      setLocationData({
+        state: user.state || "",
+        district: user.district || "",
+        village: user.village || "",
+        pincode: user.pincode || "",
       });
     }
   }, [user, loading, router]);
@@ -58,7 +63,13 @@ export default function BuyerProfilePage() {
 
     try {
       // The update profile schema accepts strings for most, numbers for lat/lng
-      const payload: any = { ...formData };
+      const payload: any = {
+        ...formData,
+        village: locationData.village,
+        district: locationData.district,
+        state: locationData.state,
+        pincode: locationData.pincode,
+      };
       if (payload.latitude) payload.latitude = Number(payload.latitude);
       if (payload.longitude) payload.longitude = Number(payload.longitude);
       
@@ -132,10 +143,9 @@ export default function BuyerProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAFBFA] flex flex-col text-[#212121] font-[family-name:var(--font-poppins)]">
-      
+    <div className="flex flex-col h-full bg-[#FAFBFA]">
       {/* Top Header */}
-      <header className="bg-white border-b border-gray-100 p-4 sticky top-0 z-30 shadow-xs">
+      <header className="bg-white border-b border-gray-100 p-4 shrink-0 shadow-xs">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button 
@@ -152,7 +162,8 @@ export default function BuyerProfilePage() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto p-4 md:py-8 w-full flex-1">
+      <div className="flex-1 overflow-y-auto p-4 md:py-8">
+        <div className="max-w-4xl mx-auto">
         
         {/* Toast Notifications */}
         {successMsg && (
@@ -258,52 +269,13 @@ export default function BuyerProfilePage() {
                   </button>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Village / Locality</label>
-                    <input 
-                      type="text"
-                      name="village"
-                      value={formData.village}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-3 bg-white border border-gray-200 focus:border-green-400 rounded-xl outline-none text-sm font-semibold transition-all shadow-xs"
-                      placeholder="Village or Street"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">District</label>
-                    <input 
-                      type="text"
-                      name="district"
-                      value={formData.district}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-3 bg-white border border-gray-200 focus:border-green-400 rounded-xl outline-none text-sm font-semibold transition-all shadow-xs"
-                      placeholder="e.g., Nashik"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">State</label>
-                    <input 
-                      type="text"
-                      name="state"
-                      value={formData.state}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-3 bg-white border border-gray-200 focus:border-green-400 rounded-xl outline-none text-sm font-semibold transition-all shadow-xs"
-                      placeholder="e.g., Maharashtra"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Pincode</label>
-                    <input 
-                      type="text"
-                      name="pincode"
-                      value={formData.pincode}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-3 bg-white border border-gray-200 focus:border-green-400 rounded-xl outline-none text-sm font-semibold transition-all shadow-xs"
-                      placeholder="6-digit PIN"
-                    />
-                  </div>
-                </div>
+                <LocationSelector
+                  value={locationData}
+                  onChange={setLocationData}
+                  showVillage={true}
+                  showPincode={true}
+                  label="Location / Address"
+                />
 
                 {/* Display coordinates if available */}
                 {(formData.latitude || formData.longitude) && (
@@ -348,7 +320,8 @@ export default function BuyerProfilePage() {
           </div>
 
         </div>
-      </main>
+      </div>
     </div>
+  </div>
   );
 }

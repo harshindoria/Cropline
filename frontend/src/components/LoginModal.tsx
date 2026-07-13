@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Phone, Loader2, User, Calendar, MapPin, Mail, CreditCard, ChevronRight, Check } from "lucide-react";
+import { X, Phone, Loader2, User, Calendar, Mail, CreditCard, Check, ChevronRight } from "lucide-react";
 import { useAuth, Role } from "../context/AuthContext";
 import { ConfirmationResult } from "firebase/auth";
 import { useRouter } from "next/navigation";
+import LocationSelector, { LocationValue } from "./LocationSelector";
 
 type Step = "choose" | "phone" | "otp" | "new-user-form" | "success";
 
@@ -47,9 +48,11 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
     phone: "",
     dob: "",
     aadhaarLast4: "",
-    village: "",
-    district: "",
+  });
+  const [location, setLocation] = useState<LocationValue>({
     state: "",
+    district: "",
+    village: "",
     pincode: "",
   });
 
@@ -133,10 +136,10 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
         email: form.email || undefined,
         phone: form.phone || undefined,
         aadhaarLast4: form.aadhaarLast4,
-        village: form.village,
-        district: form.district,
-        state: form.state,
-        pincode: form.pincode,
+        village: location.village,
+        district: location.district,
+        state: location.state,
+        pincode: location.pincode,
       });
       handleSuccess();
     } catch (err: any) {
@@ -430,50 +433,14 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
                       </div>
                     </div>
 
-                    <div>
-                      <label className="text-xs font-bold text-[#424242] mb-1.5 block">Onboarding Address / Location</label>
-                      <div className="border-2 border-gray-200 rounded-xl p-3 bg-gray-50 space-y-2.5">
-                        <div className="flex items-center gap-2">
-                          <MapPin className="w-4 h-4 text-[#2E7D32] flex-shrink-0" />
-                          <span className="text-xs font-bold text-gray-500 uppercase">Address details</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <input
-                            required
-                            type="text"
-                            placeholder="Village / Area"
-                            value={form.village}
-                            onChange={e => setForm({ ...form, village: e.target.value })}
-                            className="bg-white border border-gray-200 rounded-lg p-2 text-xs font-semibold outline-none focus:border-[#1B5E20]"
-                          />
-                          <input
-                            required
-                            type="text"
-                            placeholder="District"
-                            value={form.district}
-                            onChange={e => setForm({ ...form, district: e.target.value })}
-                            className="bg-white border border-gray-200 rounded-lg p-2 text-xs font-semibold outline-none focus:border-[#1B5E20]"
-                          />
-                          <input
-                            required
-                            type="text"
-                            placeholder="State"
-                            value={form.state}
-                            onChange={e => setForm({ ...form, state: e.target.value })}
-                            className="bg-white border border-gray-200 rounded-lg p-2 text-xs font-semibold outline-none focus:border-[#1B5E20]"
-                          />
-                          <input
-                            required
-                            type="text"
-                            maxLength={6}
-                            placeholder="Pincode"
-                            value={form.pincode}
-                            onChange={e => setForm({ ...form, pincode: e.target.value.replace(/\D/g, "") })}
-                            className="bg-white border border-gray-200 rounded-lg p-2 text-xs font-semibold outline-none focus:border-[#1B5E20]"
-                          />
-                        </div>
-                      </div>
-                    </div>
+                    <LocationSelector
+                      value={location}
+                      onChange={setLocation}
+                      showVillage={true}
+                      showPincode={true}
+                      required={true}
+                      label="Address / Location"
+                    />
 
                     <motion.button
                       whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}

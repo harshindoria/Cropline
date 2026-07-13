@@ -1,5 +1,5 @@
 'use client';
-import { Leaf, Home, ShoppingBag, Truck, Star, User, HelpCircle, Settings } from "lucide-react";
+import { Leaf, Home, ShoppingBag, Truck, Star, User, HelpCircle } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -34,7 +34,6 @@ export default function DeliverySidebar() {
     { name: "Active Deliveries", href: "/dashboard/delivery/active", icon: Truck },
     { name: "Ratings & Reviews", href: "/dashboard/delivery/reviews", icon: Star },
     { name: "Profile", href: "/dashboard/delivery/profile", icon: User },
-    { name: "Settings", href: "#", icon: Settings },
     { name: "Help", href: "#", icon: HelpCircle },
   ];
 

@@ -69,10 +69,10 @@ export default function SuppliersDirectory() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAFBFA] flex flex-col text-[#212121] font-[family-name:var(--font-poppins)]">
+    <div className="flex flex-col h-full bg-[#FAFBFA]">
       
       {/* Top Header */}
-      <header className="bg-white border-b border-gray-100 p-4 sticky top-0 z-30 shadow-xs">
+      <header className="bg-white border-b border-gray-100 p-4 shrink-0 shadow-xs">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button 
@@ -89,7 +89,8 @@ export default function SuppliersDirectory() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto p-4 md:py-8 w-full flex-1 flex flex-col gap-6">
+      <div className="flex-1 overflow-y-auto p-4 md:py-8">
+        <div className="max-w-6xl mx-auto flex flex-col gap-6">
         
         {/* Filters Section */}
         <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm flex flex-col md:flex-row md:items-center gap-4">
@@ -275,7 +276,8 @@ export default function SuppliersDirectory() {
             )}
           </div>
         )}
-      </main>
+      </div>
+    </div>
 
       {/* Farmer Detail Modal */}
       {selectedFarmer && (

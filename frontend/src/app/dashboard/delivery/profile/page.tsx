@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation';
 import { 
   Camera, CheckCircle2, Shield, Calendar, User, Phone, Mail, Globe, MapPin, 
   Car, FileText, Lock, Bell, Headphones, LogOut, Verified, ShieldCheck, 
-  CreditCard, ChevronRight, Edit2, CheckCircle, AlertCircle
+  CreditCard, ChevronRight, Edit2, CheckCircle, AlertCircle, X, Upload
 } from 'lucide-react';
 import api from '@/lib/axios';
+import LocationSelector, { LocationValue } from '@/components/LocationSelector';
 
 export default function DeliveryProfile() {
   const { user, loading, logout } = useAuth();
@@ -17,6 +18,18 @@ export default function DeliveryProfile() {
   const [deliveryStats, setDeliveryStats] = useState<any>(null);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState('');
+  
+  // Modal states
+  const [editModal, setEditModal] = useState<'personal' | 'vehicle' | 'document' | null>(null);
+  const [docTypeToEdit, setDocTypeToEdit] = useState<'aadhaar' | 'dl' | 'rc' | null>(null);
+  const [formData, setFormData] = useState<any>({});
+  const [isSaving, setIsSaving] = useState(false);
+  const [locationData, setLocationData] = useState<LocationValue>({
+    state: '',
+    district: '',
+    village: '',
+    pincode: '',
+  });
 
   useEffect(() => {
     if (!loading && (!user || user.activeRole !== 'DELIVERY')) {
@@ -49,6 +62,75 @@ export default function DeliveryProfile() {
       setError(err.response?.data?.message || 'Failed to fetch profile');
     } finally {
       setFetching(false);
+    }
+  };
+
+  const openModal = (type: 'personal' | 'vehicle' | 'document', docType?: 'aadhaar' | 'dl' | 'rc') => {
+    setEditModal(type);
+    if (docType) setDocTypeToEdit(docType);
+    
+    if (type === 'personal') {
+      setFormData({
+        name: profileData?.name || '',
+        dob: profileData?.dob ? new Date(profileData.dob).toISOString().split('T')[0] : '',
+        gender: profileData?.gender || '',
+        phone: profileData?.phone || '',
+        email: profileData?.email || '',
+        languagePref: profileData?.languagePref || '',
+      });
+      setLocationData({
+        state: profileData?.state || '',
+        district: profileData?.district || '',
+        village: profileData?.village || '',
+        pincode: profileData?.pincode || '',
+      });
+    } else if (type === 'vehicle') {
+      setFormData({
+        vehicleType: profileData?.vehicleType || '',
+        vehicleNumber: profileData?.vehicleNumber || '',
+        vehicleColor: profileData?.vehicleColor || '',
+      });
+    } else if (type === 'document' && docType) {
+      setFormData({
+        [`${docType}Url`]: profileData?.[`${docType}Url`] || '',
+      });
+    }
+  };
+
+  const closeModal = () => {
+    setEditModal(null);
+    setDocTypeToEdit(null);
+    setFormData({});
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const payload = {
+        ...formData,
+        ...(editModal === 'personal' ? {
+          village: locationData.village,
+          district: locationData.district,
+          state: locationData.state,
+          pincode: locationData.pincode,
+        } : {})
+      };
+      if (payload.dob) {
+        payload.dob = new Date(payload.dob).toISOString();
+      } else {
+        delete payload.dob;
+      }
+      
+      const res = await api.patch('/users/profile', payload);
+      if (res.data.success) {
+        setProfileData(res.data.user);
+        closeModal();
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.error || 'Failed to update profile');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -89,6 +171,16 @@ export default function DeliveryProfile() {
     if (account.length <= 4) return account;
     return `**** **** **** ${account.slice(-4)}`;
   };
+  
+  const getDocumentStatus = (type: 'aadhaar' | 'dl' | 'rc') => {
+    if (p[`${type}Verified`]) {
+      return <span className="text-xs font-bold text-green-600 flex items-center gap-1"><CheckCircle2 size={14}/> Verified</span>;
+    }
+    if (p[`${type}Url`]) {
+      return <span className="text-xs font-bold text-orange-500 flex items-center gap-1"><AlertCircle size={14}/> Pending Approval</span>;
+    }
+    return <span className="text-xs font-bold text-gray-500 flex items-center gap-1">Upload Required</span>;
+  };
 
   return (
     <div className="flex flex-col h-full bg-[#FDFDFD]">
@@ -99,9 +191,6 @@ export default function DeliveryProfile() {
           <h1 className="text-2xl font-black text-[#212121]">My Profile</h1>
           <p className="text-sm text-gray-500 font-medium mt-1">Manage your personal and delivery information</p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 border-2 border-green-600 text-green-700 font-bold rounded-xl hover:bg-green-50 transition-colors">
-          <Edit2 size={16} /> Edit Profile
-        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto bg-[#F9FAF7] p-8">
@@ -171,8 +260,16 @@ export default function DeliveryProfile() {
             </div>
 
             {/* Personal Information */}
-            <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
-              <h3 className="text-lg font-black text-[#212121] mb-6">Personal Information</h3>
+            <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm relative">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-black text-[#212121]">Personal Information</h3>
+                <button 
+                  onClick={() => openModal('personal')}
+                  className="text-sm font-bold text-green-700 hover:underline flex items-center gap-1"
+                >
+                  <Edit2 size={14} /> Edit
+                </button>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-8">
                 
                 <div className="flex items-start gap-4">
@@ -325,7 +422,7 @@ export default function DeliveryProfile() {
               <div className="space-y-4">
                 
                 {/* Aadhaar */}
-                <div className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer border border-transparent hover:border-gray-100">
+                <div onClick={() => openModal('document', 'aadhaar')} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer border border-transparent hover:border-gray-100 group">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center text-green-700">
                       <CreditCard size={18} />
@@ -333,17 +430,14 @@ export default function DeliveryProfile() {
                     <span className="text-sm font-semibold text-[#212121]">Aadhaar Card</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {p.aadhaarVerified ? (
-                       <span className="text-xs font-bold text-green-600 flex items-center gap-1"><CheckCircle2 size={14}/> Verified</span>
-                    ) : (
-                       <span className="text-xs font-bold text-orange-500 flex items-center gap-1"><AlertCircle size={14}/> Pending</span>
-                    )}
-                    <ChevronRight size={16} className="text-gray-400" />
+                    {getDocumentStatus('aadhaar')}
+                    <Edit2 size={14} className="text-gray-300 group-hover:text-gray-500 hidden group-hover:block" />
+                    <ChevronRight size={16} className="text-gray-400 group-hover:hidden" />
                   </div>
                 </div>
 
                 {/* Driving License */}
-                <div className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer border border-transparent hover:border-gray-100">
+                <div onClick={() => openModal('document', 'dl')} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer border border-transparent hover:border-gray-100 group">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center text-green-700">
                       <CreditCard size={18} />
@@ -351,17 +445,14 @@ export default function DeliveryProfile() {
                     <span className="text-sm font-semibold text-[#212121]">Driving License</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {p.dlVerified ? (
-                       <span className="text-xs font-bold text-green-600 flex items-center gap-1"><CheckCircle2 size={14}/> Verified</span>
-                    ) : (
-                       <span className="text-xs font-bold text-orange-500 flex items-center gap-1"><AlertCircle size={14}/> Pending</span>
-                    )}
-                    <ChevronRight size={16} className="text-gray-400" />
+                    {getDocumentStatus('dl')}
+                    <Edit2 size={14} className="text-gray-300 group-hover:text-gray-500 hidden group-hover:block" />
+                    <ChevronRight size={16} className="text-gray-400 group-hover:hidden" />
                   </div>
                 </div>
 
                 {/* Vehicle RC */}
-                <div className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer border border-transparent hover:border-gray-100">
+                <div onClick={() => openModal('document', 'rc')} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer border border-transparent hover:border-gray-100 group">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center text-green-700">
                       <Car size={18} />
@@ -369,30 +460,9 @@ export default function DeliveryProfile() {
                     <span className="text-sm font-semibold text-[#212121]">Vehicle RC</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {p.rcVerified ? (
-                       <span className="text-xs font-bold text-green-600 flex items-center gap-1"><CheckCircle2 size={14}/> Verified</span>
-                    ) : (
-                       <span className="text-xs font-bold text-orange-500 flex items-center gap-1"><AlertCircle size={14}/> Pending</span>
-                    )}
-                    <ChevronRight size={16} className="text-gray-400" />
-                  </div>
-                </div>
-
-                {/* Insurance */}
-                <div className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer border border-transparent hover:border-gray-100">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center text-green-700">
-                      <Shield size={18} />
-                    </div>
-                    <span className="text-sm font-semibold text-[#212121]">Insurance</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {p.insuranceExpiry ? (
-                       <span className="text-xs font-bold text-green-600 flex items-center gap-1"><CheckCircle2 size={14}/> Valid till {new Date(p.insuranceExpiry).toLocaleDateString('en-GB', {month: '2-digit', year:'numeric'})}</span>
-                    ) : (
-                       <span className="text-xs font-bold text-gray-500 flex items-center gap-1">Not Uploaded</span>
-                    )}
-                    <ChevronRight size={16} className="text-gray-400" />
+                    {getDocumentStatus('rc')}
+                    <Edit2 size={14} className="text-gray-300 group-hover:text-gray-500 hidden group-hover:block" />
+                    <ChevronRight size={16} className="text-gray-400 group-hover:hidden" />
                   </div>
                 </div>
 
@@ -403,7 +473,9 @@ export default function DeliveryProfile() {
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm relative">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-base font-black text-[#212121]">Vehicle Information</h3>
-                <button className="text-sm font-bold text-green-700 hover:underline">Edit</button>
+                <button onClick={() => openModal('vehicle')} className="text-sm font-bold text-green-700 hover:underline flex items-center gap-1">
+                  <Edit2 size={14} /> Edit
+                </button>
               </div>
 
               <div className="flex gap-4 items-center">
@@ -411,7 +483,6 @@ export default function DeliveryProfile() {
                   {p.vehicleType === 'AUTO' || p.vehicleType === 'MINI_TRUCK' ? (
                      <Car size={40} className="text-[#1B5E20]" />
                   ) : (
-                     // Placeholder for scooter/bike
                      <span className="text-4xl">🛵</span>
                   )}
                 </div>
@@ -467,12 +538,6 @@ export default function DeliveryProfile() {
                   <span className="text-[10px] font-bold text-gray-500 text-center leading-tight">Change<br/>Password</span>
                 </button>
 
-                <button className="flex flex-col items-center gap-2 group">
-                  <div className="w-12 h-12 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 group-hover:bg-gray-50 group-hover:text-[#212121] transition-colors">
-                    <Bell size={18} />
-                  </div>
-                  <span className="text-[10px] font-bold text-gray-500 text-center leading-tight">Notification<br/>Settings</span>
-                </button>
 
                 <button className="flex flex-col items-center gap-2 group">
                   <div className="w-12 h-12 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 group-hover:bg-gray-50 group-hover:text-[#212121] transition-colors">
@@ -495,6 +560,127 @@ export default function DeliveryProfile() {
 
         </div>
       </div>
+      
+      {/* MODALS */}
+      {editModal === 'personal' && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+              <h2 className="text-lg font-black text-[#212121]">Edit Personal Information</h2>
+              <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><X size={20}/></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-500">Full Name</label>
+                  <input type="text" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500">Date of Birth</label>
+                  <input type="date" value={formData.dob || ''} onChange={e => setFormData({...formData, dob: e.target.value})} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500">Gender</label>
+                  <select value={formData.gender || ''} onChange={e => setFormData({...formData, gender: e.target.value})} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100">
+                    <option value="">Select Gender</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500">Language Preference</label>
+                  <input type="text" value={formData.languagePref || ''} onChange={e => setFormData({...formData, languagePref: e.target.value})} placeholder="e.g. English, Hindi" className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100" />
+                </div>
+                <div className="col-span-2">
+                  <LocationSelector
+                    value={locationData}
+                    onChange={setLocationData}
+                    showVillage={true}
+                    showPincode={true}
+                    label="Location / Address"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 rounded-b-3xl">
+              <button onClick={closeModal} className="px-5 py-2.5 rounded-xl font-bold text-gray-600 hover:bg-gray-200 transition-colors">Cancel</button>
+              <button onClick={handleSave} disabled={isSaving} className="px-5 py-2.5 bg-[#1B5E20] hover:bg-green-800 text-white rounded-xl font-bold transition-colors disabled:opacity-50">
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editModal === 'vehicle' && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+              <h2 className="text-lg font-black text-[#212121]">Edit Vehicle Information</h2>
+              <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><X size={20}/></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-xs font-bold text-gray-500">Vehicle Type</label>
+                <select value={formData.vehicleType || ''} onChange={e => setFormData({...formData, vehicleType: e.target.value})} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100">
+                  <option value="BIKE">Bike</option>
+                  <option value="AUTO">Auto</option>
+                  <option value="TEMPO">Tempo</option>
+                  <option value="MINI_TRUCK">Mini Truck</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">Vehicle Number</label>
+                <input type="text" placeholder="e.g. HR 20 AB 1234" value={formData.vehicleNumber || ''} onChange={e => setFormData({...formData, vehicleNumber: e.target.value})} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">Vehicle Color</label>
+                <input type="text" placeholder="e.g. Black" value={formData.vehicleColor || ''} onChange={e => setFormData({...formData, vehicleColor: e.target.value})} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100" />
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 rounded-b-3xl">
+              <button onClick={closeModal} className="px-5 py-2.5 rounded-xl font-bold text-gray-600 hover:bg-gray-200 transition-colors">Cancel</button>
+              <button onClick={handleSave} disabled={isSaving} className="px-5 py-2.5 bg-[#1B5E20] hover:bg-green-800 text-white rounded-xl font-bold transition-colors disabled:opacity-50">
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editModal === 'document' && docTypeToEdit && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+              <h2 className="text-lg font-black text-[#212121]">Verify {docTypeToEdit === 'aadhaar' ? 'Aadhaar Card' : docTypeToEdit === 'dl' ? 'Driving License' : 'Vehicle RC'}</h2>
+              <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><X size={20}/></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="p-4 bg-orange-50 text-orange-700 rounded-xl text-sm font-semibold mb-2">
+                Uploading a document will mark it as "Pending Approval". An admin will review it shortly.
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">Document Image URL (Mock upload)</label>
+                <input 
+                  type="url" 
+                  placeholder="https://example.com/image.jpg" 
+                  value={formData[`${docTypeToEdit}Url`] || ''} 
+                  onChange={e => setFormData({...formData, [`${docTypeToEdit}Url`]: e.target.value})} 
+                  className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100" 
+                />
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 rounded-b-3xl">
+              <button onClick={closeModal} className="px-5 py-2.5 rounded-xl font-bold text-gray-600 hover:bg-gray-200 transition-colors">Cancel</button>
+              <button onClick={handleSave} disabled={isSaving} className="flex items-center gap-2 px-5 py-2.5 bg-[#1B5E20] hover:bg-green-800 text-white rounded-xl font-bold transition-colors disabled:opacity-50">
+                <Upload size={16} /> {isSaving ? 'Submitting...' : 'Submit Document'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

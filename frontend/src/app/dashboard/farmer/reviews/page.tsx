@@ -60,11 +60,15 @@ export default function FarmerReviewsPage() {
   const getPercent = (count: number) => Math.round((count / totalReviews) * 100);
 
   return (
-    <div className="pb-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="mb-8">
-        <h1 className="text-2xl font-black text-[#212121]">My Ratings & Reviews</h1>
-        <p className="text-gray-500 font-medium mt-1">See what buyers are saying about your crops.</p>
+    <div className="flex flex-col h-full bg-[#FDFDFD]">
+      <div className="px-8 py-6 border-b border-gray-100 bg-white shrink-0 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-black text-[#212121]">My Ratings & Reviews</h1>
+          <p className="text-sm text-gray-500 font-medium mt-1">See what buyers are saying about your crops.</p>
+        </div>
       </div>
+      <div className="flex-1 overflow-y-auto bg-[#F9FAF7] p-8">
+        <div className="max-w-[1400px] mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
 
       <div className="bg-white p-6 md:p-8 rounded-3xl border border-gray-100 shadow-sm mb-8">
         <div className="flex flex-col md:flex-row gap-8 md:gap-12 items-start">
@@ -170,6 +174,8 @@ export default function FarmerReviewsPage() {
             ))}
           </div>
         )}
+      </div>
+      </div>
       </div>
     </div>
   );

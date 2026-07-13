@@ -1,8 +1,8 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
-import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, useRef, Suspense } from "react";
 import api from "@/lib/axios";
 import { 
   Search, MapPin, Bell, ChevronDown, Leaf, LayoutDashboard, Store, 
@@ -12,19 +12,22 @@ import {
 import Link from "next/link";
 import Image from "next/image";
 import ApplicationModal from "@/components/ApplicationModal";
+import RoleSwitcher from "@/components/RoleSwitcher";
 
 // Mock Categories
 const categories = [
   { name: "Grains", emoji: "🌾", bg: "bg-orange-50" },
-  { name: "Vegetables", emoji: "🍅", bg: "bg-red-50" },
+  { name: "Vegetables", emoji: "🥬", bg: "bg-red-50" },
   { name: "Fruits", emoji: "🍎", bg: "bg-red-50" },
   { name: "Pulses", emoji: "🫘", bg: "bg-green-50" },
   { name: "Oilseeds", emoji: "🥜", bg: "bg-yellow-50" },
 ];
 
-export default function BuyerDashboard() {
+function BuyerDashboardContent() {
   const { user, loading, switchRole, logout } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
   
   const [cropLang, setCropLang] = useState<"en" | "hi">("en");
 
@@ -57,6 +60,15 @@ export default function BuyerDashboard() {
   const [totalPages, setTotalPages] = useState(1);
   
   const [activeSidebarTab, setActiveSidebarTab] = useState<"Dashboard" | "Marketplace">("Dashboard");
+
+  useEffect(() => {
+    if (tabParam === "Marketplace") {
+      setActiveSidebarTab("Marketplace");
+    } else {
+      setActiveSidebarTab("Dashboard");
+    }
+  }, [tabParam]);
+
   const [maxDistance, setMaxDistance] = useState<number>(50); // 50 km default
   const [isDistanceFilterEnabled, setIsDistanceFilterEnabled] = useState<boolean>(false);
   const limit = activeSidebarTab === "Dashboard" ? 4 : 8;
@@ -260,65 +272,7 @@ export default function BuyerDashboard() {
   const locationStr = user.district ? `${user.district}, ${user.state}` : "Jaipur, Rajasthan";
 
   return (
-    <div className="min-h-screen bg-[#FAFBFA] flex font-[family-name:var(--font-poppins)] text-[#212121]">
-      
-      {/* Sidebar (Based on generated image) */}
-      <aside className="w-64 bg-[#F2F7F2] border-r border-green-100 flex flex-col justify-between hidden lg:flex shrink-0">
-        <div className="p-6">
-          <div className="flex items-center gap-2 mb-10">
-            <Leaf className="w-6 h-6 text-[#1B5E20]" />
-            <span className="text-xl font-extrabold text-[#1B5E20] uppercase tracking-wide">
-              Crop<span className="text-[#FFC107]">Line</span>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3 mb-8 px-2">
-            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm">
-              <UserIcon className="w-5 h-5 text-gray-500" />
-            </div>
-            <div>
-              <p className="text-sm font-bold">{user.name?.split(" ")[0] || "Buyer"}</p>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wider">{user.activeRole}</p>
-            </div>
-            <ChevronDown className="w-4 h-4 text-gray-400 ml-auto" />
-          </div>
-
-          <nav className="space-y-2">
-            {[
-              { name: "Dashboard", icon: LayoutDashboard },
-              { name: "Marketplace", icon: Store },
-              { name: "Analytics", icon: BarChart2 },
-              { name: "Orders", icon: Package },
-              { name: "Suppliers", icon: Users },
-              { name: "Profile", icon: UserIcon },
-            ].map((item) => (
-              <button
-                key={item.name}
-                onClick={() => {
-                  if (item.name === "Orders") router.push("/dashboard/buyer/orders");
-                  else if (item.name === "Analytics") router.push("/dashboard/buyer/analytics");
-                  else if (item.name === "Suppliers") router.push("/dashboard/buyer/suppliers");
-                  else if (item.name === "Profile") router.push("/dashboard/buyer/profile");
-                  else if (item.name === "Dashboard" || item.name === "Marketplace") {
-                    setActiveSidebarTab(item.name as any);
-                  }
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
-                  activeSidebarTab === item.name 
-                    ? "bg-white text-[#1B5E20] shadow-sm" 
-                    : "text-gray-500 hover:bg-white/50 hover:text-[#1B5E20]"
-                }`}
-              >
-                <item.icon size={18} className={activeSidebarTab === item.name ? "text-[#1B5E20]" : "text-gray-400"} />
-                {item.name}
-              </button>
-            ))}
-          </nav>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+    <>
         
         {/* Header */}
         <header className="h-20 bg-white border-b border-gray-100 flex items-center justify-between px-6 shrink-0">
@@ -359,54 +313,13 @@ export default function BuyerDashboard() {
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
             </div>
             
-            {/* Profile / Role Switcher */}
-            <div className="relative">
-              <div 
-                onClick={() => setShowRoleDropdown(!showRoleDropdown)}
-                className="flex items-center gap-2 cursor-pointer bg-gray-50 p-1.5 pr-4 rounded-full border border-gray-100 hover:bg-gray-100 transition-colors"
-              >
-                <div className="w-8 h-8 bg-[#1B5E20] text-white rounded-full flex items-center justify-center font-bold text-xs">
-                  {user.name ? user.name[0] : "B"}
-                </div>
-                <div>
-                  <p className="text-xs font-bold leading-none">{user.name?.split(" ")[0] || "User"}</p>
-                  <p className="text-[10px] text-gray-500 leading-tight">Buyer</p>
-                </div>
-                <ChevronDown className="w-3 h-3 text-gray-400 ml-1" />
-              </div>
-
-              {/* Dropdown Menu */}
-              {showRoleDropdown && (
-                <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
-                  <div className="px-4 py-2 border-b border-gray-50 mb-2">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Switch Role</p>
-                  </div>
-                  
-                  <button onClick={() => handleRoleSwitch("BUYER")} className="w-full text-left px-4 py-2 text-sm font-bold text-[#1B5E20] bg-green-50/50 flex items-center justify-between">
-                    🛒 Buyer
-                    <div className="w-3 h-3 rounded-full bg-[#1B5E20] flex items-center justify-center"><CheckCircle2 className="w-3 h-3 text-white" /></div>
-                  </button>
-                  <button onClick={() => handleRoleSwitch("FARMER")} className="w-full text-left px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
-                    🌾 Farmer
-                  </button>
-                  <button onClick={() => handleRoleSwitch("DELIVERY")} className="w-full text-left px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
-                    🛵 Delivery Boy
-                  </button>
-                  
-                  {user.roles.includes("ADMIN") && (
-                    <button onClick={() => handleRoleSwitch("ADMIN")} className="w-full text-left px-4 py-2 text-sm font-bold text-emerald-600 hover:bg-emerald-50 transition-colors border-t border-gray-50 mt-1 pt-2">
-                      🛡️ Admin Dashboard
-                    </button>
-                  )}
-
-                  <div className="border-t border-gray-50 mt-2 pt-2">
-                    <button onClick={logout} className="w-full text-left px-4 py-2 text-sm font-bold text-red-500 hover:bg-red-50 transition-colors">
-                      Logout
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <RoleSwitcher 
+              currentRole="BUYER" 
+              onApplyRole={(role) => {
+                setAppRole(role);
+                setAppModalOpen(true);
+              }}
+            />
           </div>
         </header>
 
@@ -860,8 +773,6 @@ export default function BuyerDashboard() {
             </div>
           )}
         </div>
-      </main>
-
       {/* Cart Modal Slideover */}
       {showCart && (
         <div className="fixed inset-0 z-[100] flex justify-end">
@@ -962,6 +873,18 @@ export default function BuyerDashboard() {
         onClose={() => setAppModalOpen(false)} 
         role={appRole} 
       />
-    </div>
+    </>
+  );
+}
+
+export default function BuyerDashboard() {
+  return (
+    <Suspense fallback={
+      <div className="h-screen w-screen flex items-center justify-center bg-[#F9FAF7]">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1B5E20]"></div>
+      </div>
+    }>
+      <BuyerDashboardContent />
+    </Suspense>
   );
 }

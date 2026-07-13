@@ -6,6 +6,7 @@ import {
   Upload, Camera, FileText
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import LocationSelector, { LocationValue } from "./LocationSelector";
 
 interface ApplicationModalProps {
   isOpen: boolean;
@@ -39,15 +40,19 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
 
   // ─── Shared Fields ─────────────────────────────────────────
   const [name, setName] = useState(user?.name || "");
-  const [district, setDistrict] = useState(user?.district || "");
-  const [state, setState] = useState(user?.state || "");
-  const [pincode, setPincode] = useState(user?.pincode || "");
   const [aadhaar, setAadhaar] = useState(user?.aadhaarLast4 || "");
-
-  // ─── Farmer Specific ───────────────────────────────────────
+  const [locationData, setLocationData] = useState<LocationValue>({
+    state: user?.state || "",
+    district: user?.district || "",
+    village: user?.village || "",
+    pincode: user?.pincode || "",
+  });
   const [farmArea, setFarmArea] = useState("");
-  const [village, setVillage] = useState(user?.village || "");
   const [experience, setExperience] = useState("");
+  const [primaryCrops, setPrimaryCrops] = useState("");
+  const [farmingType, setFarmingType] = useState("");
+  const [soilType, setSoilType] = useState("");
+  const [waterSource, setWaterSource] = useState("");
   const [selectedEquipment, setSelectedEquipment] = useState<string[]>([]);
   const [selectedSeasons, setSelectedSeasons] = useState<string[]>([]);
 
@@ -91,14 +96,24 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
     try {
       await completeRegistration({
         name,
-        village,
-        district,
-        state,
-        pincode,
+        village: locationData.village,
+        district: locationData.district,
+        state: locationData.state,
+        pincode: locationData.pincode,
         aadhaarLast4: aadhaar,
         farmArea: role === "FARMER" ? parseFloat(farmArea) : null,
       });
-      await onboardNewRole(role, role === "DELIVERY" ? vehicleType : undefined);
+      
+      const additionalData = role === "FARMER" ? {
+        primaryCrops,
+        farmingType,
+        soilType,
+        waterSource
+      } : {
+        vehicleType
+      };
+
+      await onboardNewRole(role, additionalData);
       setSubmitted(true);
     } catch (error) {
       console.error(error);
@@ -200,9 +215,48 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
                     <label className="text-xs font-bold text-[#424242] block mb-1.5">Village / Farm Address</label>
                     <input
                       required type="text" placeholder="e.g. Kalyanpura"
-                      value={village} onChange={e => setVillage(e.target.value)}
+                      value={locationData.village} onChange={e => setLocationData(prev => ({ ...prev, village: e.target.value }))}
                       className={`w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold outline-none focus:ring-1 ${accentRing}`}
                     />
+                  </div>
+
+                  {/* New Farm Details */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-bold text-[#424242] block mb-1.5">Primary Crops</label>
+                      <input
+                        required type="text" placeholder="Wheat, Bajra, Mustard"
+                        value={primaryCrops} onChange={e => setPrimaryCrops(e.target.value)}
+                        className={`w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold outline-none focus:ring-1 ${accentRing}`}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-[#424242] block mb-1.5">Farming Type</label>
+                      <input
+                        required type="text" placeholder="e.g. Organic, Conventional"
+                        value={farmingType} onChange={e => setFarmingType(e.target.value)}
+                        className={`w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold outline-none focus:ring-1 ${accentRing}`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-bold text-[#424242] block mb-1.5">Soil Type</label>
+                      <input
+                        required type="text" placeholder="e.g. Loamy, Clay"
+                        value={soilType} onChange={e => setSoilType(e.target.value)}
+                        className={`w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold outline-none focus:ring-1 ${accentRing}`}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-[#424242] block mb-1.5">Water Source</label>
+                      <input
+                        required type="text" placeholder="e.g. Tube Well, Rain"
+                        value={waterSource} onChange={e => setWaterSource(e.target.value)}
+                        className={`w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold outline-none focus:ring-1 ${accentRing}`}
+                      />
+                    </div>
                   </div>
 
                   {/* Equipment */}
@@ -354,42 +408,22 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
                 </>
               )}
 
-              {/* ── Shared: District, State, Pincode, Aadhaar ─── */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-[#424242] block mb-1.5">District</label>
-                  <input
-                    required type="text" placeholder="e.g. Jaipur"
-                    value={district} onChange={e => setDistrict(e.target.value)}
-                    className={`w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold outline-none focus:ring-1 ${accentRing}`}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-[#424242] block mb-1.5">State</label>
-                  <input
-                    required type="text" placeholder="e.g. Rajasthan"
-                    value={state} onChange={e => setState(e.target.value)}
-                    className={`w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold outline-none focus:ring-1 ${accentRing}`}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-[#424242] block mb-1.5">Pincode</label>
-                  <input
-                    required type="text" maxLength={6} placeholder="e.g. 302020"
-                    value={pincode} onChange={e => setPincode(e.target.value)}
-                    className={`w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold outline-none focus:ring-1 ${accentRing}`}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-[#424242] block mb-1.5">Aadhaar (Last 4)</label>
-                  <input
-                    required type="text" maxLength={4} placeholder="e.g. 9876"
-                    value={aadhaar} onChange={e => setAadhaar(e.target.value)}
-                    className={`w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold outline-none focus:ring-1 ${accentRing}`}
-                  />
-                </div>
+              {/* ── Shared: Location + Aadhaar ─── */}
+              <LocationSelector
+                value={locationData}
+                onChange={setLocationData}
+                showVillage={true}
+                showPincode={true}
+                required={true}
+                label="Address / Location"
+              />
+              <div>
+                <label className="text-xs font-bold text-[#424242] block mb-1.5">Aadhaar (Last 4)</label>
+                <input
+                  required type="text" maxLength={4} placeholder="e.g. 9876"
+                  value={aadhaar} onChange={e => setAadhaar(e.target.value)}
+                  className={`w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold outline-none focus:ring-1 ${accentRing}`}
+                />
               </div>
 
               {/* Submit */}

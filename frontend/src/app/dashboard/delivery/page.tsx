@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { 
-  Leaf, Home, ShoppingBag, Truck, Wallet, Star, User, Settings, HelpCircle,
+  Leaf, Home, ShoppingBag, Truck, Wallet, Star, User, HelpCircle,
   Search, Bell, ChevronDown, CheckCircle2, Navigation, AlertCircle, ArrowRight,
   MapPin
 } from "lucide-react";
 
 import api from "@/lib/axios";
+import RoleSwitcher from "@/components/RoleSwitcher";
 
 export default function DeliveryDashboard() {
   const { user, loading } = useAuth();
@@ -85,6 +86,98 @@ export default function DeliveryDashboard() {
     );
   }
 
+  // --- SVG Line Chart Generator for Earnings Trends (12 Months) ---
+  const renderEarningsTrendChart = () => {
+    if (monthlyEarnings.length === 0) return null;
+
+    const width = 500;
+    const height = 220;
+    const paddingLeft = 50;
+    const paddingRight = 20;
+    const paddingTop = 20;
+    const paddingBottom = 30;
+
+    const chartWidth = width - paddingLeft - paddingRight;
+    const chartHeight = height - paddingTop - paddingBottom;
+
+    const maxVal = Math.max(...monthlyEarnings, 1000) * 1.1;
+    const minVal = 0;
+    const range = maxVal - minVal;
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    const points = monthlyEarnings.map((val, index) => {
+      const x = paddingLeft + (index / (monthlyEarnings.length - 1)) * chartWidth;
+      const y = paddingTop + chartHeight - ((val - minVal) / range) * chartHeight;
+      return { x, y, val, month: months[index] };
+    });
+
+    let pathD = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 1; i < points.length; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const cpX1 = prev.x + (curr.x - prev.x) / 3;
+      const cpY1 = prev.y;
+      const cpX2 = prev.x + (2 * (curr.x - prev.x)) / 3;
+      const cpY2 = curr.y;
+      pathD += ` C ${cpX1} ${cpY1}, ${cpX2} ${cpY2}, ${curr.x} ${curr.y}`;
+    }
+
+    const areaD = `${pathD} L ${points[points.length - 1].x} ${height - paddingBottom} L ${points[0].x} ${height - paddingBottom} Z`;
+
+    return (
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
+        <defs>
+          <linearGradient id="earnings-trend-gradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#4CAF50" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="#4CAF50" stopOpacity="0.0" />
+          </linearGradient>
+        </defs>
+
+        {/* Grid lines */}
+        {[0, 0.25, 0.5, 0.75, 1].map((ratio, index) => {
+          const y = paddingTop + ratio * chartHeight;
+          const val = maxVal - ratio * range;
+          return (
+            <g key={index}>
+              <line x1={paddingLeft} y1={y} x2={width - paddingRight} y2={y} stroke="#F1F3F0" strokeWidth="1" strokeDasharray="3,3" />
+              <text x={paddingLeft - 8} y={y + 4} textAnchor="end" className="text-[10px] font-bold text-gray-400">
+                ₹{Math.round(val)}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Shaded Area */}
+        <path d={areaD} fill="url(#earnings-trend-gradient)" />
+
+        {/* Trend Line */}
+        <path d={pathD} fill="none" stroke="#4CAF50" strokeWidth="3" strokeLinecap="round" />
+
+        {/* Data points & labels */}
+        {points.map((p, index) => (
+          <g key={index} className="group">
+            <circle cx={p.x} cy={p.y} r="4" fill="#4CAF50" stroke="#FFFFFF" strokeWidth="2" className="transition-transform group-hover:scale-150 cursor-pointer" />
+            
+            {/* Tooltip on Hover */}
+            <g className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
+              <rect x={p.x - 30} y={p.y - 28} width="60" height="18" rx="4" fill="#212121" />
+              <text x={p.x} y={p.y - 16} textAnchor="middle" fill="#FFFFFF" className="text-[9px] font-bold">
+                ₹{p.val}
+              </text>
+            </g>
+
+            {/* X Axis labels */}
+            {index % 2 === 0 && (
+              <text x={p.x} y={height - 8} textAnchor="middle" className="text-[10px] font-bold text-gray-400">
+                {p.month}
+              </text>
+            )}
+          </g>
+        ))}
+      </svg>
+    );
+  };
+
   return (
     <>
       {/* Top Header */}
@@ -107,16 +200,7 @@ export default function DeliveryDashboard() {
               <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[9px] font-bold text-white">3</div>
             </div>
 
-            <div className="flex items-center gap-3 pl-4 border-l border-gray-100 cursor-pointer group">
-              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-xl shrink-0 overflow-hidden border border-green-200">
-                👨🏽‍
-              </div>
-              <div className="hidden sm:block">
-                <p className="text-sm font-black text-[#212121]">{user.name || "Harsh Kumar"}</p>
-                <p className="text-[11px] font-bold text-gray-400">Delivery Partner</p>
-              </div>
-              <ChevronDown size={16} className="text-gray-400 group-hover:text-[#212121]" />
-            </div>
+            <RoleSwitcher currentRole="DELIVERY" />
           </div>
         </header>
 
@@ -214,85 +298,9 @@ export default function DeliveryDashboard() {
                 </div>
               </div>
               
-              {/* Dummy SVG Line Chart */}
-              <div className="relative h-48 w-full pr-2">
-                {/* Y Axis Labels */}
-                <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-[10px] font-bold text-gray-400 pb-6">
-                  <span>₹2.5k</span>
-                  <span>₹2k</span>
-                  <span>₹1.5k</span>
-                  <span>₹1k</span>
-                  <span>₹500</span>
-                  <span>₹0</span>
-                </div>
-                
-                {/* Chart Area */}
-                <div className="ml-10 h-full relative border-b border-gray-100 pb-6">
-                  {/* Grid Lines */}
-                  <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-6">
-                    <div className="w-full border-b border-dashed border-gray-100"></div>
-                    <div className="w-full border-b border-dashed border-gray-100"></div>
-                    <div className="w-full border-b border-dashed border-gray-100"></div>
-                    <div className="w-full border-b border-dashed border-gray-100"></div>
-                    <div className="w-full border-b border-dashed border-gray-100"></div>
-                    <div className="w-full border-b border-dashed border-gray-100"></div>
-                  </div>
-                  
-                  {/* The Line & Area */}
-                  <svg className="w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 100">
-                    <defs>
-                      <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#4CAF50" stopOpacity="0.2" />
-                        <stop offset="100%" stopColor="#4CAF50" stopOpacity="0" />
-                      </linearGradient>
-                    </defs>
-                    
-                    {(() => {
-                      const maxEarning = Math.max(...monthlyEarnings, 1000); // minimum scale 1000
-                      const points = monthlyEarnings.map((val, index) => {
-                        const x = (index / 11) * 100;
-                        const y = 100 - (val / maxEarning) * 100;
-                        return { x, y };
-                      });
-                      
-                      const pathData = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-                      const areaData = `${pathData} L 100 100 L 0 100 Z`;
-
-                      return (
-                        <>
-                          <path d={areaData} fill="url(#chartGradient)" />
-                          <path 
-                            d={pathData} 
-                            fill="none" 
-                            stroke="#4CAF50" 
-                            strokeWidth="2.5" 
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          {points.map((p, i) => (
-                            <circle key={i} cx={p.x} cy={p.y} r="3.5" fill="white" stroke="#4CAF50" strokeWidth="2" className="cursor-pointer hover:r-[5px] transition-all" />
-                          ))}
-                        </>
-                      );
-                    })()}
-                  </svg>
-                  
-                  {/* X Axis Labels */}
-                  <div className="absolute -bottom-6 left-0 w-full flex justify-between text-[10px] font-bold text-gray-400">
-                    <span>Jan</span>
-                    <span>Feb</span>
-                    <span>Mar</span>
-                    <span>Apr</span>
-                    <span>May</span>
-                    <span>Jun</span>
-                    <span>Jul</span>
-                    <span>Aug</span>
-                    <span>Sep</span>
-                    <span>Oct</span>
-                    <span>Nov</span>
-                    <span>Dec</span>
-                  </div>
-                </div>
+              {/* SVG Line Chart */}
+              <div className="relative h-56 w-full pr-2 mt-4">
+                {renderEarningsTrendChart()}
               </div>
             </div>
 

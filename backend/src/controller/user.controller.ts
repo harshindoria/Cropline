@@ -22,6 +22,7 @@ const updateProfileSchema = z.object({
   farmArea: z.number().positive().nullable().optional(),
   
   // New profile fields
+  aboutMe: z.string().optional(),
   dob: z.string().datetime().optional(),
   gender: z.string().optional(),
   languagePref: z.string().optional(),
@@ -29,6 +30,15 @@ const updateProfileSchema = z.object({
   vehicleColor: z.string().optional(),
   bankName: z.string().optional(),
   accountHolderName: z.string().optional(),
+  aadhaarUrl: z.string().url().optional(),
+  dlUrl: z.string().url().optional(),
+  rcUrl: z.string().url().optional(),
+  
+  // Farm Details
+  primaryCrops: z.string().optional(),
+  farmingType: z.string().optional(),
+  soilType: z.string().optional(),
+  waterSource: z.string().optional(),
 });
 
 // 1. Apna Profile Dekhne ka function
@@ -68,8 +78,10 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
       const cancelledJobs = allJobs.filter((j: any) => j.status === 'CANCELLED');
       
       const totalDeliveries = completedJobs.length;
-      const completionRate = totalAssigned > 0 ? Math.round((totalDeliveries / totalAssigned) * 100) : 0;
-      const cancellationRate = totalAssigned > 0 ? Math.round((cancelledJobs.length / totalAssigned) * 100) : 0;
+      const terminalJobs = totalDeliveries + cancelledJobs.length;
+      
+      const completionRate = terminalJobs > 0 ? Math.round((totalDeliveries / terminalJobs) * 100) : 0;
+      const cancellationRate = terminalJobs > 0 ? Math.round((cancelledJobs.length / terminalJobs) * 100) : 0;
       
       const onTimeDeliveries = completedJobs.filter((j: any) => {
         if (!j.estimatedDeliveryAt || !j.deliveredAt) return true;
@@ -160,6 +172,10 @@ export const onboardRole = async (req: Request, res: Response): Promise<void> =>
   const parsed = z.object({
     role: z.enum([Role.FARMER, Role.DELIVERY]),
     vehicleType: z.enum(['BIKE', 'AUTO', 'TEMPO', 'MINI_TRUCK']).optional(),
+    primaryCrops: z.string().optional(),
+    farmingType: z.string().optional(),
+    soilType: z.string().optional(),
+    waterSource: z.string().optional(),
   }).safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ success: false, code: 'INVALID_ONBOARDING', errors: parsed.error.issues }); return; }
   if (parsed.data.role === Role.DELIVERY && !(parsed.data.vehicleType || req.user.vehicleType)) {
@@ -167,12 +183,23 @@ export const onboardRole = async (req: Request, res: Response): Promise<void> =>
   }
 
   const access = await prisma.$transaction(async tx => {
-    if (parsed.data.vehicleType) {
+    // Update user based on role
+    const updateData: any = {};
+    if (parsed.data.vehicleType) updateData.vehicleType = parsed.data.vehicleType;
+    if (parsed.data.role === Role.FARMER) {
+      if (parsed.data.primaryCrops) updateData.primaryCrops = parsed.data.primaryCrops;
+      if (parsed.data.farmingType) updateData.farmingType = parsed.data.farmingType;
+      if (parsed.data.soilType) updateData.soilType = parsed.data.soilType;
+      if (parsed.data.waterSource) updateData.waterSource = parsed.data.waterSource;
+    }
+    
+    if (Object.keys(updateData).length > 0) {
       await tx.user.update({
         where: { id: req.user!.id },
-        data: { vehicleType: parsed.data.vehicleType },
+        data: updateData,
       });
     }
+
     return tx.userRoleAccess.upsert({
       where: { userId_role: { userId: req.user!.id, role: parsed.data.role } }, 
       update: { status: RoleAccessStatus.PENDING_APPROVAL },
@@ -225,6 +252,15 @@ export const getFarmerPublicProfile = async (req: Request, res: Response): Promi
         farmArea: true,
         rating: true,
         ratingCount: true,
+        aboutMe: true,
+        createdAt: true,
+        isVerified: true,
+        primaryCrops: true,
+        farmingType: true,
+        soilType: true,
+        waterSource: true,
+        phone: true,
+        email: true,
       }
     });
 

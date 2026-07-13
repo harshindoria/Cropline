@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import { Search, MapPin, List, Clock, IndianRupee, LayoutGrid, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Search, MapPin, List, Clock, IndianRupee, LayoutGrid, CheckCircle2, AlertCircle, Leaf } from 'lucide-react';
 import Image from 'next/image';
 import api from '@/lib/axios';
 import dynamic from 'next/dynamic';

@@ -46,7 +46,7 @@ interface AuthContextType {
   verifyPhoneOtp: (confirmationResult: ConfirmationResult, otp: string) => Promise<{ isNew: boolean }>;
   completeRegistration: (profileData: Partial<UserProfile>) => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
-  onboardNewRole: (role: "FARMER" | "DELIVERY", vehicleType?: string) => Promise<void>;
+  onboardNewRole: (role: "FARMER" | "DELIVERY", additionalData?: Record<string, any>) => Promise<void>;
   logout: () => Promise<void>;
   mockLogin: (mockRole: Role) => void; // Added for easy demoing/testing
 }
@@ -199,7 +199,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const onboardNewRole = async (role: "FARMER" | "DELIVERY", vehicleType?: string) => {
+  const onboardNewRole = async (role: "FARMER" | "DELIVERY", additionalData?: Record<string, any>) => {
     try {
       setLoading(true);
       // Local fallback for mock roles
@@ -208,14 +208,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTimeout(() => {
           const roles = [...(user?.roles || [])];
           if (!roles.includes(role)) roles.push(role);
-          const updatedUser = { ...user!, roles, activeRole: role, vehicleType: vehicleType || user?.vehicleType || null };
+          const updatedUser = { ...user!, roles, activeRole: role, vehicleType: additionalData?.vehicleType || user?.vehicleType || null, ...additionalData };
           setUser(updatedUser);
           localStorage.setItem("cropline_user", JSON.stringify(updatedUser));
         }, 3000);
         return;
       }
 
-      await api.post("/users/onboard-role", { role, vehicleType });
+      await api.post("/users/onboard-role", { role, ...additionalData });
     } finally {
       setLoading(false);
     }
