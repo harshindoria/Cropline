@@ -5,7 +5,9 @@ import { useRouter, useParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
 import Script from "next/script";
-import { ArrowLeft, Star, ShieldCheck, Leaf, Package, Truck, Minus, Plus, MapPin, Clock, TrendingUp, ShoppingBasket, IndianRupee, CreditCard, Banknote } from "lucide-react";
+import { 
+  ArrowLeft, Leaf, Clock, TrendingUp, MapPin, Star, ShieldCheck, Package, Minus, Plus, CreditCard, Banknote, ShoppingBasket, ChevronLeft
+} from "lucide-react";
 import Image from "next/image";
 
 export default function CropDetailPage() {
@@ -16,10 +18,11 @@ export default function CropDetailPage() {
 
   const [crop, setCrop] = useState<any>(null);
   const [loadingCrop, setLoadingCrop] = useState(true);
-  const [quantity, setQuantity] = useState<number>(0);
-  const [paymentMethod, setPaymentMethod] = useState<"COD" | "ONLINE">("ONLINE");
+  const [quantity, setQuantity] = useState<number>(5);
   const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"ONLINE" | "COD">("ONLINE");
   const [processing, setProcessing] = useState(false);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [cropLang, setCropLang] = useState<"en" | "hi">("en");
 
   useEffect(() => {
@@ -170,7 +173,7 @@ export default function CropDetailPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAFBFA] font-[family-name:var(--font-poppins)] text-[#212121] pb-20">
+    <div className="h-full overflow-y-auto bg-[#FAFBFA] font-[family-name:var(--font-poppins)] text-[#212121] pb-20">
       <Script src="https://checkout.razorpay.com/v1/checkout.js" />
       
       {/* Top Navigation */}
@@ -193,17 +196,36 @@ export default function CropDetailPage() {
           
           {/* Images */}
           <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm">
-            <div className="aspect-[4/3] w-full bg-gray-50 rounded-2xl flex items-center justify-center overflow-hidden relative mb-4">
+            <div className="aspect-[4/3] w-full bg-gray-50 rounded-2xl flex items-center justify-center overflow-hidden relative mb-4 group">
               {crop.photos && crop.photos.length > 0 ? (
-                <Image src={crop.photos[0]} alt="Crop" fill className="object-cover" />
+                <>
+                  <Image src={crop.photos[currentPhotoIndex]} alt="Crop" fill className="object-cover" />
+                  {crop.photos.length > 1 && (
+                    <>
+                      <button onClick={(e) => { e.preventDefault(); setCurrentPhotoIndex(prev => prev > 0 ? prev - 1 : crop.photos.length - 1); }} className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80 hover:bg-white backdrop-blur rounded-full flex items-center justify-center text-[#1B5E20] shadow-md opacity-0 group-hover:opacity-100 transition-all transform -translate-x-2 group-hover:translate-x-0">
+                        <ChevronLeft size={24} />
+                      </button>
+                      <button onClick={(e) => { e.preventDefault(); setCurrentPhotoIndex(prev => prev < crop.photos.length - 1 ? prev + 1 : 0); }} className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80 hover:bg-white backdrop-blur rounded-full flex items-center justify-center text-[#1B5E20] shadow-md opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
+                        <ChevronRight size={24} />
+                      </button>
+                    </>
+                  )}
+                </>
+              ) : crop.catalog?.imageTemplate ? (
+                <Image src={crop.catalog.imageTemplate} alt="Crop" fill className="object-cover" />
               ) : (
                 <Leaf className="w-32 h-32 text-gray-200" />
               )}
             </div>
+            
             {crop.photos && crop.photos.length > 1 && (
-              <div className="flex gap-2 overflow-x-auto">
+              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
                 {crop.photos.map((photo: string, idx: number) => (
-                  <div key={idx} className="w-20 h-20 shrink-0 bg-gray-100 rounded-xl relative overflow-hidden">
+                  <div 
+                    key={idx} 
+                    onClick={() => setCurrentPhotoIndex(idx)}
+                    className={`w-20 h-20 shrink-0 bg-gray-100 rounded-xl relative overflow-hidden cursor-pointer border-2 transition-all ${currentPhotoIndex === idx ? 'border-[#1B5E20]' : 'border-transparent'}`}
+                  >
                     <Image src={photo} alt="Crop thumbnail" fill className="object-cover" />
                   </div>
                 ))}
@@ -304,6 +326,93 @@ export default function CropDetailPage() {
                 <span className="font-bold text-[#212121]">{crop.farmer?.rating || "4.5"}</span>
               </div>
               <p className="text-xs text-gray-400 font-medium mt-1">{crop.farmer?.ratingCount || 0} reviews</p>
+            </div>
+          </div>
+
+          {/* Reviews Section */}
+          <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-black text-[#1B5E20]">Reviews & Ratings</h3>
+              <button className="px-4 py-2 bg-green-50 text-[#1B5E20] text-sm font-bold rounded-xl hover:bg-green-100 transition-colors">
+                Write a Review
+              </button>
+            </div>
+            
+            {/* Summary Rating */}
+            <div className="flex items-center gap-6 mb-8 border-b border-gray-100 pb-6">
+              <div className="text-center">
+                <h4 className="text-5xl font-black text-[#212121]">{crop.farmer?.rating || "4.5"}</h4>
+                <div className="flex items-center gap-1 text-[#FFC107] my-2">
+                  <Star size={16} fill="currentColor" />
+                  <Star size={16} fill="currentColor" />
+                  <Star size={16} fill="currentColor" />
+                  <Star size={16} fill="currentColor" />
+                  <Star size={16} className="text-gray-200" fill="currentColor" />
+                </div>
+                <p className="text-xs font-semibold text-gray-400">Based on {crop.farmer?.ratingCount || 0} reviews</p>
+              </div>
+              <div className="flex-1 space-y-2 hidden sm:block">
+                {[5,4,3,2,1].map(star => (
+                  <div key={star} className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-500 w-2">{star}</span>
+                    <Star size={12} className="text-gray-400 shrink-0" fill="currentColor" />
+                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-[#FFC107] rounded-full" style={{ width: star > 3 ? '70%' : star === 3 ? '20%' : '5%' }}></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Individual Reviews */}
+            <div className="space-y-6">
+              {/* Mock Review 1 */}
+              <div className="border-b border-gray-50 pb-6 last:border-0 last:pb-0">
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold">
+                      A
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-[#212121]">Arjun Singh</p>
+                      <p className="text-[10px] font-semibold text-gray-400">Purchased 50 kg</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-semibold text-gray-400">2 days ago</span>
+                </div>
+                <div className="flex items-center gap-1 text-[#FFC107] mb-2">
+                  <Star size={12} fill="currentColor" />
+                  <Star size={12} fill="currentColor" />
+                  <Star size={12} fill="currentColor" />
+                  <Star size={12} fill="currentColor" />
+                  <Star size={12} fill="currentColor" />
+                </div>
+                <p className="text-sm text-gray-600 font-medium">Quality was excellent. The apples were very fresh and delivered exactly on time. Will definitely buy again from this farmer.</p>
+              </div>
+              
+              {/* Mock Review 2 */}
+              <div className="border-b border-gray-50 pb-6 last:border-0 last:pb-0">
+                <div className="flex justify-between items-start mb-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center text-purple-700 font-bold">
+                      R
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-[#212121]">Rahul M.</p>
+                      <p className="text-[10px] font-semibold text-gray-400">Purchased 20 kg</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-semibold text-gray-400">1 week ago</span>
+                </div>
+                <div className="flex items-center gap-1 text-[#FFC107] mb-2">
+                  <Star size={12} fill="currentColor" />
+                  <Star size={12} fill="currentColor" />
+                  <Star size={12} fill="currentColor" />
+                  <Star size={12} fill="currentColor" />
+                  <Star size={12} className="text-gray-200" fill="currentColor" />
+                </div>
+                <p className="text-sm text-gray-600 font-medium">Good quality overall, but a few pieces were slightly bruised. The packaging could be slightly better.</p>
+              </div>
             </div>
           </div>
 

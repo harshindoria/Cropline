@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../config/db';
 import { z } from 'zod';
-import { Role, RoleAccessStatus } from '@prisma/client';
+import { Role, RoleAccessStatus, NotificationType, NotificationAlertLevel, ComplaintStatus, Prisma } from '@prisma/client';
 
 export const getRoleApplications = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -137,6 +137,111 @@ export const getBuyers = async (req: Request, res: Response): Promise<void> => {
 };
 
 
+export const getFarmers = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const farmers = await prisma.user.findMany({
+      where: { roles: { has: 'FARMER' } },
+      include: {
+        ordersAsFarmer: { where: { status: 'COMPLETED' } },
+        crops: true
+      }
+    });
+
+    const formattedFarmers = farmers.map(farmer => {
+      let status = "Pending";
+      if (farmer.isActive && farmer.isVerified) status = "Verified";
+      else if (!farmer.isActive) status = "Suspended";
+
+      const totalOrders = farmer.ordersAsFarmer.length;
+      const earnings = farmer.ordersAsFarmer.reduce((sum, order) => sum + Number(order.farmerEarnings || 0), 0);
+
+      const city = farmer.district || farmer.village || null;
+      const state = farmer.state || null;
+
+      return {
+        id: farmer.id,
+        name: farmer.name,
+        email: farmer.email,
+        phone: farmer.phone,
+        location: city && state ? `${city}, ${state}` : city || state || "Unknown",
+        city,
+        state,
+        primaryCrops: farmer.primaryCrops || "",
+        listings: farmer.crops.length,
+        totalOrders,
+        earnings,
+        status,
+        joinedOn: farmer.createdAt
+      };
+    });
+
+    const metrics = {
+      totalFarmers: farmers.length,
+      verifiedFarmers: farmers.filter(f => f.isVerified).length,
+      activeFarmers: farmers.filter(f => f.isActive).length,
+      suspendedFarmers: farmers.filter(f => !f.isActive).length
+    };
+
+    res.json({ success: true, metrics, farmers: formattedFarmers });
+  } catch (error) {
+    console.error("Get Farmers Error:", error);
+    res.status(500).json({ success: false, message: "Could not fetch farmers" });
+  }
+};
+
+export const getDeliveryPartners = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const partners = await prisma.user.findMany({
+      where: { roles: { has: 'DELIVERY' } },
+      include: {
+        deliveryJobs: { where: { status: 'DELIVERED' } }
+      }
+    });
+
+    const formattedPartners = partners.map(partner => {
+      let status = "Pending";
+      if (partner.isActive && partner.isVerified) status = "Verified";
+      else if (!partner.isActive) status = "Suspended";
+
+      const totalOrders = partner.deliveryJobs.length;
+      // In a real scenario you would join the order to get the delivery partner payout, 
+      // but let's mock it or use 0 for now as it's not strictly available on deliveryJob directly.
+      const earnings = 0; 
+
+      const city = partner.district || partner.village || null;
+      const state = partner.state || null;
+
+      return {
+        id: partner.id,
+        name: partner.name,
+        email: partner.email,
+        phone: partner.phone,
+        location: city && state ? `${city}, ${state}` : city || state || "Unknown",
+        city,
+        state,
+        vehicleType: partner.vehicleType || "UNKNOWN",
+        vehicleNumber: partner.vehicleNumber || "N/A",
+        totalOrders,
+        earnings,
+        status,
+        joinedOn: partner.createdAt
+      };
+    });
+
+    const metrics = {
+      totalPartners: partners.length,
+      verifiedPartners: partners.filter(p => p.isVerified).length,
+      activePartners: partners.filter(p => p.isActive).length,
+      suspendedPartners: partners.filter(p => !p.isActive).length
+    };
+
+    res.json({ success: true, metrics, partners: formattedPartners });
+  } catch (error) {
+    console.error("Get Delivery Partners Error:", error);
+    res.status(500).json({ success: false, message: "Could not fetch delivery partners" });
+  }
+};
+
 // Merge two duplicate user accounts (keep primaryId, delete secondaryId)
 export const mergeUsers = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -233,6 +338,110 @@ export const processWithdrawalRequest = async (req: Request, res: Response): Pro
   res.json({ success: true, message: "Withdrawal processed" });
 };
 
+export const getVerificationDocuments = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const users = await prisma.user.findMany({
+      where: {
+        OR: [
+          { aadhaarUrl: { not: null } },
+          { dlUrl: { not: null } },
+          { rcUrl: { not: null } }
+        ]
+      },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        activeRole: true,
+        aadhaarUrl: true,
+        aadhaarVerified: true,
+        dlUrl: true,
+        dlVerified: true,
+        rcUrl: true,
+        rcVerified: true,
+        updatedAt: true
+      }
+    });
+
+    const documents: any[] = [];
+    let pendingAadhaar = 0;
+    let pendingDl = 0;
+    let pendingRc = 0;
+
+    users.forEach(user => {
+      // Aadhaar
+      if (user.aadhaarUrl) {
+        const isPending = !user.aadhaarVerified;
+        if (isPending) pendingAadhaar++;
+        documents.push({
+          id: `aadhaar-${user.id}`,
+          userId: user.id,
+          applicantName: user.name,
+          applicantPhone: user.phone,
+          applicantEmail: user.email,
+          userType: user.activeRole === 'FARMER' ? 'Farmer' : (user.activeRole === 'DELIVERY' ? 'Delivery Boy' : user.activeRole),
+          docType: 'Aadhar Card',
+          docTypeEnum: 'aadhaar',
+          docUrl: user.aadhaarUrl,
+          status: user.aadhaarVerified ? 'Approved' : 'Pending',
+          submittedOn: user.updatedAt
+        });
+      }
+      // DL
+      if (user.dlUrl) {
+        const isPending = !user.dlVerified;
+        if (isPending) pendingDl++;
+        documents.push({
+          id: `dl-${user.id}`,
+          userId: user.id,
+          applicantName: user.name,
+          applicantPhone: user.phone,
+          applicantEmail: user.email,
+          userType: user.activeRole === 'FARMER' ? 'Farmer' : (user.activeRole === 'DELIVERY' ? 'Delivery Boy' : user.activeRole),
+          docType: 'Driving License',
+          docTypeEnum: 'dl',
+          docUrl: user.dlUrl,
+          status: user.dlVerified ? 'Approved' : 'Pending',
+          submittedOn: user.updatedAt
+        });
+      }
+      // RC
+      if (user.rcUrl) {
+        const isPending = !user.rcVerified;
+        if (isPending) pendingRc++;
+        documents.push({
+          id: `rc-${user.id}`,
+          userId: user.id,
+          applicantName: user.name,
+          applicantPhone: user.phone,
+          applicantEmail: user.email,
+          userType: user.activeRole === 'FARMER' ? 'Farmer' : (user.activeRole === 'DELIVERY' ? 'Delivery Boy' : user.activeRole),
+          docType: 'RC (Vehicle)',
+          docTypeEnum: 'rc',
+          docUrl: user.rcUrl,
+          status: user.rcVerified ? 'Approved' : 'Pending',
+          submittedOn: user.updatedAt
+        });
+      }
+    });
+
+    documents.sort((a, b) => new Date(b.submittedOn).getTime() - new Date(a.submittedOn).getTime());
+
+    const metrics = {
+      totalPending: pendingAadhaar + pendingDl + pendingRc,
+      pendingAadhaar,
+      pendingDl,
+      pendingRc
+    };
+
+    res.json({ success: true, documents, metrics });
+  } catch (error) {
+    console.error("Error fetching documents:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
 export const verifyDocument = async (req: Request, res: Response): Promise<void> => {
   try {
     const parsed = z.object({
@@ -283,7 +492,9 @@ export const getDashboardOverview = async (req: Request, res: Response): Promise
       resolvedToday,
       recentUsers,
       recentOrders,
-      recentComplaints
+      recentComplaints,
+      recentCashPending,
+      recentPayouts
     ] = await Promise.all([
       // 1. Total Farmers
       prisma.user.count({ where: { roles: { has: 'FARMER' } } }),
@@ -311,14 +522,14 @@ export const getDashboardOverview = async (req: Request, res: Response): Promise
       // 9. High Priority Complaints
       prisma.notification.count({
         where: {
-          type: 'COMPLAINT',
+          type: 'WARNING',
           alertLevel: { in: ['WARNING', 'CRITICAL'] },
           isRead: false
         }
       }),
       // 10. Resolved Complaints Today
       prisma.complaint.count({
-        where: { status: 'RESOLVED', updatedAt: { gte: today } }
+        where: { status: 'APPROVED', updatedAt: { gte: today } }
       }),
       // 11. Recent Activities: Users
       prisma.user.findMany({
@@ -334,9 +545,23 @@ export const getDashboardOverview = async (req: Request, res: Response): Promise
       }),
       // 13. Recent Activities: Complaints
       prisma.complaint.findMany({
-        take: 2,
+        take: 5,
         orderBy: { createdAt: 'desc' },
-        select: { id: true, reason: true, status: true, createdAt: true, complainer: { select: { name: true } } }
+        select: { id: true, reason: true, status: true, createdAt: true, complainer: { select: { name: true } }, accused: { select: { name: true } } }
+      }),
+      // 14. Recent Activities: Cash Deposits
+      prisma.cashLiability.findMany({
+        take: 5,
+        where: { status: 'PENDING_DEPOSIT' },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, amount: true, createdAt: true, deliveryPartner: { select: { name: true } } }
+      }),
+      // 15. Recent Activities: Payouts
+      prisma.ledgerEntry.findMany({
+        take: 5,
+        where: { type: 'PAYOUT', status: 'SETTLED' },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, amount: true, createdAt: true, user: { select: { name: true, roles: true } } }
       })
     ]);
 
@@ -361,10 +586,52 @@ export const getDashboardOverview = async (req: Request, res: Response): Promise
     recentComplaints.forEach(c => activities.push({
       id: c.id,
       type: 'COMPLAINT_RAISED',
-      title: `Complaint Raised`,
-      desc: `${c.reason} by ${c.complainer.name}`,
+      title: `New complaint filed`,
+      desc: `${c.complainer.name} filed a complaint against ${c.accused.name}.`,
       timestamp: c.createdAt
     }));
+    recentCashPending.forEach(c => activities.push({
+      id: c.id,
+      type: 'CASH_DEPOSIT_PENDING',
+      title: `Cash deposit pending`,
+      desc: `${c.deliveryPartner.name} has a pending cash deposit of ₹${c.amount}.`,
+      timestamp: c.createdAt
+    }));
+    recentPayouts.forEach(p => activities.push({
+      id: p.id,
+      type: 'PAYOUT_SUCCESSFUL',
+      title: `Payout successful`,
+      desc: `₹${p.amount} paid to ${p.user?.name || 'User'} (${p.user?.roles?.[0] || 'Unknown'}).`,
+      timestamp: p.createdAt
+    }));
+
+    // Calculate Market Growth (Last 6 Months)
+    const marketGrowth = [];
+    for (let i = 5; i >= 0; i--) {
+      const monthStart = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const monthEnd = new Date(today.getFullYear(), today.getMonth() - i + 1, 0, 23, 59, 59, 999);
+      
+      const [mOrders, mRevenueAgg, mUsers] = await Promise.all([
+        prisma.order.count({ where: { createdAt: { gte: monthStart, lte: monthEnd } } }),
+        prisma.ledgerEntry.aggregate({
+          where: {
+            createdAt: { gte: monthStart, lte: monthEnd },
+            type: { in: ['PLATFORM_CROP_FEE', 'PLATFORM_DELIVERY_FEE'] },
+            status: 'SETTLED'
+          },
+          _sum: { amount: true }
+        }),
+        prisma.user.count({ where: { createdAt: { gte: monthStart, lte: monthEnd } } })
+      ]);
+
+      const monthName = monthStart.toLocaleString('default', { month: 'short' });
+      marketGrowth.push({
+        month: monthName,
+        orders: mOrders,
+        revenue: Number(mRevenueAgg._sum.amount || 0),
+        users: mUsers
+      });
+    }
 
     // Sort descending by timestamp
     activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
@@ -389,12 +656,381 @@ export const getDashboardOverview = async (req: Request, res: Response): Promise
           highPriority: highPriorityComplaints,
           resolvedToday
         },
-        activities: activities.slice(0, 5) // top 5
+        marketGrowth,
+        activities: activities.slice(0, 20) // top 20
       }
     });
 
   } catch (error) {
     console.error("Error in getDashboardOverview:", error);
     res.status(500).json({ success: false, message: "Could not fetch overview data" });
+  }
+};
+
+export const sendBulkNotification = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { sendTo, userId, type, title, message, priority } = req.body;
+
+    // Validate type against the Enum
+    if (!['GENERAL', 'ANNOUNCEMENT', 'WARNING', 'MAINTENANCE', 'OFFER'].includes(type)) {
+      res.status(400).json({ success: false, message: 'Invalid notification type' });
+      return;
+    }
+
+    let targetUserIds: string[] = [];
+
+    if (sendTo === 'Specific Users') {
+      if (!userId) {
+        res.status(400).json({ success: false, message: 'userId is required for specific users' });
+        return;
+      }
+      targetUserIds = [userId];
+    } else {
+      let roleFilter: Role | undefined;
+      if (sendTo === 'All Buyers') roleFilter = Role.BUYER;
+      if (sendTo === 'All Farmers') roleFilter = Role.FARMER;
+      if (sendTo === 'All Delivery Partners') roleFilter = Role.DELIVERY;
+
+      const users = await prisma.user.findMany({
+        where: roleFilter ? { roles: { has: roleFilter } } : {},
+        select: { id: true }
+      });
+      targetUserIds = users.map(u => u.id);
+    }
+
+    if (targetUserIds.length === 0) {
+      res.status(404).json({ success: false, message: 'No users found for this target' });
+      return;
+    }
+
+    // Insert notifications
+    const notificationsToInsert = targetUserIds.map(id => ({
+      userId: id,
+      type: type as NotificationType,
+      title,
+      body: message,
+      alertLevel: priority === 'Important' ? 'WARNING' as const : 'INFO' as const,
+    }));
+
+    await prisma.notification.createMany({
+      data: notificationsToInsert
+    });
+
+    res.status(200).json({ success: true, message: `Notification sent to ${targetUserIds.length} users.` });
+  } catch (error) {
+    console.error("Error sending bulk notifications:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const getNotificationHistory = async (req: Request, res: Response): Promise<void> => {
+  try {
+    // Basic history logic: group by title and body, to show "bulk" sends as one row
+    // Since prisma doesn't support grouping by all these fields easily with counts natively without raw,
+    // let's fetch raw or just get distinct logs.
+    const history = await prisma.$queryRaw`
+      SELECT 
+        "type", 
+        "title", 
+        "body", 
+        MAX("createdAt") as "sentOn", 
+        COUNT(*) as "sentCount"
+      FROM "Notification"
+      GROUP BY "type", "title", "body"
+      ORDER BY "sentOn" DESC
+      LIMIT 50
+    `;
+
+    res.status(200).json({ success: true, data: history });
+  } catch (error) {
+    console.error("Error fetching notification history:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const searchUsers = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { q } = req.query;
+    if (!q || typeof q !== 'string' || q.length < 2) {
+      res.status(200).json({ success: true, data: [] });
+      return;
+    }
+
+    const users = await prisma.user.findMany({
+      where: {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { email: { contains: q, mode: 'insensitive' } },
+          { phone: { contains: q } }
+        ]
+      },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        roles: true,
+      },
+      take: 10
+    });
+
+    res.status(200).json({ success: true, data: users });
+  } catch (error) {
+    console.error("Error searching users:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// ── COMPLAINTS MANAGEMENT ────────────────────────────────────────────────────────
+
+export const getComplaints = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { status, role, reason, startDate, endDate } = req.query;
+
+    const where: Prisma.ComplaintWhereInput = {};
+
+    if (status && status !== 'All Status') {
+      where.status = status as ComplaintStatus;
+    }
+
+    if (role && role !== 'All Roles') {
+      where.accusedRole = role as Role;
+    }
+
+    if (reason && reason !== 'All Reasons') {
+      where.reason = reason as string;
+    }
+
+    if (startDate && endDate) {
+      where.createdAt = {
+        gte: new Date(startDate as string),
+        lte: new Date(endDate as string),
+      };
+    }
+
+    const complaints = await prisma.complaint.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        complainer: { select: { id: true, name: true, phone: true } },
+        accused: { select: { id: true, name: true, phone: true, strikeCount: true } },
+        order: {
+          select: {
+            id: true,
+            createdAt: true,
+            farmerAcceptedAt: true,
+            dispatchStartedAt: true,
+            completedAt: true,
+            farmer: { select: { id: true, name: true, phone: true } },
+            buyer: { select: { id: true, name: true, phone: true } },
+            deliveryJob: {
+              select: {
+                pickedUpAt: true,
+                deliveredAt: true,
+                deliveryPartner: { select: { id: true, name: true, phone: true } }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    res.json({ success: true, data: complaints });
+  } catch (error) {
+    console.error("Error fetching complaints:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const getComplaintStats = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const [openCount, underReviewCount, resolvedCount, blockedUsersCount] = await Promise.all([
+      prisma.complaint.count({ where: { status: 'PENDING' } }),
+      prisma.complaint.count({ where: { status: 'UNDER_REVIEW' } }),
+      prisma.complaint.count({ where: { status: 'APPROVED' } }), // Resolved = Approved in this context
+      prisma.userRoleAccess.count({ where: { status: 'BLOCKED' } })
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        openComplaints: openCount,
+        underReview: underReviewCount,
+        resolved: resolvedCount,
+        blockedUsers: blockedUsersCount
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching complaint stats:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const processComplaint = async (req: Request<{id: string}>, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { action, adminRemark } = req.body; // action: 'APPROVE', 'DISMISS', 'REQUEST_MORE_EVIDENCE'
+
+    if (!['APPROVE', 'DISMISS', 'REQUEST_MORE_EVIDENCE'].includes(action)) {
+      res.status(400).json({ success: false, message: "Invalid action" });
+      return;
+    }
+
+    const complaint = await prisma.complaint.findUnique({
+      where: { id },
+      include: { accused: true, complainer: true }
+    });
+
+    if (!complaint) {
+      res.status(404).json({ success: false, message: "Complaint not found" });
+      return;
+    }
+
+    let updatedStatus: ComplaintStatus = 'PENDING';
+    if (action === 'APPROVE') updatedStatus = 'APPROVED';
+    if (action === 'DISMISS') updatedStatus = 'DISMISSED';
+    if (action === 'REQUEST_MORE_EVIDENCE') updatedStatus = 'UNDER_REVIEW';
+
+    // Transaction for atomic updates
+    await prisma.$transaction(async (tx) => {
+      // 1. Update Complaint
+      await tx.complaint.update({
+        where: { id },
+        data: { status: updatedStatus, adminRemark }
+      });
+
+      // 2. Logic based on action
+      if (action === 'APPROVE') {
+        const newStrikeCount = complaint.accused.strikeCount + 1;
+        
+        // Increment global strike count on user
+        await tx.user.update({
+          where: { id: complaint.accusedId },
+          data: { strikeCount: newStrikeCount }
+        });
+
+        // Notify Complainer
+        await tx.notification.create({
+          data: {
+            userId: complaint.complainerId,
+            type: 'GENERAL',
+            alertLevel: 'SUCCESS',
+            title: 'Complaint Approved',
+            body: `Your complaint regarding order ${complaint.orderId} has been approved. Appropriate action has been taken against the accused.`,
+          }
+        });
+
+        // Strike rules application
+        if (newStrikeCount === 5) {
+          // Warning
+          await tx.notification.create({
+            data: {
+              userId: complaint.accusedId,
+              type: 'WARNING',
+              alertLevel: 'WARNING',
+              title: 'Warning: 5 Strikes Reached',
+              body: `You have reached 5 strikes due to approved complaints. Please adhere to the guidelines to avoid account suspension.`
+            }
+          });
+        } else if (newStrikeCount === 7) {
+          // Suspend role for 24h
+          const tomorrow = new Date();
+          tomorrow.setHours(tomorrow.getHours() + 24);
+
+          await tx.userRoleAccess.upsert({
+            where: { userId_role: { userId: complaint.accusedId, role: complaint.accusedRole } },
+            create: {
+              userId: complaint.accusedId,
+              role: complaint.accusedRole,
+              status: 'BLOCKED',
+              blockedUntil: tomorrow,
+              reason: 'Reached 7 strikes'
+            },
+            update: {
+              status: 'BLOCKED',
+              blockedUntil: tomorrow,
+              reason: 'Reached 7 strikes'
+            }
+          });
+
+          await tx.notification.create({
+            data: {
+              userId: complaint.accusedId,
+              type: 'WARNING',
+              alertLevel: 'CRITICAL',
+              title: 'Role Suspended',
+              body: `Your ${complaint.accusedRole} role has been suspended for 24 hours due to reaching 7 strikes.`
+            }
+          });
+        } else if (newStrikeCount >= 10) {
+          // Block role & impose fee
+          await tx.userRoleAccess.upsert({
+            where: { userId_role: { userId: complaint.accusedId, role: complaint.accusedRole } },
+            create: {
+              userId: complaint.accusedId,
+              role: complaint.accusedRole,
+              status: 'BLOCKED',
+              reason: 'Reached 10 strikes',
+              unbanFeeStatus: 'PENDING',
+              unbanFeeAmount: 1000
+            },
+            update: {
+              status: 'BLOCKED',
+              blockedUntil: null,
+              reason: 'Reached 10 strikes',
+              unbanFeeStatus: 'PENDING',
+              unbanFeeAmount: 1000
+            }
+          });
+
+          await tx.notification.create({
+            data: {
+              userId: complaint.accusedId,
+              type: 'WARNING',
+              alertLevel: 'CRITICAL',
+              title: 'Role Blocked',
+              body: `Your ${complaint.accusedRole} role has been permanently blocked due to 10 strikes. An unban fee of ₹1000 is required.`
+            }
+          });
+        } else {
+           // Notify accused of normal strike
+           await tx.notification.create({
+             data: {
+               userId: complaint.accusedId,
+               type: 'WARNING',
+               alertLevel: 'WARNING',
+               title: 'Complaint Approved Against You',
+               body: `A complaint against you has been approved. You now have ${newStrikeCount} strikes.`
+             }
+           });
+        }
+      } else if (action === 'DISMISS') {
+        // Notify Complainer
+        await tx.notification.create({
+          data: {
+            userId: complaint.complainerId,
+            type: 'GENERAL',
+            alertLevel: 'INFO',
+            title: 'Complaint Dismissed',
+            body: `Your complaint regarding order ${complaint.orderId} has been reviewed and dismissed. Reason: ${adminRemark || 'No sufficient evidence'}.`,
+          }
+        });
+      } else if (action === 'REQUEST_MORE_EVIDENCE') {
+        // Notify Complainer
+        await tx.notification.create({
+          data: {
+            userId: complaint.complainerId,
+            type: 'GENERAL',
+            alertLevel: 'WARNING',
+            title: 'More Evidence Required',
+            body: `Admin requested more evidence for your complaint on order ${complaint.orderId}. Please contact support.`,
+          }
+        });
+      }
+    });
+
+    res.json({ success: true, message: `Complaint processed successfully: ${action}` });
+  } catch (error) {
+    console.error("Error processing complaint:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };

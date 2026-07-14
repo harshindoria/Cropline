@@ -38,7 +38,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
         await prisma.paymentRecord.updateMany({
           where: { providerOrderId: razorpayOrderId },
           data: { 
-            status: 'RELEASED', // Exactly matches PaymentStatus Enum
+            status: 'SUCCESS', // Exactly matches PaymentStatus Enum
             providerPaymentId: paymentEntity.id,
             capturedAt: new Date() // Aapke schema ke mutabiq precise date
           }
@@ -47,9 +47,14 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
       }
 
       case 'payment.failed': {
-        // Schema mein 'FAILED' enum nahi hai, isliye hum isko PENDING hi rehne denge
-        // aur log kar lenge taaki buyer app se 'Retry' kar sake.
-        console.log(`Payment failed for Order ID: ${payload.payment.entity.order_id}`);
+        const paymentEntity = payload.payment.entity;
+        const razorpayOrderId = paymentEntity.order_id;
+        
+        await prisma.paymentRecord.updateMany({
+          where: { providerOrderId: razorpayOrderId },
+          data: { status: 'FAILED' }
+        });
+        console.log(`Payment failed for Order ID: ${razorpayOrderId}`);
         break;
       }
 
@@ -244,7 +249,7 @@ export const initiateOrderPayment = async (req: Request, res: Response): Promise
     }
 
     // If payment already completed
-    if (order.paymentRecord?.status === 'RELEASED') {
+    if (order.paymentRecord?.status === 'SUCCESS') {
       res.status(400).json({ success: false, message: 'Payment already completed' });
       return;
     }

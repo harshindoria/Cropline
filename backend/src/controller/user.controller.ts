@@ -30,9 +30,9 @@ const updateProfileSchema = z.object({
   vehicleColor: z.string().optional(),
   bankName: z.string().optional(),
   accountHolderName: z.string().optional(),
-  aadhaarUrl: z.string().url().optional(),
-  dlUrl: z.string().url().optional(),
-  rcUrl: z.string().url().optional(),
+  aadhaarUrl: z.string().optional(), // base64 data URI or empty string
+  dlUrl: z.string().optional(),    // base64 data URI or empty string
+  rcUrl: z.string().optional(),    // base64 data URI or empty string
   
   // Farm Details
   primaryCrops: z.string().optional(),

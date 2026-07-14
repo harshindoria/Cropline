@@ -231,7 +231,7 @@ export const confirmOrder = async (req: Request<{id : string}>, res: Response): 
         // Create notifications for them
         const notifications = nearbyBoys.map(boy => ({
           userId: boy.id,
-          type: 'NEW_DELIVERY_REQUEST',
+          type: 'GENERAL' as const,
           title: 'New delivery request nearby',
           body: `Pickup from ${order.crop.farmVillage || 'nearby location'}`,
           data: { orderId: order.id }
@@ -307,7 +307,7 @@ export const rejectOrder = async (req: Request<{id : string}>, res: Response): P
       });
 
       // 3. 💡 FIX 3: Handle Refund Scenario for Pre-paid Orders
-      if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.RELEASED) {
+      if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS) {
         // Here you would ideally call Razorpay Refund API
         // For now, we update the DB to signify refund is initiated
         await tx.paymentRecord.update({
@@ -772,7 +772,7 @@ const autoRejectExpiredOrders = async () => {
           }
         });
         // Process refund DB state
-        if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.RELEASED) {
+        if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS) {
           await tx.paymentRecord.update({
             where: { id: order.paymentRecord.id },
             data: { status: PaymentStatus.REFUNDED }
@@ -867,7 +867,7 @@ export const cancelOrder = async (req: Request<{id: string}>, res: Response): Pr
       });
 
       // 3. If payment was captured, mark for refund
-      if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.RELEASED) {
+      if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS) {
         await tx.paymentRecord.update({
           where: { id: order.paymentRecord.id },
           data: { status: PaymentStatus.REFUNDED, refundedAt: new Date() }

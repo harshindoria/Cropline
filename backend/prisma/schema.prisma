@@ -72,6 +72,7 @@ enum LedgerEntryStatus {
   PENDING
   AVAILABLE
   SETTLED
+  FAILED
   VOIDED
 }
 
@@ -86,12 +87,19 @@ enum CropCategory {
   OTHER
 }
 
-// Naya Enum: Notifications ki priority set karne ke liye (Warnings ke liye)
 enum NotificationAlertLevel {
-  INFO       // Normal updates (e.g., "Order placed")
-  WARNING    // Strike/Warning (e.g., "You have 5 complaints")
-  CRITICAL   // Ban/Block (e.g., "Account suspended")
-  SUCCESS    // Positive actions (e.g., "Payment received")
+  INFO // Normal updates (e.g., "Order placed")
+  WARNING // Strike/Warning (e.g., "You have 5 complaints")
+  CRITICAL // Ban/Block (e.g., "Account suspended")
+  SUCCESS // Positive actions (e.g., "Payment received")
+}
+
+enum NotificationType {
+  GENERAL
+  ANNOUNCEMENT
+  WARNING
+  MAINTENANCE
+  OFFER
 }
 
 enum OrderStatus {
@@ -121,8 +129,8 @@ enum PaymentType {
 
 enum PaymentStatus {
   PENDING
-  HELD
-  RELEASED
+  SUCCESS
+  FAILED
   REFUNDED
 }
 
@@ -162,47 +170,47 @@ model User {
   activeRole  Role    @default(BUYER)
 
   // Identity
-  aboutMe      String?
-  aadhaarLast4 String?
-  dob DateTime?
-  gender String?
-  languagePref String?
-  aadhaarVerified Boolean @default(false)
-  aadhaarUrl String?
-  dlVerified Boolean @default(false)
-  dlUrl String?
-  rcVerified Boolean @default(false)
-  rcUrl String?
+  aboutMe         String?
+  aadhaarLast4    String?
+  dob             DateTime?
+  gender          String?
+  languagePref    String?
+  aadhaarVerified Boolean   @default(false)
+  aadhaarUrl      String?
+  dlVerified      Boolean   @default(false)
+  dlUrl           String?
+  rcVerified      Boolean   @default(false)
+  rcUrl           String?
 
   // Location
-  latitude  Float?
-  longitude Float?
-  village   String?
-  district  String?
-  state     String?
-  pincode   String?
-  farmArea  Float?
+  latitude     Float?
+  longitude    Float?
+  village      String?
+  district     String?
+  state        String?
+  pincode      String?
+  farmArea     Float?
   primaryCrops String?
-  farmingType String?
-  soilType    String?
-  waterSource String?
+  farmingType  String?
+  soilType     String?
+  waterSource  String?
 
   // Delivery partner specific
-  vehicleType      VehicleType?
-  vehicleNumber    String?
-  vehicleColor     String?
-  coverageRadiusKm Int?
-  isOnline         Boolean      @default(false)
-  onlineStartedAt      DateTime?
-  todayOnlineMinutes   Int          @default(0)
-  lastOnlineResetAt    DateTime?
+  vehicleType        VehicleType?
+  vehicleNumber      String?
+  vehicleColor       String?
+  coverageRadiusKm   Int?
+  isOnline           Boolean      @default(false)
+  onlineStartedAt    DateTime?
+  todayOnlineMinutes Int          @default(0)
+  lastOnlineResetAt  DateTime?
 
   // Financial
-  bankAccount   String? 
-  bankIfsc      String? 
-  bankName      String?
+  bankAccount       String?
+  bankIfsc          String?
+  bankName          String?
   accountHolderName String?
-  walletBalance Decimal @default(0) @db.Decimal(10, 2)
+  walletBalance     Decimal @default(0) @db.Decimal(10, 2)
   dailyEarningsGoal Decimal @default(2000) @db.Decimal(10, 2)
 
   // Trust & Penalties
@@ -237,8 +245,8 @@ model User {
   complaintsFiled       Complaint[]      @relation("ComplaintsFiled")
   complaintsReceived    Complaint[]      @relation("ComplaintsReceived")
 
-  @@index([latitude, longitude]) 
-  @@index([activeRole, isOnline]) 
+  @@index([latitude, longitude])
+  @@index([activeRole, isOnline])
 }
 
 model UserRoleAccess {
@@ -265,14 +273,14 @@ model UserRoleAccess {
 // NAYA MODEL: Admin dwara set kiye gaye fasalon ke naam (English/Hindi)
 model CropCatalog {
   id            String       @id @default(cuid())
-  englishName   String       // e.g., "Potato"
-  hindiName     String       // e.g., "Aloo (आलू)"
+  englishName   String // e.g., "Potato"
+  hindiName     String // e.g., "Aloo (आलू)"
   category      CropCategory // Fruits, Vegetables etc.
-  imageTemplate String?      // Default image URL agar farmer apni photo na daale
+  imageTemplate String? // Default image URL agar farmer apni photo na daale
   isActive      Boolean      @default(true) // Admin chahe toh kisi fasal ko temporarily band kar de
   createdAt     DateTime     @default(now())
-  
-  crops         Crop[]       // Ek catalog item se hazaron kisaan fasal bech sakte hain
+
+  crops Crop[] // Ek catalog item se hazaron kisaan fasal bech sakte hain
 
   @@index([category, isActive])
 }
@@ -298,7 +306,7 @@ model Crop {
 
   // Dates & Media
   harvestDate DateTime
-  photos      String[] 
+  photos      String[]
 
   // Farm Location
   farmLatitude  Float
@@ -323,7 +331,7 @@ model Crop {
   // relations
   orders        Order[]
   subscriptions Subscription[]
-  offer         CropOffer?     // Optional Bulk Offer Relation
+  offer         CropOffer? // Optional Bulk Offer Relation
 
   @@index([farmerId])
   @@index([status, catalogId]) // Update kiya gaya index
@@ -333,17 +341,17 @@ model Crop {
 
 // NAYA MODEL: Bulk Quantity par discount dene ke liye (e.g., 50kg lo, 20% off pao)
 model CropOffer {
-  id                 String   @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   // 1-to-1 Relation: Ek fasal par ek hi discount offer lag sakta hai
-  crop               Crop     @relation(fields: [cropId], references: [id], onDelete: Cascade)
-  cropId             String   @unique 
-  
-  minQuantityKg      Decimal  @db.Decimal(10, 2) // Discount tab milega jab order kam se kam itna ho
-  discountPercentage Decimal  @db.Decimal(5, 2)  // Kitne % chhoot deni hai
-  
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  crop   Crop   @relation(fields: [cropId], references: [id], onDelete: Cascade)
+  cropId String @unique
+
+  minQuantityKg      Decimal @db.Decimal(10, 2) // Discount tab milega jab order kam se kam itna ho
+  discountPercentage Decimal @db.Decimal(5, 2) // Kitne % chhoot deni hai
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Order {
@@ -383,8 +391,8 @@ model Order {
 
   status        OrderStatus   @default(PENDING)
   paymentStatus PaymentStatus @default(PENDING)
-  paymentId     String? 
-  qrCode        String? 
+  paymentId     String?
+  qrCode        String?
   pickupOtp     String?
 
   cancellationReason     String?
@@ -416,7 +424,7 @@ model DeliveryJob {
   id String @id @default(cuid())
 
   order   Order  @relation(fields: [orderId], references: [id])
-  orderId String @unique 
+  orderId String @unique
 
   deliveryPartner   User   @relation(fields: [deliveryPartnerId], references: [id])
   deliveryPartnerId String
@@ -442,12 +450,12 @@ model DeliveryJob {
   deliveredAt         DateTime?
   estimatedDeliveryAt DateTime?
   createdAt           DateTime  @default(now())
-  offeredAt           DateTime  @default(now()) 
-  acceptanceDeadline  DateTime? 
-  notifiedPartners    String[]  @default([]) 
+  offeredAt           DateTime  @default(now())
+  acceptanceDeadline  DateTime?
+  notifiedPartners    String[]  @default([])
 
   @@index([deliveryPartnerId, status])
-  @@index([pickupLatitude, pickupLongitude]) 
+  @@index([pickupLatitude, pickupLongitude])
 }
 
 model DeliveryOffer {
@@ -516,19 +524,28 @@ model LedgerEntry {
   @@index([orderId, type])
 }
 
+enum CashDepositStatus {
+  PENDING_DEPOSIT
+  DEPOSITED
+  VERIFIED
+  OVERDUE
+}
+
 model CashLiability {
-  id                  String    @id @default(cuid())
-  order               Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  orderId             String    @unique
-  deliveryPartner     User      @relation(fields: [deliveryPartnerId], references: [id], onDelete: Restrict)
+  id                  String            @id @default(cuid())
+  order               Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderId             String            @unique
+  deliveryPartner     User              @relation(fields: [deliveryPartnerId], references: [id], onDelete: Restrict)
   deliveryPartnerId   String
-  amount              Decimal   @db.Decimal(10, 2)
+  amount              Decimal           @db.Decimal(10, 2)
+  status              CashDepositStatus @default(PENDING_DEPOSIT)
+  depositedAt         DateTime?
   reconciledAt        DateTime?
   reconciledByAdminId String?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
-  @@index([deliveryPartnerId, reconciledAt])
+  @@index([deliveryPartnerId, status])
 }
 
 model Review {
@@ -545,8 +562,8 @@ model Review {
 
   targetType ReviewTargetType
 
-  rating  Int 
-  comment String? 
+  rating  Int
+  comment String?
 
   isFlagged Boolean @default(false)
   flagCount Int     @default(0)
@@ -572,14 +589,14 @@ model Subscription {
 
   quantityKgPerDelivery Decimal               @db.Decimal(10, 2)
   frequency             SubscriptionFrequency
-  deliveryType          DeliveryType 
-  deliveryDay           String 
-  lockPrice             Boolean               @default(false) 
-  lockedPrice           Decimal?              @db.Decimal(10, 2) 
+  deliveryType          DeliveryType
+  deliveryDay           String
+  lockPrice             Boolean               @default(false)
+  lockedPrice           Decimal?              @db.Decimal(10, 2)
 
   startDate        DateTime
-  endDate          DateTime? 
-  nextDeliveryDate DateTime 
+  endDate          DateTime?
+  nextDeliveryDate DateTime
 
   deliveryLatitude  Float
   deliveryLongitude Float
@@ -594,54 +611,57 @@ model Subscription {
 
   @@index([buyerId, status])
   @@index([farmerId, status])
-  @@index([nextDeliveryDate, status]) 
+  @@index([nextDeliveryDate, status])
 }
 
 model Notification {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id])
-  userId    String
-  
-  type      String   // e.g., "NEW_ORDER", "WARNING"
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+
+  type       NotificationType       @default(GENERAL)
   alertLevel NotificationAlertLevel @default(INFO) // NAYA: Warning ko highlight karne ke liye
 
-  title     String
-  body      String
-  data      Json?    
-  isRead    Boolean  @default(false)
-  
+  title  String
+  body   String
+  data   Json?
+  isRead Boolean @default(false)
+
   createdAt DateTime @default(now())
 
-  @@index([userId, isRead]) 
-  @@index([createdAt]) 
+  @@index([userId, isRead])
+  @@index([createdAt])
 }
 
 model Complaint {
-  id              String   @id @default(cuid())
-  orderId         String?  
-  order           Order?   @relation(fields: [orderId], references: [id])
-  
-  complainerId    String
-  complainer      User     @relation("ComplaintsFiled", fields: [complainerId], references: [id])
-  
-  accusedId       String
-  accused         User     @relation("ComplaintsReceived", fields: [accusedId], references: [id])
-  
-  accusedRole     Role     
-  
-  reason          String   
-  description     String?  
-  
-  status          ComplaintStatus @default(PENDING) 
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
+  id      String  @id @default(cuid())
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id])
+
+  complainerId String
+  complainer   User   @relation("ComplaintsFiled", fields: [complainerId], references: [id])
+
+  accusedId String
+  accused   User   @relation("ComplaintsReceived", fields: [accusedId], references: [id])
+
+  accusedRole Role
+
+  reason      String
+  description String?
+  evidence    String[] @default([])
+  adminRemark String?
+
+  status ComplaintStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([accusedId, accusedRole])
 }
 
 enum ComplaintStatus {
   PENDING
-  RESOLVED
+  UNDER_REVIEW
+  APPROVED
   DISMISSED
 }

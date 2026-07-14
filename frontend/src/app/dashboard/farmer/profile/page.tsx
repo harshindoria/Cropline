@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { 
@@ -50,6 +50,8 @@ export default function FarmerProfile() {
   const [docTypeToEdit, setDocTypeToEdit] = useState<'aadhaar' | 'dl' | 'rc' | null>(null);
   const [formData, setFormData] = useState<any>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [docImagePreview, setDocImagePreview] = useState<string | null>(null);
+  const docFileInputRef = useRef<HTMLInputElement>(null);
   const [catalog, setCatalog] = useState<any[]>([]);
   const [lang, setLang] = useState<'en' | 'hi'>('en');
   const [cropSearch, setCropSearch] = useState('');
@@ -94,9 +96,9 @@ export default function FarmerProfile() {
     setEditModal(type);
     if (type === 'document' && docType) {
       setDocTypeToEdit(docType);
-      setFormData({
-        [`${docType}Url`]: profileData?.[`${docType}Url`] || ''
-      });
+      const existingBase64 = profileData?.[`${docType}Url`] || '';
+      setFormData({ [`${docType}Url`]: existingBase64 });
+      setDocImagePreview(existingBase64 || null);
       return;
     }
     
@@ -141,6 +143,19 @@ export default function FarmerProfile() {
     setEditModal(null);
     setDocTypeToEdit(null);
     setFormData({});
+    setDocImagePreview(null);
+  };
+
+  const handleDocFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !docTypeToEdit) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      setDocImagePreview(base64);
+      setFormData((prev: any) => ({ ...prev, [`${docTypeToEdit}Url`]: base64 }));
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSave = async () => {
@@ -812,19 +827,40 @@ export default function FarmerProfile() {
               )}
 
               {editModal === 'document' && docTypeToEdit && (
-                <div className="space-y-6">
-                  <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-xl text-yellow-800 text-sm font-medium">
-                    Uploading a document will mark it as "Pending Approval". An admin will review it shortly.
+                <div className="space-y-5">
+                  <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-amber-800 text-sm font-semibold">
+                    Uploading a document will mark it as <strong>Pending Approval</strong>. Upload a clear photo with both front and back visible in a single image.
                   </div>
-                  <div>
-                    <label className="text-xs font-bold text-gray-500 block mb-1.5">Document Image URL (Mock upload)</label>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Upload size={16} className="text-gray-400" />
+                  <input
+                    ref={docFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleDocFileChange}
+                  />
+                  {docImagePreview ? (
+                    <div
+                      className="relative group rounded-xl overflow-hidden border-2 border-purple-400 w-full cursor-pointer"
+                      style={{ minHeight: '180px' }}
+                      onClick={() => docFileInputRef.current?.click()}
+                    >
+                      <img src={docImagePreview} alt="Document" className="w-full object-contain rounded-xl" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
+                        <p className="text-white text-xs font-bold flex items-center gap-2">
+                          <Camera size={16} /> Change Photo
+                        </p>
                       </div>
-                      <input type="url" placeholder="https://example.com/document.jpg" value={formData[`${docTypeToEdit}Url`] || ''} onChange={e => setFormData({...formData, [`${docTypeToEdit}Url`]: e.target.value})} className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-10 p-3.5 text-sm font-semibold focus:ring-2 focus:ring-purple-500 outline-none transition-all" />
                     </div>
-                  </div>
+                  ) : (
+                    <div
+                      onClick={() => docFileInputRef.current?.click()}
+                      className="w-full h-44 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-purple-400 hover:bg-purple-50/30 transition-all group"
+                    >
+                      <Upload className="w-8 h-8 text-gray-300 group-hover:text-purple-500 transition-colors mb-2" />
+                      <p className="text-xs font-bold text-gray-400 group-hover:text-purple-600 transition-colors">Click to upload document photo</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">JPG, PNG · Include both sides in one image</p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

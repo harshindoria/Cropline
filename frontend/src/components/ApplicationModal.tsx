@@ -3,7 +3,7 @@
 import React, { useState, useRef } from "react";
 import { 
   X, Tractor, Truck, CheckCircle2, ChevronRight, Check, 
-  Upload, Camera, FileText
+  Upload, Camera, FileText, AlertCircle
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import LocationSelector, { LocationValue } from "./LocationSelector";
@@ -31,12 +31,75 @@ const SEASONS = [
   { id: "zaid", label: "Zaid", sub: "Mar – Jun", emoji: "🌿" },
 ];
 
+// Reusable image upload card
+function DocUploadCard({
+  label,
+  preview,
+  onChoose,
+  accentColor,
+  required = true,
+}: {
+  label: string;
+  preview: string | null;
+  onChoose: () => void;
+  accentColor: string;
+  required?: boolean;
+}) {
+  return (
+    <div>
+      <label className="text-xs font-bold text-[#424242] block mb-2">
+        {label}
+        {required && <span className="text-red-500 ml-1">*</span>}
+        <span className="text-gray-400 font-semibold ml-2 text-[10px]">
+          Upload front + back in a single photo
+        </span>
+      </label>
+      {preview ? (
+        <div
+          className="relative group rounded-xl overflow-hidden border-2 w-full h-44 cursor-pointer"
+          style={{ borderColor: accentColor }}
+          onClick={onChoose}
+        >
+          <img src={preview} alt={label} className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <p className="text-white text-xs font-bold flex items-center gap-2">
+              <Camera size={16} /> Change Photo
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div
+          onClick={onChoose}
+          className="w-full h-36 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all group"
+          style={{ "--hover-color": accentColor } as React.CSSProperties}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLDivElement).style.borderColor = accentColor;
+            (e.currentTarget as HTMLDivElement).style.background = `${accentColor}08`;
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLDivElement).style.borderColor = '#e5e7eb';
+            (e.currentTarget as HTMLDivElement).style.background = '';
+          }}
+        >
+          <Upload className="w-8 h-8 text-gray-300 mb-2" />
+          <p className="text-xs font-bold text-gray-400">Click to upload photo</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">JPG, PNG up to 5MB</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ApplicationModal({ isOpen, onClose, role }: ApplicationModalProps) {
   const { onboardNewRole, completeRegistration, user } = useAuth();
 
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+
+  // File refs
+  const aadhaarPhotoRef = useRef<HTMLInputElement>(null);
   const licencePhotoRef = useRef<HTMLInputElement>(null);
+  const rcPhotoRef = useRef<HTMLInputElement>(null);
 
   // ─── Shared Fields ─────────────────────────────────────────
   const [name, setName] = useState(user?.name || "");
@@ -56,11 +119,14 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
   const [selectedEquipment, setSelectedEquipment] = useState<string[]>([]);
   const [selectedSeasons, setSelectedSeasons] = useState<string[]>([]);
 
+  // ─── Document Images (base64) ───────────────────────────────
+  const [aadhaarBase64, setAadhaarBase64] = useState<string | null>(null);
+  const [licenceBase64, setLicenceBase64] = useState<string | null>(null);
+  const [rcBase64, setRcBase64] = useState<string | null>(null);
+
   // ─── Delivery Specific ─────────────────────────────────────
   const [vehicleType, setVehicleType] = useState("BIKE");
   const [licenceId, setLicenceId] = useState("");
-  const [licencePhoto, setLicencePhoto] = useState<File | null>(null);
-  const [licencePreview, setLicencePreview] = useState<string | null>(null);
 
   if (!isOpen || !role) return null;
 
@@ -81,17 +147,37 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
     );
   };
 
-  const handleLicencePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const readFileAsBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  const handleFileChange = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    setter: (val: string) => void
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setLicencePhoto(file);
-    const reader = new FileReader();
-    reader.onload = () => setLicencePreview(reader.result as string);
-    reader.readAsDataURL(file);
+    const base64 = await readFileAsBase64(file);
+    setter(base64);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validate documents are uploaded
+    if (role === "FARMER" && !aadhaarBase64) {
+      alert("Please upload your Aadhaar Card photo before submitting.");
+      return;
+    }
+    if (role === "DELIVERY" && (!licenceBase64 || !rcBase64)) {
+      alert("Please upload both your Driving License and RC (Vehicle) photos before submitting.");
+      return;
+    }
+
     setLoading(true);
     try {
       await completeRegistration({
@@ -102,6 +188,10 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
         pincode: locationData.pincode,
         aadhaarLast4: aadhaar,
         farmArea: role === "FARMER" ? parseFloat(farmArea) : null,
+        // Save document images as base64 in the profile
+        ...(role === "FARMER" && aadhaarBase64 ? { aadhaarUrl: aadhaarBase64 } : {}),
+        ...(role === "DELIVERY" && licenceBase64 ? { dlUrl: licenceBase64 } : {}),
+        ...(role === "DELIVERY" && rcBase64 ? { rcUrl: rcBase64 } : {}),
       });
       
       const additionalData = role === "FARMER" ? {
@@ -165,7 +255,7 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
               </div>
               <h3 className="text-xl font-black text-[#212121] mb-2">Application Submitted!</h3>
               <p className="text-sm font-semibold text-gray-500 mb-8 leading-relaxed">
-                Your application is under review. Our admin team will verify your details and notify you once approved.
+                Your application is under review. Our admin team will verify your documents and notify you once approved.
               </p>
               <button
                 onClick={handleClose}
@@ -220,7 +310,7 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
                     />
                   </div>
 
-                  {/* New Farm Details */}
+                  {/* Farm Details */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-xs font-bold text-[#424242] block mb-1.5">Primary Crops</label>
@@ -359,7 +449,7 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
                   {/* Driving Licence ID */}
                   <div>
                     <label className="text-xs font-bold text-[#424242] block mb-1.5">
-                      Driving Licence Number
+                      Driving Licence Number <span className="text-red-500">*</span>
                     </label>
                     <input
                       required type="text" placeholder="e.g. RJ14-20120042547"
@@ -368,47 +458,39 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
                     />
                   </div>
 
-                  {/* Licence Photo */}
-                  <div>
-                    <label className="text-xs font-bold text-[#424242] block mb-2">
-                      Licence Photo
-                    </label>
-                    <input
-                      ref={licencePhotoRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleLicencePhotoChange}
-                    />
-                    {licencePreview ? (
-                      <div className="relative group rounded-xl overflow-hidden border-2 border-[#E65100] w-full h-40">
-                        <img src={licencePreview} alt="Licence" className="w-full h-full object-cover" />
-                        <div
-                          onClick={() => licencePhotoRef.current?.click()}
-                          className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
-                        >
-                          <p className="text-white text-xs font-bold flex items-center gap-2">
-                            <Camera size={16} /> Change Photo
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        onClick={() => licencePhotoRef.current?.click()}
-                        className="w-full h-36 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-[#E65100] hover:bg-orange-50/30 transition-all group"
-                      >
-                        <Upload className="w-8 h-8 text-gray-300 group-hover:text-[#E65100] transition-colors mb-2" />
-                        <p className="text-xs font-bold text-gray-400 group-hover:text-[#E65100] transition-colors">
-                          Click to upload licence photo
-                        </p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">JPG, PNG up to 5MB</p>
-                      </div>
-                    )}
-                  </div>
+                  {/* Driving License Photo */}
+                  <input
+                    ref={licencePhotoRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={e => handleFileChange(e, setLicenceBase64)}
+                  />
+                  <DocUploadCard
+                    label="Driving Licence Photo"
+                    preview={licenceBase64}
+                    onChoose={() => licencePhotoRef.current?.click()}
+                    accentColor={accentColor}
+                  />
+
+                  {/* RC Photo */}
+                  <input
+                    ref={rcPhotoRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={e => handleFileChange(e, setRcBase64)}
+                  />
+                  <DocUploadCard
+                    label="Vehicle RC Photo"
+                    preview={rcBase64}
+                    onChoose={() => rcPhotoRef.current?.click()}
+                    accentColor={accentColor}
+                  />
                 </>
               )}
 
-              {/* ── Shared: Location + Aadhaar ─── */}
+              {/* ── Shared: Location ─── */}
               <LocationSelector
                 value={locationData}
                 onChange={setLocationData}
@@ -417,13 +499,44 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
                 required={true}
                 label="Address / Location"
               />
+
+              {/* ── Shared: Aadhaar ─── */}
               <div>
-                <label className="text-xs font-bold text-[#424242] block mb-1.5">Aadhaar (Last 4)</label>
+                <label className="text-xs font-bold text-[#424242] block mb-1.5">Aadhaar (Last 4 Digits)</label>
                 <input
                   required type="text" maxLength={4} placeholder="e.g. 9876"
                   value={aadhaar} onChange={e => setAadhaar(e.target.value)}
                   className={`w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold outline-none focus:ring-1 ${accentRing}`}
                 />
+              </div>
+
+              {/* ── Farmer: Aadhaar Card Photo ─── */}
+              {role === "FARMER" && (
+                <>
+                  <input
+                    ref={aadhaarPhotoRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={e => handleFileChange(e, setAadhaarBase64)}
+                  />
+                  <DocUploadCard
+                    label="Aadhaar Card Photo"
+                    preview={aadhaarBase64}
+                    onChoose={() => aadhaarPhotoRef.current?.click()}
+                    accentColor={accentColor}
+                  />
+                </>
+              )}
+
+              {/* Document requirement notice */}
+              <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-xl border border-amber-100">
+                <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-xs font-semibold text-amber-700">
+                  {role === "FARMER"
+                    ? "Your Aadhaar Card is required for identity verification. An admin will review and approve your application."
+                    : "Both your Driving License and Vehicle RC are required for verification. Upload clear photos showing both front and back sides in one image."}
+                </p>
               </div>
 
               {/* Submit */}

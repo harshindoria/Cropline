@@ -23,6 +23,9 @@ export default function BuyersTab() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
 
+  // Row Expansion
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+
   // Action modals
   const [selectedBuyer, setSelectedBuyer] = useState<any>(null);
   const [notifModal, setNotifModal] = useState(false);
@@ -154,6 +157,14 @@ export default function BuyersTab() {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  // Toggle row expansion
+  const toggleRow = (id: string) => {
+    setExpandedRows(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
   };
 
   return (
@@ -332,10 +343,7 @@ export default function BuyersTab() {
             <thead>
               <tr className="border-b border-gray-100">
                 <th className="py-4 px-6 text-xs font-black text-gray-500 uppercase tracking-wider">Buyer</th>
-                <th className="py-4 px-6 text-xs font-black text-gray-500 uppercase tracking-wider">Contact</th>
                 <th className="py-4 px-6 text-xs font-black text-gray-500 uppercase tracking-wider">Location</th>
-                <th className="py-4 px-6 text-xs font-black text-gray-500 uppercase tracking-wider">Total Orders ↓</th>
-                <th className="py-4 px-6 text-xs font-black text-gray-500 uppercase tracking-wider">Total Spent ↓</th>
                 <th className="py-4 px-6 text-xs font-black text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="py-4 px-6 text-xs font-black text-gray-500 uppercase tracking-wider">Joined On</th>
                 <th className="py-4 px-6 text-xs font-black text-gray-500 uppercase tracking-wider text-center">Actions</th>
@@ -357,7 +365,11 @@ export default function BuyersTab() {
                 </tr>
               ) : (
                 pagedBuyers.map((buyer, index) => (
-                  <tr key={buyer.id} className="hover:bg-gray-50/50 transition-colors group">
+                  <React.Fragment key={buyer.id}>
+                  <tr 
+                    onClick={() => toggleRow(buyer.id)}
+                    className="hover:bg-gray-50/50 transition-colors group cursor-pointer"
+                  >
                     <td className="py-3 px-6">
                       <div className="flex items-center gap-3">
                         <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${getAvatarColors((currentPage - 1) * PAGE_SIZE + index)}`}>
@@ -369,17 +381,12 @@ export default function BuyersTab() {
                         </div>
                       </div>
                     </td>
-                    <td className="py-3 px-6 text-sm font-semibold text-gray-600 whitespace-nowrap">
-                      {buyer.phone || "N/A"}
-                    </td>
                     <td className="py-3 px-6">
                       <div className="flex items-center gap-1.5 text-sm font-semibold text-gray-600">
                         <MapPin className="w-4 h-4 text-gray-400 shrink-0" />
                         <span className="truncate max-w-[120px]">{buyer.location}</span>
                       </div>
                     </td>
-                    <td className="py-3 px-6 text-sm font-bold text-gray-900">{buyer.totalOrders}</td>
-                    <td className="py-3 px-6 text-sm font-bold text-gray-900">₹{buyer.totalSpent.toLocaleString()}</td>
                     <td className="py-3 px-6">
                       {buyer.status === "Verified" && (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 text-green-700 text-xs font-bold border border-green-100">
@@ -400,7 +407,7 @@ export default function BuyersTab() {
                     <td className="py-3 px-6 text-sm font-semibold text-gray-600 whitespace-nowrap">
                       {formatDate(buyer.joinedOn)}
                     </td>
-                    <td className="py-3 px-6">
+                    <td className="py-3 px-6" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button 
                           title="View Profile"
@@ -410,7 +417,7 @@ export default function BuyersTab() {
                         </button>
                         <button 
                           title="Send Notification"
-                          onClick={() => { setSelectedBuyer(buyer); setNotifModal(true); }}
+                          onClick={() => { setSelectedBuyer(buyer); setNotifMessage(""); setNotifModal(true); }}
                           className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                         >
                           <Mail className="w-4 h-4" />
@@ -422,9 +429,33 @@ export default function BuyersTab() {
                         >
                           <Ban className="w-4 h-4" />
                         </button>
+                        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${expandedRows[buyer.id] ? "rotate-180" : ""} ml-2 opacity-100`} />
                       </div>
                     </td>
                   </tr>
+
+                  {/* Expanded Details Row */}
+                  {expandedRows[buyer.id] && (
+                    <tr className="bg-[#FAFBFA] border-b border-gray-100">
+                      <td colSpan={5} className="p-0">
+                        <div className="px-6 py-4 grid grid-cols-2 md:grid-cols-3 gap-4">
+                          <div>
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Contact</p>
+                            <p className="text-sm font-semibold text-gray-700">{buyer.phone || "N/A"}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Total Orders</p>
+                            <p className="text-sm font-black text-gray-900">{buyer.totalOrders ?? 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Total Spent</p>
+                            <p className="text-sm font-black text-gray-900">₹{(buyer.totalSpent ?? 0).toLocaleString()}</p>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 ))
               )}
             </tbody>

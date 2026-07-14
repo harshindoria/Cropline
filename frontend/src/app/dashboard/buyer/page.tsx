@@ -13,6 +13,7 @@ import Link from "next/link";
 import Image from "next/image";
 import ApplicationModal from "@/components/ApplicationModal";
 import RoleSwitcher from "@/components/RoleSwitcher";
+import CropCard from "./components/CropCard";
 
 // Mock Categories
 const categories = [
@@ -438,49 +439,15 @@ function BuyerDashboardContent() {
                       ))
                     ) : displayedCrops.length > 0 ? (
                       displayedCrops.map((crop) => (
-                        <div key={crop.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow group">
-                          <Link href={`/dashboard/buyer/crop/${crop.id}`}>
-                            <div className="h-32 w-full bg-gray-100 relative overflow-hidden flex items-center justify-center text-4xl cursor-pointer">
-                              {crop.images && crop.images.length > 0 ? (
-                                <img src={crop.images[0].url} alt={crop.cropName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                              ) : crop.photos && crop.photos.length > 0 ? (
-                                <img src={crop.photos[0]} alt={crop.cropName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                              ) : (
-                                <span>{categories.find(c => c.name.toUpperCase() === (crop.catalog?.category || crop.category))?.emoji || "🌾"}</span>
-                              )}
-                            </div>
-                          </Link>
-                          <div className="p-4">
-                            <Link href={`/dashboard/buyer/crop/${crop.id}`}>
-                              <h3 className="text-sm font-bold text-[#212121] truncate cursor-pointer hover:text-[#1B5E20]">{getCropName(crop)}</h3>
-                            </Link>
-                            <p className="text-[11px] text-gray-500 font-semibold mt-0.5">{crop.farmer?.name}</p>
-                            <div className="flex items-center gap-1 mt-1.5">
-                              <span className="text-[#FFC107]">★</span>
-                              <span className="text-[11px] font-bold">{crop.farmer?.rating || "4.5"}</span>
-                              <span className="text-[10px] text-gray-400">({crop.farmer?.ratingCount || 0})</span>
-                            </div>
-                            <div className="flex items-center justify-between mt-4">
-                              <div>
-                                <p className="text-sm font-extrabold text-[#212121]">₹{crop.basePricePerKg} <span className="text-[10px] text-gray-500 font-semibold">/ kg</span></p>
-                                {crop.marketPrice && (
-                                  <p className="text-[9px] font-bold text-green-700 mt-0.5">Avg Market: ₹{crop.marketPrice}/kg</p>
-                                )}
-                              </div>
-                              {cart[crop.id] ? (
-                                <div className="flex items-center gap-2 bg-green-50 rounded-lg p-1 border border-green-100">
-                                  <button onClick={() => removeFromCart(crop.id)} className="w-6 h-6 rounded flex items-center justify-center text-green-700 bg-white shadow-sm font-bold"><Minus size={14} /></button>
-                                  <span className="text-xs font-bold text-[#1B5E20]">{cart[crop.id]}</span>
-                                  <button onClick={() => addToCart(crop.id)} className="w-6 h-6 rounded flex items-center justify-center text-green-700 bg-white shadow-sm font-bold"><Plus size={14} /></button>
-                                </div>
-                              ) : (
-                                <button onClick={() => addToCart(crop.id)} className="w-7 h-7 rounded-md border border-gray-200 flex items-center justify-center text-green-700 hover:bg-green-50 hover:border-green-200 transition-colors">
-                                  <Plus size={16} strokeWidth={3} />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
+                        <CropCard 
+                          key={crop.id}
+                          crop={crop}
+                          categories={categories}
+                          getCropName={getCropName}
+                          cart={cart}
+                          addToCart={addToCart}
+                          removeFromCart={removeFromCart}
+                        />
                       ))
                     ) : (
                       <div className="col-span-full py-10 text-center text-gray-400 font-semibold text-sm">
@@ -492,20 +459,54 @@ function BuyerDashboardContent() {
               </>
             ) : (
               <>
-                {/* Marketplace Header */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-100 pb-4">
-                  <div>
-                    <h1 className="text-2xl font-black text-[#1B5E20] uppercase tracking-wide">Marketplace</h1>
-                    <p className="text-xs text-gray-500 font-semibold mt-1">Directly Buy Fresh Produce from Farmers Across India</p>
+                {/* Marketplace Header & Banner */}
+                <div className="flex flex-col lg:flex-row gap-6 mb-8">
+                  <div className="lg:w-1/3 flex flex-col justify-center">
+                    <h1 className="text-3xl font-black text-[#0B3B24]">Marketplace</h1>
+                    <p className="text-sm text-gray-600 font-medium mt-2 leading-relaxed">
+                      Buy fresh produce directly from verified farmers across India.
+                    </p>
                   </div>
-                  
-                  {/* Sort Option */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-extrabold text-gray-400 uppercase">Sort By:</span>
+                  <div className="lg:w-2/3 relative rounded-2xl overflow-hidden h-32 md:h-40 bg-gradient-to-r from-[#98d28c] to-[#cbe5ad] flex items-center shadow-sm">
+                    {/* Placeholder for Banner Image / SVG */}
+                    <div className="absolute inset-0 opacity-40">
+                      <div className="absolute bottom-0 w-full h-1/2 bg-[#5d9c53] rounded-t-[100%]"></div>
+                      <div className="absolute bottom-0 left-10 w-20 h-20 bg-[#3a7531] rounded-t-full"></div>
+                      <div className="absolute bottom-0 right-32 w-32 h-32 bg-[#4b8a40] rounded-t-full"></div>
+                    </div>
+                    <div className="relative z-10 p-6 md:p-8 flex items-center justify-end w-full">
+                      <div className="bg-white/90 backdrop-blur-sm px-6 py-4 rounded-xl shadow-sm flex flex-col items-center">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Leaf className="w-5 h-5 text-[#2E7D32]" />
+                          <span className="text-sm font-black text-[#0B3B24]">100% Fresh</span>
+                        </div>
+                        <span className="text-xs font-semibold text-gray-600">Sourced directly from farmers</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Full-width Search Bar & Sort */}
+                <div className="flex flex-col md:flex-row items-center gap-4 mb-8">
+                  <div className="relative flex items-center flex-1 shadow-sm rounded-xl bg-white border border-gray-200 overflow-hidden">
+                    <Leaf className="absolute left-4 w-5 h-5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search crops by name, category, or farmer name..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      className="w-full bg-transparent border-none py-3 pl-12 pr-28 text-sm font-medium outline-none focus:ring-0 text-[#212121]"
+                    />
+                    <div className="absolute right-1.5 top-1.5 bottom-1.5 bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-6 rounded-lg flex items-center justify-center text-xs font-bold cursor-pointer transition-colors shadow">
+                      Search
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-xs font-bold text-gray-500">Sort by:</span>
                     <select 
                       value={sortBy}
                       onChange={(e) => setSortBy(e.target.value)}
-                      className="text-sm font-semibold text-gray-600 bg-white border border-gray-200 rounded-xl p-2 focus:outline-none focus:ring-2 focus:ring-[#1B5E20]/20"
+                      className="text-sm font-bold text-[#212121] bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#1B5E20]/20 appearance-none pr-10 relative"
                     >
                       <option value="newest">Newest</option>
                       <option value="price_asc">Price: Low to High</option>
@@ -515,87 +516,94 @@ function BuyerDashboardContent() {
                   </div>
                 </div>
 
-                {/* Full-width Search Bar */}
-                <div className="relative flex items-center w-full shadow-sm rounded-full bg-white border border-green-100">
-                  <Leaf className="absolute left-4 w-5 h-5 text-[#2E7D32]" />
-                  <input
-                    type="text"
-                    placeholder="Search crops by name, category, or farmer name..."
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    className="w-full bg-transparent border-none py-4 pl-12 pr-24 text-sm font-semibold outline-none focus:ring-2 focus:ring-green-200 rounded-full text-[#212121]"
-                  />
-                  <div className="absolute right-1.5 top-1.5 bottom-1.5 bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-6 rounded-full flex items-center justify-center text-xs font-bold shadow cursor-pointer transition-colors">
-                    Search
-                  </div>
-                </div>
-
                 {/* Category Filters */}
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-gray-400 uppercase tracking-wider block">Filter by Category</label>
-                  <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+                <div className="mb-8">
+                  <h3 className="text-sm font-bold text-[#212121] mb-3">Browse by Category</h3>
+                  <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
                     <button 
                       onClick={() => setSelectedCategory("All")}
-                      className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all border ${
-                        selectedCategory === "All" ? "bg-[#1B5E20] text-white border-[#1B5E20]" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+                      className={`px-5 py-2 rounded-xl text-sm font-bold transition-all border flex items-center gap-2 shrink-0 ${
+                        selectedCategory === "All" ? "bg-[#1B5E20] text-white border-[#1B5E20]" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
                       }`}
                     >
-                      All Produce
+                      <LayoutDashboard className="w-4 h-4" /> All Produce
                     </button>
                     {categories.map((cat) => (
                       <button 
                         key={cat.name} 
                         onClick={() => setSelectedCategory(cat.name)}
-                        className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all border flex items-center gap-1.5 ${
-                          selectedCategory === cat.name ? "bg-[#1B5E20] text-white border-[#1B5E20]" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+                        className={`px-5 py-2 rounded-xl text-sm font-bold transition-all border flex items-center gap-2 shrink-0 ${
+                          selectedCategory === cat.name ? "bg-[#1B5E20] text-white border-[#1B5E20]" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
                         }`}
                       >
-                        <span>{cat.emoji}</span>
+                        <span className="text-base">{cat.emoji}</span>
                         <span>{cat.name}</span>
                       </button>
                     ))}
+                    <button className="px-5 py-2 rounded-xl text-sm font-bold transition-all border bg-white text-gray-600 border-gray-200 hover:bg-gray-50 flex items-center gap-2 shrink-0">
+                      More <ChevronDown className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
 
-                {/* Distance Filter */}
-                <div className="bg-white p-4 rounded-2xl border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
-                  <div className="flex items-center gap-2">
-                    <input 
-                      type="checkbox"
-                      id="geo-filter-checkbox"
-                      checked={isDistanceFilterEnabled}
-                      onChange={(e) => setIsDistanceFilterEnabled(e.target.checked)}
-                      className="w-4 h-4 accent-[#1B5E20] text-[#1B5E20] focus:ring-[#1B5E20] border-gray-300 rounded cursor-pointer"
-                    />
-                    <label htmlFor="geo-filter-checkbox" className="text-xs font-black text-gray-600 uppercase cursor-pointer">
-                      📍 Filter by Distance (Nearby Farmers)
-                    </label>
-                  </div>
-                  {isDistanceFilterEnabled && (
-                    <div className="flex-1 max-w-xs flex items-center gap-3">
-                      <input 
-                        type="range"
-                        min="5"
-                        max="300"
-                        step="5"
-                        value={maxDistance}
-                        onChange={(e) => setMaxDistance(Number(e.target.value))}
-                        className="w-full accent-[#1B5E20] h-1.5 bg-green-100 rounded-lg appearance-none cursor-pointer"
-                      />
-                      <span className="text-xs font-black text-[#1B5E20] whitespace-nowrap min-w-[70px]">
-                        {maxDistance} km
-                      </span>
+                {/* Advanced Filters */}
+                <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 mb-8">
+                  <div className="flex flex-wrap gap-4 flex-1">
+                    <div className="space-y-1.5 flex-1 min-w-[150px]">
+                      <label className="text-xs font-bold text-gray-500">Price Range</label>
+                      <div className="relative">
+                        <select className="w-full text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none appearance-none">
+                          <option>Min price - Max price</option>
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      </div>
                     </div>
-                  )}
+                    <div className="space-y-1.5 flex-1 min-w-[150px]">
+                      <label className="text-xs font-bold text-gray-500">Location</label>
+                      <div className="relative">
+                        <select className="w-full text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none appearance-none">
+                          <option>All Locations</option>
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5 flex-1 min-w-[150px]">
+                      <label className="text-xs font-bold text-gray-500">Delivery Type</label>
+                      <div className="relative">
+                        <select className="w-full text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none appearance-none">
+                          <option>All Types</option>
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4 bg-white border border-gray-200 rounded-xl p-2.5 shrink-0 shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="checkbox"
+                        checked={isDistanceFilterEnabled}
+                        onChange={(e) => setIsDistanceFilterEnabled(e.target.checked)}
+                        className="w-5 h-5 accent-[#1B5E20] border-gray-300 rounded cursor-pointer"
+                      />
+                      <div>
+                        <p className="text-sm font-bold text-[#212121] leading-none">Nearby Farmers</p>
+                        <p className="text-[10px] font-semibold text-gray-500 mt-0.5">Show results near you</p>
+                      </div>
+                    </div>
+                    <div className="w-8 h-8 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center">
+                      <MapPin className="w-4 h-4 text-gray-400" />
+                    </div>
+                  </div>
                 </div>
 
                 {/* Crops Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                   {loadingCrops ? (
                     // Skeleton loader
                     [...Array(limit)].map((_, i) => (
-                      <div key={i} className="bg-white rounded-2xl border border-gray-100 h-64 animate-pulse overflow-hidden">
-                        <div className="h-32 bg-gray-200"></div>
+                      <div key={i} className="bg-white rounded-2xl border border-gray-100 h-72 animate-pulse overflow-hidden">
+                        <div className="h-40 bg-gray-200"></div>
                         <div className="p-4 space-y-3">
                           <div className="h-4 bg-gray-200 rounded w-3/4"></div>
                           <div className="h-3 bg-gray-200 rounded w-1/2"></div>
@@ -605,49 +613,15 @@ function BuyerDashboardContent() {
                     ))
                   ) : displayedCrops.length > 0 ? (
                     displayedCrops.map((crop) => (
-                      <div key={crop.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow group">
-                        <Link href={`/dashboard/buyer/crop/${crop.id}`}>
-                          <div className="h-32 w-full bg-gray-100 relative overflow-hidden flex items-center justify-center text-4xl cursor-pointer">
-                            {crop.images && crop.images.length > 0 ? (
-                              <img src={crop.images[0].url} alt={crop.cropName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                            ) : crop.photos && crop.photos.length > 0 ? (
-                              <img src={crop.photos[0]} alt={crop.cropName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                            ) : (
-                              <span>{categories.find(c => c.name.toUpperCase() === (crop.catalog?.category || crop.category))?.emoji || "🌾"}</span>
-                            )}
-                          </div>
-                        </Link>
-                        <div className="p-4">
-                          <Link href={`/dashboard/buyer/crop/${crop.id}`}>
-                            <h3 className="text-sm font-bold text-[#212121] truncate cursor-pointer hover:text-[#1B5E20]">{getCropName(crop)}</h3>
-                          </Link>
-                          <p className="text-[11px] text-gray-500 font-semibold mt-0.5">{crop.farmer?.name}</p>
-                          <div className="flex items-center gap-1 mt-1.5">
-                            <span className="text-[#FFC107]">★</span>
-                            <span className="text-[11px] font-bold">{crop.farmer?.rating || "4.5"}</span>
-                            <span className="text-[10px] text-gray-400">({crop.farmer?.ratingCount || 0})</span>
-                          </div>
-                          <div className="flex items-center justify-between mt-4">
-                            <div>
-                              <p className="text-sm font-extrabold text-[#212121]">₹{crop.basePricePerKg} <span className="text-[10px] text-gray-500 font-semibold">/ kg</span></p>
-                              {crop.marketPrice && (
-                                <p className="text-[9px] font-bold text-green-700 mt-0.5">Avg Market: ₹{crop.marketPrice}/kg</p>
-                              )}
-                            </div>
-                            {cart[crop.id] ? (
-                              <div className="flex items-center gap-2 bg-green-50 rounded-lg p-1 border border-green-100">
-                                <button onClick={() => removeFromCart(crop.id)} className="w-6 h-6 rounded flex items-center justify-center text-green-700 bg-white shadow-sm font-bold"><Minus size={14} /></button>
-                                <span className="text-xs font-bold text-[#1B5E20]">{cart[crop.id]}</span>
-                                <button onClick={() => addToCart(crop.id)} className="w-6 h-6 rounded flex items-center justify-center text-green-700 bg-white shadow-sm font-bold"><Plus size={14} /></button>
-                              </div>
-                            ) : (
-                              <button onClick={() => addToCart(crop.id)} className="w-7 h-7 rounded-md border border-gray-200 flex items-center justify-center text-green-700 hover:bg-green-50 hover:border-green-200 transition-colors">
-                                <Plus size={16} strokeWidth={3} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                      <CropCard 
+                        key={crop.id}
+                        crop={crop}
+                        categories={categories}
+                        getCropName={getCropName}
+                        cart={cart}
+                        addToCart={addToCart}
+                        removeFromCart={removeFromCart}
+                      />
                     ))
                   ) : (
                     <div className="col-span-full py-10 text-center text-gray-400 font-semibold text-sm">

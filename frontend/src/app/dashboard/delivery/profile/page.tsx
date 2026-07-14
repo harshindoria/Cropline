@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { 
@@ -24,6 +24,8 @@ export default function DeliveryProfile() {
   const [docTypeToEdit, setDocTypeToEdit] = useState<'aadhaar' | 'dl' | 'rc' | null>(null);
   const [formData, setFormData] = useState<any>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [docImagePreview, setDocImagePreview] = useState<string | null>(null);
+  const docFileInputRef = useRef<HTMLInputElement>(null);
   const [locationData, setLocationData] = useState<LocationValue>({
     state: '',
     district: '',
@@ -91,9 +93,9 @@ export default function DeliveryProfile() {
         vehicleColor: profileData?.vehicleColor || '',
       });
     } else if (type === 'document' && docType) {
-      setFormData({
-        [`${docType}Url`]: profileData?.[`${docType}Url`] || '',
-      });
+      const existingBase64 = profileData?.[`${docType}Url`] || '';
+      setFormData({ [`${docType}Url`]: existingBase64 });
+      setDocImagePreview(existingBase64 || null);
     }
   };
 
@@ -101,6 +103,19 @@ export default function DeliveryProfile() {
     setEditModal(null);
     setDocTypeToEdit(null);
     setFormData({});
+    setDocImagePreview(null);
+  };
+
+  const handleDocFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !docTypeToEdit) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      setDocImagePreview(base64);
+      setFormData((prev: any) => ({ ...prev, [`${docTypeToEdit}Url`]: base64 }));
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSave = async () => {
@@ -657,23 +672,43 @@ export default function DeliveryProfile() {
               <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><X size={20}/></button>
             </div>
             <div className="p-6 space-y-4">
-              <div className="p-4 bg-orange-50 text-orange-700 rounded-xl text-sm font-semibold mb-2">
-                Uploading a document will mark it as "Pending Approval". An admin will review it shortly.
+              <div className="p-4 bg-amber-50 text-amber-700 rounded-xl text-sm font-semibold border border-amber-200">
+                Upload a clear photo showing <strong>both front and back</strong> of your {docTypeToEdit === 'aadhaar' ? 'Aadhaar Card' : docTypeToEdit === 'dl' ? 'Driving License' : 'Vehicle RC'} in a single image.
               </div>
-              <div>
-                <label className="text-xs font-bold text-gray-500">Document Image URL (Mock upload)</label>
-                <input 
-                  type="url" 
-                  placeholder="https://example.com/image.jpg" 
-                  value={formData[`${docTypeToEdit}Url`] || ''} 
-                  onChange={e => setFormData({...formData, [`${docTypeToEdit}Url`]: e.target.value})} 
-                  className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100" 
-                />
-              </div>
+              <input
+                ref={docFileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleDocFileChange}
+              />
+              {docImagePreview ? (
+                <div
+                  className="relative group rounded-xl overflow-hidden border-2 border-[#1B5E20] w-full cursor-pointer"
+                  style={{ minHeight: '180px' }}
+                  onClick={() => docFileInputRef.current?.click()}
+                >
+                  <img src={docImagePreview} alt="Document" className="w-full object-contain rounded-xl" />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
+                    <p className="text-white text-xs font-bold flex items-center gap-2">
+                      <Camera size={16} /> Change Photo
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  onClick={() => docFileInputRef.current?.click()}
+                  className="w-full h-44 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-[#1B5E20] hover:bg-green-50/30 transition-all group"
+                >
+                  <Upload className="w-8 h-8 text-gray-300 group-hover:text-[#1B5E20] transition-colors mb-2" />
+                  <p className="text-xs font-bold text-gray-400 group-hover:text-[#1B5E20] transition-colors">Click to upload document photo</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">JPG, PNG · Include both sides in one image</p>
+                </div>
+              )}
             </div>
             <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 rounded-b-3xl">
               <button onClick={closeModal} className="px-5 py-2.5 rounded-xl font-bold text-gray-600 hover:bg-gray-200 transition-colors">Cancel</button>
-              <button onClick={handleSave} disabled={isSaving} className="flex items-center gap-2 px-5 py-2.5 bg-[#1B5E20] hover:bg-green-800 text-white rounded-xl font-bold transition-colors disabled:opacity-50">
+              <button onClick={handleSave} disabled={isSaving || !docImagePreview} className="flex items-center gap-2 px-5 py-2.5 bg-[#1B5E20] hover:bg-green-800 text-white rounded-xl font-bold transition-colors disabled:opacity-50">
                 <Upload size={16} /> {isSaving ? 'Submitting...' : 'Submit Document'}
               </button>
             </div>
