@@ -681,18 +681,32 @@ export default function FarmerProfile() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-xs font-bold text-gray-500 block mb-1.5">Phone Number</label>
-                      <input type="text" value={formData.phone || ''} disabled className="w-full bg-gray-100 border border-gray-200 text-gray-400 rounded-xl p-3.5 text-sm font-semibold" />
+                      <input type="text" value={formData.phone || ''} disabled className="w-full bg-gray-100 border border-gray-200 text-gray-400 rounded-xl p-3.5 text-sm font-semibold cursor-not-allowed" />
                     </div>
                     <div>
                       <label className="text-xs font-bold text-gray-500 block mb-1.5">Email Address</label>
-                      <input type="email" value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold focus:ring-2 focus:ring-green-500 outline-none transition-all" />
+                      <input type="email" value={formData.email || ''} disabled className="w-full bg-gray-100 border border-gray-200 text-gray-400 rounded-xl p-3.5 text-sm font-semibold cursor-not-allowed" />
                     </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 block mb-1.5">Preferred Language</label>
+                    <select value={formData.languagePref || ''} onChange={e => setFormData({...formData, languagePref: e.target.value})} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold focus:ring-2 focus:ring-green-500 outline-none transition-all">
+                      <option value="">Select Language</option>
+                      <option value="Hindi">Hindi</option>
+                      <option value="English">English</option>
+                      <option value="Hindi, English">Hindi & English</option>
+                      <option value="Punjabi">Punjabi</option>
+                      <option value="Marathi">Marathi</option>
+                      <option value="Gujarati">Gujarati</option>
+                      <option value="Tamil">Tamil</option>
+                      <option value="Telugu">Telugu</option>
+                    </select>
                   </div>
                   <LocationSelector
                     value={locationData}
                     onChange={setLocationData}
                     showVillage={true}
-                    showPincode={true}
+                    showPincode={false}
                     label="Location / Address"
                   />
                 </div>

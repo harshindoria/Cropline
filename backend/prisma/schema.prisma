@@ -551,8 +551,8 @@ model CashLiability {
 model Review {
   id String @id @default(cuid())
 
-  order   Order  @relation(fields: [orderId], references: [id])
-  orderId String
+  order   Order?  @relation(fields: [orderId], references: [id])
+  orderId String?
 
   reviewer   User   @relation("GivenReviews", fields: [reviewerId], references: [id])
   reviewerId String
@@ -571,7 +571,7 @@ model Review {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([orderId, reviewerId, targetId])
+  @@unique([reviewerId, targetId])
   @@index([targetId])
 }
 

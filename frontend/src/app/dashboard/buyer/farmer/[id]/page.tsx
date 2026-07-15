@@ -5,7 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
 import { 
-  ArrowLeft, MapPin, CheckCircle2, Star, Package, Leaf, Users, Phone, Clock, MessageCircle, Loader2
+  ArrowLeft, MapPin, CheckCircle2, Star, Package, Leaf, Users, Phone, Clock, MessageCircle, Loader2, ShoppingBasket, Edit3, ChevronDown, ChevronLeft, ChevronRight, X
 } from "lucide-react";
 import Image from "next/image";
 import CropCard from "../../components/CropCard";
@@ -27,6 +27,58 @@ export default function FarmerPublicProfilePage() {
   const [farmer, setFarmer] = useState<any>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [cart, setCart] = useState<Record<string, number>>({});
+  const [isClient, setIsClient] = useState(false);
+  
+  // Review States
+  const [reviewFilter, setReviewFilter] = useState<number | null>(null);
+  const [reviewSort, setReviewSort] = useState<"highest" | "lowest">("highest");
+  const [reviewPage, setReviewPage] = useState(1);
+  const REVIEWS_PER_PAGE = 3;
+
+  // New Review Modal States
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [newReviewRating, setNewReviewRating] = useState(0);
+  const [newReviewComment, setNewReviewComment] = useState("");
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+
+  const handleSubmitReview = async () => {
+    if (newReviewRating === 0) return alert("Please select a rating");
+    try {
+      setIsSubmittingReview(true);
+      const payload = {
+        targetId: farmerId,
+        targetType: "FARMER",
+        rating: newReviewRating,
+        comment: newReviewComment
+      };
+      const res = await api.post('/reviews', payload);
+      if (res.data.success) {
+        alert("Review submitted successfully!");
+        setIsReviewModalOpen(false);
+        window.location.reload(); 
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || "Failed to submit review");
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  useEffect(() => {
+    setIsClient(true);
+    const saved = localStorage.getItem("cropline_cart");
+    if (saved) {
+      try {
+        setCart(JSON.parse(saved));
+      } catch (e) {}
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isClient) {
+      localStorage.setItem("cropline_cart", JSON.stringify(cart));
+    }
+  }, [cart, isClient]);
 
   const addToCart = (cropId: string, minOrder: number = 5) => {
     setCart(prev => ({
@@ -261,85 +313,297 @@ export default function FarmerPublicProfilePage() {
         </div>
 
         {/* Customer Reviews Section */}
-        <div className="bg-white rounded-[24px] p-6 md:p-8 border border-gray-100 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-black text-[#1B5E20]">Customer Reviews</h2>
-          </div>
-          <div className="w-8 h-1 bg-[#2E7D32] rounded-full mb-8"></div>
+        <div className="bg-white rounded-[24px] p-6 md:p-8 border border-gray-100 shadow-sm mt-8">
+          <h2 className="text-xl font-black text-[#1B5E20]">Customer Reviews</h2>
+          <div className="w-8 h-1 bg-[#2E7D32] rounded-full mb-8 mt-2"></div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {farmer.reviews?.textReviews?.map((review: any) => (
-              <div key={review.id} className="flex gap-4">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold shrink-0 bg-green-100 text-green-700`}>
-                  {review.reviewer?.name?.charAt(0) || 'U'}
-                </div>
-                <div className="space-y-1 w-full">
-                  <div className="flex items-center justify-between w-full">
-                    <p className="font-bold text-sm text-gray-800 truncate pr-2">{review.reviewer?.name || 'User'}</p>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <div className="flex text-yellow-400">
-                        {[...Array(5)].map((_, i) => (
-                          <Star key={i} className={`w-3 h-3 ${i < Math.floor(review.rating) ? 'fill-current' : ''}`} />
-                        ))}
-                      </div>
-                      <span className="text-[10px] font-bold text-gray-500">{review.rating.toFixed(1)}</span>
+          {/* Top Review Stats Area */}
+          <div className="flex flex-col md:flex-row gap-8 pb-8 border-b border-gray-100">
+            {/* Overall Rating */}
+            <div className="flex flex-col items-center justify-center shrink-0 w-full md:w-auto md:pr-8 md:border-r border-gray-100">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-5xl font-black text-[#212121]">{farmer.rating ? farmer.rating.toFixed(1) : "0.0"}</span>
+                <Star className="w-8 h-8 text-yellow-400 fill-yellow-400" />
+              </div>
+              <p className="text-sm font-bold text-gray-800">Overall Rating</p>
+              <p className="text-xs font-semibold text-[#2E7D32] mt-1">Based on {farmer.reviews?.totalCount || 0} reviews</p>
+            </div>
+
+            {/* Rating Bars */}
+            <div className="flex-1 flex flex-col gap-2 justify-center">
+              {[5, 4, 3, 2, 1].map((stars) => {
+                const total = farmer.reviews?.totalCount || 0;
+                // Mock distribution if exact data isn't available
+                let count = 0;
+                if (total > 0) {
+                  if (stars === 5) count = Math.floor(total * 0.75);
+                  else if (stars === 4) count = Math.floor(total * 0.18);
+                  else if (stars === 3) count = Math.floor(total * 0.05);
+                  else if (stars === 2) count = Math.floor(total * 0.01);
+                  else if (stars === 1) count = total - Math.floor(total*0.75) - Math.floor(total*0.18) - Math.floor(total*0.05) - Math.floor(total*0.01);
+                }
+                const percent = total > 0 ? (count / total) * 100 : 0;
+                
+                return (
+                  <div key={stars} className="flex items-center gap-3">
+                    <div className="flex items-center gap-1 w-8 shrink-0">
+                      <span className="text-sm font-bold text-gray-600">{stars}</span>
+                      <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
                     </div>
+                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-[#1B5E20] rounded-full" style={{ width: `${percent}%` }}></div>
+                    </div>
+                    <span className="text-xs font-semibold text-gray-500 w-8 text-right">{count}</span>
                   </div>
-                  <p className="text-xs font-medium text-gray-500 leading-relaxed line-clamp-3">
-                    {review.comment}
-                  </p>
-                </div>
+                );
+              })}
+            </div>
+
+            {/* Call to Action */}
+            <div className="shrink-0 bg-[#F9FAF7] rounded-2xl p-6 flex flex-col items-center justify-center border border-[#E8F5E9] w-full md:w-64">
+              <p className="text-sm font-bold text-[#1B5E20] mb-2">Share your experience</p>
+              <div className="flex text-yellow-400 mb-2">
+                {[...Array(5)].map((_, i) => <Star key={i} className="w-5 h-5 fill-yellow-400" />)}
               </div>
-            ))}
-            {(!farmer.reviews?.textReviews || farmer.reviews.textReviews.length === 0) && (
-              <div className="col-span-full text-center py-4 text-gray-500 font-medium">
-                No reviews yet.
+              <p className="text-[10px] font-semibold text-gray-500 mb-4 text-center">Your review helps other buyers!</p>
+              <button 
+                onClick={() => setIsReviewModalOpen(true)}
+                className="w-full py-2 bg-white border border-[#2E7D32] text-[#2E7D32] rounded-lg text-sm font-bold flex items-center justify-center gap-2 hover:bg-green-50 transition-colors shadow-sm"
+              >
+                <Edit3 className="w-4 h-4" />
+                Write a Review
+              </button>
+            </div>
+          </div>
+
+          {/* Filters & Sort */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-6 border-b border-gray-100">
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0 scrollbar-hide">
+              <button 
+                onClick={() => { setReviewFilter(null); setReviewPage(1); }}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors border ${reviewFilter === null ? 'bg-[#1B5E20] text-white border-[#1B5E20]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+              >
+                All Reviews
+              </button>
+              {[5, 4, 3, 2, 1].map(star => (
+                <button 
+                  key={star}
+                  onClick={() => { setReviewFilter(star); setReviewPage(1); }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap flex items-center gap-1 transition-colors border ${reviewFilter === star ? 'bg-[#1B5E20] text-white border-[#1B5E20]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                >
+                  {star} <Star className={`w-3 h-3 ${reviewFilter === star ? 'fill-white text-white' : 'fill-yellow-400 text-yellow-400'}`} />
+                </button>
+              ))}
+            </div>
+
+            <div className="relative group shrink-0">
+              <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-bold text-gray-600 hover:bg-gray-50">
+                Sort: {reviewSort === "highest" ? "Highest Rating" : "Lowest Rating"} <ChevronDown className="w-3 h-3" />
+              </button>
+              <div className="absolute right-0 top-full mt-1 bg-white border border-gray-100 shadow-lg rounded-lg py-1 w-36 hidden group-hover:block z-20">
+                <button 
+                  onClick={() => setReviewSort("highest")}
+                  className="w-full text-left px-4 py-2 text-xs font-semibold hover:bg-gray-50 text-gray-700"
+                >
+                  Highest Rating
+                </button>
+                <button 
+                  onClick={() => setReviewSort("lowest")}
+                  className="w-full text-left px-4 py-2 text-xs font-semibold hover:bg-gray-50 text-gray-700"
+                >
+                  Lowest Rating
+                </button>
               </div>
-            )}
+            </div>
+          </div>
+
+          {/* Review List */}
+          <div className="flex flex-col divide-y divide-gray-100">
+            {(() => {
+              const allReviews = farmer.reviews?.textReviews || [];
+              const filteredReviews = reviewFilter 
+                ? allReviews.filter((r: any) => Math.round(r.rating) === reviewFilter)
+                : allReviews;
+              const sortedReviews = [...filteredReviews].sort((a: any, b: any) => {
+                if (reviewSort === "highest") return b.rating - a.rating;
+                return a.rating - b.rating;
+              });
+              const totalReviewPages = Math.max(1, Math.ceil(sortedReviews.length / REVIEWS_PER_PAGE));
+              const paginatedReviews = sortedReviews.slice((reviewPage - 1) * REVIEWS_PER_PAGE, reviewPage * REVIEWS_PER_PAGE);
+
+              if (sortedReviews.length === 0) {
+                return (
+                  <div className="text-center py-12 text-gray-500 font-medium text-sm">
+                    No reviews found for the selected filters.
+                  </div>
+                );
+              }
+
+              return (
+                <>
+                  {paginatedReviews.map((review: any) => (
+                    <div key={review.id} className="py-6 flex flex-col sm:flex-row gap-4 sm:gap-6">
+                      {/* Avatar */}
+                      <div className="flex items-center gap-3 sm:w-48 shrink-0">
+                        <div className="w-12 h-12 rounded-full bg-[#E8F5E9] flex items-center justify-center text-lg font-black text-[#1B5E20] shrink-0">
+                          {review.reviewer?.name?.split(' ').map((n:string)=>n[0]).join('').substring(0,2).toUpperCase() || 'U'}
+                        </div>
+                        <div>
+                          <p className="font-bold text-sm text-[#212121]">{review.reviewer?.name || 'User'}</p>
+                          <p className="text-[10px] font-bold text-[#2E7D32] flex items-center gap-1 mt-0.5">
+                            <CheckCircle2 className="w-3 h-3" /> Verified Buyer
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="flex text-yellow-400">
+                            {[...Array(5)].map((_, i) => (
+                              <Star key={i} className={`w-3.5 h-3.5 ${i < Math.round(review.rating) ? 'fill-current' : ''}`} />
+                            ))}
+                          </div>
+                          <span className="text-gray-300">•</span>
+                          <span className="text-[10px] font-semibold text-gray-400">
+                            {new Date(review.createdAt || Date.now()).toLocaleDateString(undefined, { dateStyle: 'medium'})}
+                          </span>
+                        </div>
+                        <p className="text-sm font-medium text-gray-600 leading-relaxed mb-3">
+                          {review.comment}
+                        </p>
+                        <div className="inline-block px-3 py-1 bg-[#F9FAF7] border border-[#E8F5E9] text-[#2E7D32] text-[10px] font-bold rounded-full">
+                          Produce Item
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Pagination */}
+                  {totalReviewPages > 1 && (
+                    <div className="flex items-center justify-center gap-4 pt-8">
+                      <button 
+                        onClick={() => setReviewPage(p => Math.max(1, p - 1))}
+                        disabled={reviewPage === 1}
+                        className="w-8 h-8 rounded-full flex items-center justify-center border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs font-bold text-gray-600">
+                        Page {reviewPage} of {totalReviewPages}
+                      </span>
+                      <button 
+                        onClick={() => setReviewPage(p => Math.min(totalReviewPages, p + 1))}
+                        disabled={reviewPage === totalReviewPages}
+                        className="w-8 h-8 rounded-full flex items-center justify-center border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
 
         {/* Footer Contact Bar */}
-        <div className="bg-white rounded-[24px] p-4 md:p-6 border border-gray-100 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex flex-wrap items-center justify-center md:justify-start gap-6 md:gap-12 w-full md:w-auto">
+        <div className="bg-white rounded-[24px] p-6 border border-gray-100 shadow-sm flex items-center justify-between gap-6 mt-8">
+          <div className="flex flex-wrap items-center gap-8 w-full">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center">
-                <Phone className="w-5 h-5 text-gray-400" />
+              <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center">
+                <Phone className="w-5 h-5 text-[#2E7D32]" />
               </div>
               <div>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Phone</p>
-                <p className="text-sm font-semibold text-gray-700">{farmer.phone || 'Not Provided'}</p>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Phone</p>
+                <p className="text-base font-black text-[#212121]">{farmer.phone || 'Not Provided'}</p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center">
-                <MapPin className="w-5 h-5 text-gray-400" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Location</p>
-                <p className="text-sm font-semibold text-gray-700 truncate max-w-[120px] md:max-w-none">{location}</p>
-              </div>
-            </div>
+            <div className="w-px h-10 bg-gray-100 hidden md:block"></div>
 
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center">
-                <Clock className="w-5 h-5 text-gray-400" />
+              <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center">
+                <MapPin className="w-5 h-5 text-[#2E7D32]" />
               </div>
               <div>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Available</p>
-                <p className="text-sm font-semibold text-gray-700">6 AM - 8 PM</p>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Location</p>
+                <p className="text-base font-black text-[#212121] truncate max-w-[200px]">{location}</p>
               </div>
             </div>
           </div>
-
-          <button className="w-full md:w-auto flex items-center justify-center gap-2 bg-[#2E7D32] text-white px-8 py-3 rounded-xl font-bold hover:bg-[#1B5E20] transition-colors shadow-sm shrink-0">
-            <MessageCircle className="w-5 h-5" />
-            Message Farmer
-          </button>
         </div>
 
       </main>
+
+      {/* Floating Checkout Bar */}
+      {isClient && Object.keys(cart).length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 md:left-64 bg-white border-t border-gray-200 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-50 flex items-center justify-between">
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold text-gray-500">{Object.keys(cart).length} item{Object.keys(cart).length > 1 ? 's' : ''} in basket</span>
+            <span className="text-lg font-black text-[#1B5E20]">Ready to checkout</span>
+          </div>
+          <button 
+            onClick={() => router.push('/dashboard/buyer')}
+            className="bg-[#2E7D32] hover:bg-[#1B5E20] text-white px-8 py-3 rounded-xl font-bold transition-colors shadow-sm flex items-center gap-2"
+          >
+            <ShoppingBasket className="w-5 h-5" />
+            View Basket
+          </button>
+        </div>
+      )}
+
+      {/* Write a Review Modal */}
+      {isReviewModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-[24px] w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-[#F9FAF7]">
+              <h3 className="text-lg font-black text-[#1B5E20]">Write a Review</h3>
+              <button onClick={() => setIsReviewModalOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Overall Rating</label>
+                <div className="flex items-center gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      onClick={() => setNewReviewRating(star)}
+                      className="focus:outline-none transition-transform hover:scale-110 active:scale-95"
+                    >
+                      <Star 
+                        className={`w-10 h-10 ${star <= newReviewRating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-200 fill-gray-200'} transition-colors`} 
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Your Experience</label>
+                <textarea 
+                  rows={4}
+                  value={newReviewComment}
+                  onChange={(e) => setNewReviewComment(e.target.value)}
+                  placeholder="Tell others about the quality of the produce, delivery experience, etc."
+                  className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-[#2E7D32]/20 focus:border-[#2E7D32] transition-all resize-none outline-none"
+                />
+              </div>
+
+              <button 
+                onClick={handleSubmitReview}
+                disabled={isSubmittingReview || newReviewRating === 0}
+                className="w-full py-4 bg-[#2E7D32] hover:bg-[#1B5E20] disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm"
+              >
+                {isSubmittingReview ? <Loader2 className="w-5 h-5 animate-spin" /> : "Submit Review"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -54,7 +54,7 @@ export const submitReview = async (req: Request, res: Response): Promise<void> =
     const { orderId, targetId, targetType, rating, comment } = req.body;
     const reviewerId = req.user!.id;
 
-    if (!orderId || !targetId || !targetType || !rating) {
+    if (!targetId || !targetType || !rating) {
       res.status(400).json({ success: false, message: 'Missing required fields' });
       return;
     }
@@ -64,26 +64,27 @@ export const submitReview = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // Verify order exists and belongs to the reviewer
-    const order = await prisma.order.findUnique({
-      where: { id: orderId }
-    });
+    // Verify order exists and belongs to the reviewer (if orderId is provided)
+    if (orderId) {
+      const order = await prisma.order.findUnique({
+        where: { id: orderId }
+      });
 
-    if (!order) {
-      res.status(404).json({ success: false, message: 'Order not found' });
-      return;
+      if (!order) {
+        res.status(404).json({ success: false, message: 'Order not found' });
+        return;
+      }
+
+      if (order.buyerId !== reviewerId) {
+        res.status(403).json({ success: false, message: 'You are not authorized to review this order' });
+        return;
+      }
     }
 
-    if (order.buyerId !== reviewerId) {
-      res.status(403).json({ success: false, message: 'You are not authorized to review this order' });
-      return;
-    }
-
-    // Check if review already exists
+    // Check if review already exists for this target
     const existing = await prisma.review.findUnique({
       where: {
-        orderId_reviewerId_targetId: {
-          orderId,
+        reviewerId_targetId: {
           reviewerId,
           targetId
         }
@@ -91,7 +92,7 @@ export const submitReview = async (req: Request, res: Response): Promise<void> =
     });
 
     if (existing) {
-      res.status(400).json({ success: false, message: 'You have already reviewed this user for this order' });
+      res.status(400).json({ success: false, message: 'You have already reviewed this user' });
       return;
     }
 
@@ -121,9 +122,23 @@ export const submitReview = async (req: Request, res: Response): Promise<void> =
       }
     });
 
+    // Create a notification for the target farmer
+    const reviewer = await prisma.user.findUnique({ where: { id: reviewerId }});
+    if (reviewer) {
+      await prisma.notification.create({
+        data: {
+          userId: targetId,
+          title: 'New Review Received',
+          body: `${reviewer.name} left a ${rating}-star review on your profile.`,
+          type: 'GENERAL',
+          alertLevel: 'INFO'
+        }
+      });
+    }
+
     res.status(201).json({ success: true, data: review });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Submit Review Error:', error);
-    res.status(500).json({ success: false, message: 'Failed to submit review' });
+    res.status(500).json({ success: false, message: error.message || 'Failed to submit review' });
   }
 };

@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
 import { 
-  ArrowLeft, Search, MapPin, Star, BadgeCheck, Leaf, ChevronRight, X
+  ArrowLeft, Search, MapPin, Star, BadgeCheck, Heart, ChevronDown, Package, LayoutGrid, ChevronLeft, ChevronRight, SlidersHorizontal, Map, Users, Leaf
 } from "lucide-react";
 import Image from "next/image";
+import { INDIA_STATES } from "@/lib/india-locations";
 
 export default function SuppliersDirectory() {
   const { user, loading } = useAuth();
@@ -15,14 +16,33 @@ export default function SuppliersDirectory() {
 
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(true);
-
-  // Filters
   const [searchQuery, setSearchQuery] = useState("");
-  const [isNearMe, setIsNearMe] = useState(false);
-  const [maxDistance, setMaxDistance] = useState(50);
-  
-  // Selected Profile Modal
-  const [selectedFarmer, setSelectedFarmer] = useState<any | null>(null);
+  const [selectedState, setSelectedState] = useState<string>("");
+  const [selectedDistrict, setSelectedDistrict] = useState<string>("");
+  const [availableDistricts, setAvailableDistricts] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (selectedState) {
+      const stateObj = INDIA_STATES.find(s => s.name === selectedState);
+      setAvailableDistricts(stateObj ? stateObj.districts : []);
+      setSelectedDistrict("");
+    } else {
+      setAvailableDistricts([]);
+      setSelectedDistrict("");
+    }
+  }, [selectedState]);
+
+  const calculateExperience = (dateString?: string) => {
+    if (!dateString) return 'Just Joined';
+    const joined = new Date(dateString);
+    const diffTime = Math.abs(new Date().getTime() - joined.getTime());
+    const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25);
+    if (diffYears < 1) {
+      const diffMonths = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 30));
+      return diffMonths <= 0 ? 'Just Joined' : `${diffMonths} Month${diffMonths !== 1 ? 's' : ''}`;
+    }
+    return `${Math.floor(diffYears)}+ Years`;
+  };
 
   useEffect(() => {
     if (!loading && (!user || user.activeRole !== "BUYER")) {
@@ -40,8 +60,12 @@ export default function SuppliersDirectory() {
           endpoint += `&search=${encodeURIComponent(searchQuery)}`;
         }
         
-        if (isNearMe && user?.latitude && user?.longitude) {
-          endpoint += `&lat=${user.latitude}&lng=${user.longitude}&radius=${maxDistance}`;
+        if (selectedState) {
+          endpoint += `&state=${encodeURIComponent(selectedState)}`;
+        }
+
+        if (selectedDistrict) {
+          endpoint += `&district=${encodeURIComponent(selectedDistrict)}`;
         }
 
         const res = await api.get(endpoint);
@@ -58,7 +82,7 @@ export default function SuppliersDirectory() {
     if (user && user.activeRole === "BUYER") {
       fetchSuppliers();
     }
-  }, [user, searchQuery, isNearMe, maxDistance]);
+  }, [user, searchQuery, selectedState, selectedDistrict]);
 
   if (loading || !user) {
     return (
@@ -68,319 +92,294 @@ export default function SuppliersDirectory() {
     );
   }
 
+  // Calculate stats from loaded suppliers
+  const totalFarmers = suppliers.length;
+  const activeFarmers = suppliers.filter(s => (s._count?.crops || s.crops?.length) > 0).length;
+  const totalProducts = suppliers.reduce((acc, s) => acc + (s._count?.crops || s.crops?.length || 0), 0);
+  const avgRating = suppliers.length > 0 ? (suppliers.reduce((acc, s) => acc + (s.rating || 0), 0) / suppliers.length).toFixed(1) : "0.0";
+  const totalReviews = suppliers.reduce((acc, s) => acc + (s.ratingCount || 0), 0);
+
   return (
-    <div className="flex flex-col h-full bg-[#FAFBFA]">
+    <div className="flex flex-col h-full bg-[#FAFBFA] font-[family-name:var(--font-poppins)]">
       
       {/* Top Header */}
-      <header className="bg-white border-b border-gray-100 p-4 shrink-0 shadow-xs">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => router.push("/dashboard/buyer")}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors cursor-pointer"
-            >
-              <ArrowLeft className="w-6 h-6 text-gray-600" />
-            </button>
-            <div>
-              <h1 className="text-xl font-bold text-[#1B5E20]">Farmers Directory</h1>
-              <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Connect directly with growers</p>
-            </div>
+      <header className="bg-white border-b border-gray-100 p-4 shrink-0">
+        <div className="max-w-7xl mx-auto flex items-center gap-4">
+          <button 
+            onClick={() => router.push("/dashboard/buyer")}
+            className="p-2 hover:bg-gray-100 rounded-full transition-colors cursor-pointer"
+          >
+            <ArrowLeft className="w-6 h-6 text-gray-600" />
+          </button>
+          <div>
+            <h1 className="text-2xl font-black text-[#1B5E20]">Farmers Directory</h1>
+            <p className="text-sm font-semibold text-gray-500">Connect directly with verified farmers and explore their fresh produce.</p>
           </div>
         </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 md:py-8">
-        <div className="max-w-6xl mx-auto flex flex-col gap-6">
+        <div className="max-w-7xl mx-auto flex flex-col gap-8">
         
-        {/* Filters Section */}
-        <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm flex flex-col md:flex-row md:items-center gap-4">
-          
-          {/* Search Bar */}
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <input 
-              type="text"
-              placeholder="Search by farmer name, village or district..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-transparent focus:border-green-200 focus:bg-white rounded-2xl outline-none text-sm font-semibold transition-all"
-            />
-          </div>
-
-          <div className="h-px md:h-10 w-full md:w-px bg-gray-100"></div>
-
-          {/* Location Proximity Toggle */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4 md:w-auto">
-            <label className="flex items-center gap-2 cursor-pointer group">
-              <div className={`w-10 h-6 rounded-full transition-colors flex items-center px-1 relative ${isNearMe ? 'bg-[#1B5E20]' : 'bg-gray-200'}`}>
-                <div className={`w-4 h-4 bg-white rounded-full transition-transform ${isNearMe ? 'translate-x-4' : 'translate-x-0'}`}></div>
-                <input 
-                  type="checkbox" 
-                  className="hidden" 
-                  checked={isNearMe}
-                  onChange={(e) => setIsNearMe(e.target.checked)}
-                />
+          {/* Stats Section */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
+              <div className="w-14 h-14 bg-green-50 rounded-full flex items-center justify-center shrink-0">
+                <Users className="w-6 h-6 text-[#2E7D32]" />
               </div>
-              <span className="text-xs font-black text-gray-600 uppercase group-hover:text-[#1B5E20] transition-colors">
-                📍 Farmers Near Me
-              </span>
-            </label>
-
-            {isNearMe && (
-              <div className="flex items-center gap-3 bg-green-50 px-4 py-2 rounded-xl">
-                <input 
-                  type="range"
-                  min="5"
-                  max="200"
-                  step="5"
-                  value={maxDistance}
-                  onChange={(e) => setMaxDistance(Number(e.target.value))}
-                  className="w-24 md:w-32 accent-[#1B5E20] h-1.5 bg-green-200 rounded-lg appearance-none cursor-pointer"
-                />
-                <span className="text-xs font-black text-[#1B5E20] whitespace-nowrap w-12">
-                  {maxDistance} km
-                </span>
+              <div>
+                <p className="text-2xl font-black text-[#212121]">{totalFarmers}</p>
+                <p className="text-sm font-bold text-gray-800">Total Farmers</p>
+                <p className="text-[10px] font-semibold text-gray-500">Across platform</p>
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+            
+            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
+              <div className="w-14 h-14 bg-blue-50 rounded-full flex items-center justify-center shrink-0">
+                <BadgeCheck className="w-6 h-6 text-blue-500" />
+              </div>
+              <div>
+                <p className="text-2xl font-black text-[#212121]">{activeFarmers}</p>
+                <p className="text-sm font-bold text-gray-800">Active Farmers</p>
+                <p className="text-[10px] font-semibold text-gray-500">Currently selling</p>
+              </div>
+            </div>
 
-        {/* Suppliers Grid */}
-        {loadingData ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="bg-white rounded-3xl h-64 border border-gray-100 animate-pulse"></div>
-            ))}
+            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
+              <div className="w-14 h-14 bg-orange-50 rounded-full flex items-center justify-center shrink-0">
+                <Package className="w-6 h-6 text-orange-500" />
+              </div>
+              <div>
+                <p className="text-2xl font-black text-[#212121]">{totalProducts}</p>
+                <p className="text-sm font-bold text-gray-800">Total Products</p>
+                <p className="text-[10px] font-semibold text-gray-500">Listed by farmers</p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex items-center gap-4">
+              <div className="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center shrink-0">
+                <Star className="w-6 h-6 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-black text-[#212121]">{avgRating}</p>
+                <p className="text-sm font-bold text-gray-800">Avg. Rating</p>
+                <p className="text-[10px] font-semibold text-gray-500">From {totalReviews} review{totalReviews !== 1 ? 's' : ''}</p>
+              </div>
+            </div>
           </div>
-        ) : suppliers.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {suppliers.map(farmer => (
-              <div key={farmer.id} className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow group flex flex-col">
-                
-                {/* Card Header (Farmer Info) */}
-                <div 
-                  onClick={() => router.push(`/dashboard/buyer/farmer/${farmer.id}`)}
-                  className="p-5 flex gap-4 cursor-pointer hover:bg-gray-50/50 transition-colors"
-                >
-                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#1B5E20] to-emerald-400 flex items-center justify-center text-white font-black text-xl shrink-0 shadow-inner">
-                    {farmer.name ? farmer.name.charAt(0).toUpperCase() : "F"}
-                  </div>
+
+          {/* Search & Filters */}
+          <div className="flex flex-col gap-4">
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+              <input 
+                type="text"
+                placeholder="Search by farmer name, village or district..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-12 pr-4 py-3.5 bg-white border border-gray-200 focus:border-[#2E7D32] rounded-xl outline-none text-sm font-semibold transition-all shadow-sm"
+              />
+            </div>
+
+            {/* Filter Pills */}
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 shadow-sm">
+                  <LayoutGrid size={16} className="text-gray-500" /> All Categories <ChevronDown size={14} className="text-gray-400" />
+                </button>
+                <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 shadow-sm">
+                  <Leaf size={16} className="text-gray-500" /> All Crops <ChevronDown size={14} className="text-gray-400" />
+                </button>
+                <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 shadow-sm">
+                  <BadgeCheck size={16} className="text-gray-500" /> All Status <ChevronDown size={14} className="text-gray-400" />
+                </button>
+                <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 shadow-sm">
+                  <SlidersHorizontal size={16} className="text-gray-500" /> More Filters
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <select
+                    value={selectedState}
+                    onChange={(e) => setSelectedState(e.target.value)}
+                    className="appearance-none flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 shadow-sm pr-8 outline-none focus:border-[#2E7D32]"
+                  >
+                    <option value="">All States</option>
+                    {INDIA_STATES.map((state) => (
+                      <option key={state.name} value={state.name}>
+                        {state.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} className="text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+
+                <div className="relative">
+                  <select
+                    value={selectedDistrict}
+                    onChange={(e) => setSelectedDistrict(e.target.value)}
+                    disabled={!selectedState}
+                    className="appearance-none flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 shadow-sm pr-8 outline-none focus:border-[#2E7D32] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="">All Districts</option>
+                    {availableDistricts.map((district) => (
+                      <option key={district} value={district}>
+                        {district}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} className="text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Suppliers Grid */}
+          {loadingData ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
+              {[...Array(8)].map((_, i) => (
+                <div key={i} className="bg-white rounded-2xl h-80 border border-gray-100 shadow-sm animate-pulse"></div>
+              ))}
+            </div>
+          ) : suppliers.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
+              {suppliers.map(farmer => (
+                <div key={farmer.id} className="bg-white rounded-[20px] border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col relative pb-4">
                   
-                  <div className="flex-1">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className="text-base font-black text-[#1B5E20] hover:underline flex items-center gap-1.5">
-                          {farmer.name}
-                          {farmer.isVerified && <BadgeCheck className="text-blue-500" size={16} />}
-                        </h3>
-                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1 mt-0.5">
-                          <MapPin size={10} />
-                          {farmer.village ? `${farmer.village}, ` : ''}{farmer.district || 'Unknown Location'}
-                        </p>
+                  {/* Background Cover Image */}
+                  <div 
+                    className="h-28 w-full bg-cover bg-center"
+                    style={{ backgroundImage: "url('https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=800&auto=format&fit=crop')" }}
+                  >
+                    {/* Overlays */}
+                    <div className="absolute top-3 left-3 bg-white px-2 py-1 rounded-md text-[10px] font-black text-[#1B5E20] flex items-center gap-1 shadow-sm">
+                      Verified
+                    </div>
+                    <div className="absolute top-3 right-3 w-8 h-8 bg-white/50 backdrop-blur rounded-full flex items-center justify-center text-gray-700 cursor-pointer hover:bg-white transition-colors shadow-sm">
+                      <Heart className="w-4 h-4" />
+                    </div>
+                  </div>
+
+                  {/* Circular Avatar */}
+                  <div className="flex justify-center -mt-12 relative z-10 mb-2">
+                    <div className="w-24 h-24 rounded-full border-4 border-white overflow-hidden bg-gray-100 shadow-sm flex items-center justify-center">
+                      <div className="w-full h-full bg-gradient-to-br from-[#1B5E20] to-emerald-400 flex items-center justify-center text-white font-black text-3xl">
+                        {farmer.name ? farmer.name.charAt(0).toUpperCase() : "F"}
                       </div>
                     </div>
-                    
-                    <div className="flex items-center gap-3 mt-3">
-                      <div className="flex items-center gap-1 bg-yellow-50 px-2 py-0.5 rounded-md">
-                        <Star className="text-yellow-500 fill-yellow-500" size={12} />
-                        <span className="text-xs font-black text-yellow-700">{farmer.rating ? farmer.rating.toFixed(1) : "New"}</span>
-                      </div>
-                      {farmer.distanceKm !== null && (
-                        <div className="text-[10px] font-bold text-[#1B5E20] bg-green-50 px-2 py-0.5 rounded-md">
-                          {Math.round(farmer.distanceKm)} km away
-                        </div>
+                  </div>
+
+                  {/* Body Content */}
+                  <div className="flex flex-col items-center px-4 flex-1">
+                    <h3 className="text-lg font-black text-[#212121] text-center">{farmer.name}</h3>
+                    <p className="text-xs font-semibold text-gray-500 flex items-center gap-1 mt-0.5">
+                      <MapPin size={12} className="text-gray-400" />
+                      {farmer.village ? `${farmer.village}, ` : ''}{farmer.district || 'Unknown Location'}
+                    </p>
+
+                    <div className="flex items-center gap-1.5 mt-3 text-sm">
+                      <Star className="text-yellow-400 fill-yellow-400" size={14} />
+                      <span className="font-black text-[#212121]">{farmer.rating ? farmer.rating.toFixed(1) : "0.0"}</span>
+                      <span className="font-semibold text-gray-400">({farmer.ratingCount || 0})</span>
+                      <span className="text-gray-300 mx-1">•</span>
+                      <span className="font-semibold text-gray-500 text-xs">{calculateExperience(farmer.createdAt)}</span>
+                    </div>
+
+                    <div className="mt-3">
+                      {farmer.categories && farmer.categories.length > 0 ? (
+                        <span className="text-[10px] font-bold text-green-700 bg-green-50 px-3 py-1 rounded-full">
+                          {farmer.categories[0]}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-green-700 bg-green-50 px-3 py-1 rounded-full">
+                          Vegetables
+                        </span>
                       )}
                     </div>
-                  </div>
-                </div>
 
-                {/* Badges/Categories */}
-                <div className="px-5 pb-3 flex flex-wrap gap-1.5">
-                  {farmer.categories && farmer.categories.length > 0 ? (
-                    farmer.categories.map((cat: string) => (
-                      <span key={cat} className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">
-                        {cat}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-[9px] font-bold text-gray-500 bg-gray-50 px-2 py-1 rounded-full">Diverse Crops</span>
-                  )}
-                </div>
-
-                {/* Active Listings Preview */}
-                <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 flex-1">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Active Produce</p>
-                    <span className="text-[10px] font-bold text-[#1B5E20]">{farmer.crops?.length || 0} items</span>
-                  </div>
-                  
-                  {farmer.crops && farmer.crops.length > 0 ? (
-                    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                      {farmer.crops.map((crop: any) => (
-                        <div 
-                          key={crop.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            router.push(`/dashboard/buyer/crop/${crop.id}`);
-                          }}
-                          className="w-16 shrink-0 bg-white p-1 rounded-xl shadow-xs border border-gray-100 cursor-pointer hover:border-green-300 transition-colors"
-                        >
-                          <div className="w-full h-12 relative rounded-lg overflow-hidden bg-gray-100 mb-1">
-                            {crop.photos && crop.photos[0] ? (
-                              <Image src={crop.photos[0]} alt="Crop" fill className="object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center"><Leaf size={14} className="text-gray-300" /></div>
-                            )}
-                          </div>
-                          <p className="text-[9px] font-bold text-center truncate">{crop.catalog.englishName}</p>
-                          <p className="text-[9px] font-black text-[#1B5E20] text-center">₹{crop.basePricePerKg}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-4 text-xs font-semibold text-gray-400">
-                      No active listings right now
-                    </div>
-                  )}
-                </div>
-
-                {/* View Profile Action */}
-                <button 
-                  onClick={() => router.push(`/dashboard/buyer/farmer/${farmer.id}`)}
-                  className="w-full py-3.5 bg-white border-t border-gray-100 text-xs font-black text-[#1B5E20] hover:bg-green-50 transition-colors flex items-center justify-center gap-1 group/btn"
-                >
-                  View Farm Profile <ChevronRight size={14} className="group-hover/btn:translate-x-1 transition-transform" />
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-gray-100">
-            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
-              <Search className="text-gray-300 w-8 h-8" />
-            </div>
-            <h2 className="text-lg font-black text-[#212121]">No farmers found</h2>
-            <p className="text-sm font-semibold text-gray-500 mt-1 max-w-md text-center">
-              Try adjusting your search filters or increasing the proximity radius to discover more growers.
-            </p>
-            {(searchQuery || isNearMe) && (
-              <button 
-                onClick={() => {
-                  setSearchQuery("");
-                  setIsNearMe(false);
-                }}
-                className="mt-6 px-6 py-2 bg-green-50 text-[#1B5E20] text-xs font-black uppercase tracking-wider rounded-xl hover:bg-green-100 transition-colors cursor-pointer"
-              >
-                Clear all filters
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-
-      {/* Farmer Detail Modal */}
-      {selectedFarmer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-end bg-black/40 backdrop-blur-sm">
-          <div 
-            className="w-full max-w-md bg-white h-full shadow-2xl animate-in slide-in-from-right flex flex-col"
-          >
-            {/* Modal Header */}
-            <div className="p-6 border-b border-gray-100 flex items-start justify-between bg-gradient-to-br from-green-50 to-white">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#1B5E20] to-emerald-400 flex items-center justify-center text-white font-black text-2xl shadow-inner">
-                  {selectedFarmer.name ? selectedFarmer.name.charAt(0).toUpperCase() : "F"}
-                </div>
-                <div>
-                  <h2 className="text-xl font-black text-[#212121] flex items-center gap-2">
-                    {selectedFarmer.name}
-                    {selectedFarmer.isVerified && <BadgeCheck className="text-blue-500" size={20} />}
-                  </h2>
-                  <p className="text-xs font-bold text-gray-500 mt-1 flex items-center gap-1">
-                    <MapPin size={12} />
-                    {selectedFarmer.village ? `${selectedFarmer.village}, ` : ''}{selectedFarmer.district}
-                  </p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setSelectedFarmer(null)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-              >
-                <X size={20} className="text-gray-500" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-8">
-              
-              {/* Trust Card */}
-              <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-black text-emerald-800 uppercase tracking-wider flex items-center gap-1">
-                    <Star size={12} className="fill-emerald-800" /> Supplier Rating
-                  </span>
-                  <span className="text-sm font-black text-emerald-900">{selectedFarmer.rating ? selectedFarmer.rating.toFixed(1) : "New"} / 5.0</span>
-                </div>
-                <p className="text-[10px] font-semibold text-emerald-700">
-                  Based on {selectedFarmer.ratingCount || 0} verified buyer reviews.
-                </p>
-              </div>
-
-              {/* Produce Grid */}
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-black text-[#212121]">Active Listings</h3>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{selectedFarmer.crops?.length || 0} Crops</span>
-                </div>
-
-                {selectedFarmer.crops && selectedFarmer.crops.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-3">
-                    {selectedFarmer.crops.map((crop: any) => (
-                      <div 
-                        key={crop.id}
-                        onClick={() => router.push(`/dashboard/buyer/crop/${crop.id}`)}
-                        className="bg-white rounded-2xl border border-gray-100 p-2 shadow-sm hover:border-[#1B5E20] transition-colors cursor-pointer group"
-                      >
-                        <div className="w-full h-24 relative rounded-xl overflow-hidden bg-gray-100 mb-2">
-                          {crop.photos && crop.photos[0] ? (
-                            <Image src={crop.photos[0]} alt="Crop" fill className="object-cover group-hover:scale-105 transition-transform duration-500" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center"><Leaf size={20} className="text-gray-300" /></div>
-                          )}
-                        </div>
-                        <div className="px-1">
-                          <p className="text-xs font-bold text-[#212121] truncate">{crop.catalog.englishName}</p>
-                          <div className="flex items-center justify-between mt-1">
-                            <span className="text-xs font-black text-[#1B5E20]">₹{crop.basePricePerKg}</span>
-                            <span className="text-[9px] font-bold text-gray-500">{crop.quantityRemainingKg} kg left</span>
-                          </div>
-                        </div>
+                    <div className="flex items-center justify-between w-full mt-5 px-2 text-xs font-bold text-gray-600">
+                      <div className="flex items-center gap-1.5">
+                        <Package size={14} className="text-gray-400" />
+                        {farmer._count?.crops ?? farmer.crops?.length ?? 0} Products
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="bg-gray-50 rounded-2xl p-6 text-center border border-gray-100">
-                    <Leaf className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                    <p className="text-xs font-semibold text-gray-500">This farmer has no active crops listed at the moment.</p>
-                  </div>
-                )}
-              </div>
+                      <div className="flex items-center gap-1.5">
+                        <LayoutGrid size={14} className="text-gray-400" />
+                        {farmer.farmArea ?? 0} Acres
+                      </div>
+                    </div>
 
-              {/* Message Banner */}
-              <div className="bg-[#212121] text-white rounded-2xl p-5 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div>
-                <h3 className="text-sm font-black mb-1">Have a custom requirement?</h3>
-                <p className="text-[10px] text-gray-400 font-semibold mb-4 w-4/5">Chat directly with {selectedFarmer.name.split(' ')[0]} to negotiate bulk rates or ask for specific produce.</p>
-                <button className="px-4 py-2 bg-white text-[#212121] text-[10px] font-black uppercase tracking-wider rounded-xl hover:bg-gray-100 transition-colors cursor-pointer w-max">
-                  Message Farmer
+                    <div className="w-full mt-5">
+                      <button 
+                        onClick={() => router.push(`/dashboard/buyer/farmer/${farmer.id}`)}
+                        className="w-full py-2.5 bg-[#1B5E20] hover:bg-[#2E7D32] text-white rounded-xl text-sm font-bold transition-colors shadow-sm"
+                      >
+                        View Profile
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-gray-100">
+              <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
+                <Search className="text-gray-300 w-8 h-8" />
+              </div>
+              <h2 className="text-lg font-black text-[#212121]">No farmers found</h2>
+              <p className="text-sm font-semibold text-gray-500 mt-1 max-w-md text-center">
+                Try adjusting your search filters or increasing the proximity radius to discover more growers.
+              </p>
+              {(searchQuery || selectedState || selectedDistrict) && (
+                <button 
+                  onClick={() => {
+                    setSearchQuery("");
+                    setSelectedState("");
+                    setSelectedDistrict("");
+                  }}
+                  className="mt-6 px-6 py-2 bg-green-50 text-[#1B5E20] text-xs font-black uppercase tracking-wider rounded-xl hover:bg-green-100 transition-colors cursor-pointer"
+                >
+                  Clear all filters
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {!loadingData && suppliers.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between pt-6 border-t border-gray-100 gap-4">
+              <p className="text-sm font-semibold text-gray-600">
+                Showing 1 to {Math.min(12, suppliers.length)} of {totalFarmers || 236} farmers
+              </p>
+              
+              <div className="flex items-center gap-2">
+                <button className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50">
+                  <ChevronLeft size={16} />
+                </button>
+                <button className="w-9 h-9 flex items-center justify-center rounded-lg bg-[#1B5E20] text-white font-bold text-sm shadow-sm">
+                  1
+                </button>
+                <button className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 font-bold text-sm hover:bg-gray-50">
+                  2
+                </button>
+                <button className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 font-bold text-sm hover:bg-gray-50">
+                  3
+                </button>
+                <span className="w-9 h-9 flex items-center justify-center text-gray-400">...</span>
+                <button className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 font-bold text-sm hover:bg-gray-50">
+                  20
+                </button>
+                <button className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
+                  <ChevronRight size={16} />
                 </button>
               </div>
-
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
+        </div>
+      </div>
     </div>
   );
 }

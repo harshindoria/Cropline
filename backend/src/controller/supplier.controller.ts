@@ -12,7 +12,9 @@ export const getSuppliers = async (req: Request, res: Response): Promise<void> =
       radius = 50, 
       minRating = 0,
       limit = 20,
-      page = 1
+      page = 1,
+      state,
+      district
     } = req.query;
 
     const skip = (Number(page) - 1) * Number(limit);
@@ -44,6 +46,14 @@ export const getSuppliers = async (req: Request, res: Response): Promise<void> =
       };
     }
 
+    if (state) {
+      whereClause.state = { equals: String(state), mode: 'insensitive' };
+    }
+
+    if (district) {
+      whereClause.district = { equals: String(district), mode: 'insensitive' };
+    }
+
     // Since we need to calculate distances, we'll fetch more than we need (or all that match search/rating) 
     // and then filter in memory if lat/lng is provided. For a huge scale app, we'd use PostGIS, but memory filter is fine here.
     
@@ -62,6 +72,17 @@ export const getSuppliers = async (req: Request, res: Response): Promise<void> =
         ratingCount: true,
         isVerified: true,
         createdAt: true,
+        farmArea: true,
+        _count: {
+          select: {
+            crops: {
+              where: {
+                status: CropStatus.ACTIVE,
+                quantityRemainingKg: { gt: 0 }
+              }
+            }
+          }
+        },
         crops: {
           where: {
             status: CropStatus.ACTIVE,

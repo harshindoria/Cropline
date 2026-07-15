@@ -66,12 +66,12 @@ export default function CropCard({
             </div>
             {cart[crop.id] ? (
               <div className="flex items-center gap-2 bg-green-50 rounded-lg p-1 border border-green-100">
-                <button onClick={() => removeFromCart(crop.id)} className="w-6 h-6 rounded flex items-center justify-center text-green-700 bg-white shadow-sm font-bold"><Minus size={14} /></button>
+                <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeFromCart(crop.id); }} className="w-6 h-6 rounded flex items-center justify-center text-green-700 bg-white shadow-sm font-bold"><Minus size={14} /></button>
                 <span className="text-xs font-bold text-[#1B5E20]">{cart[crop.id]}</span>
-                <button onClick={() => addToCart(crop.id)} className="w-6 h-6 rounded flex items-center justify-center text-green-700 bg-white shadow-sm font-bold"><Plus size={14} /></button>
+                <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); addToCart(crop.id); }} className="w-6 h-6 rounded flex items-center justify-center text-green-700 bg-white shadow-sm font-bold"><Plus size={14} /></button>
               </div>
             ) : (
-              <button onClick={() => addToCart(crop.id)} className="w-7 h-7 rounded bg-[#1B5E20] hover:bg-[#2E7D32] flex items-center justify-center text-white transition-colors shadow-sm">
+              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); addToCart(crop.id); }} className="w-7 h-7 rounded bg-[#1B5E20] hover:bg-[#2E7D32] flex items-center justify-center text-white transition-colors shadow-sm">
                 <Plus size={16} strokeWidth={3} />
               </button>
             )}

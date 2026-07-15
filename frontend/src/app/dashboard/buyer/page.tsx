@@ -7,13 +7,14 @@ import api from "@/lib/axios";
 import { 
   Search, MapPin, Bell, ChevronDown, Leaf, LayoutDashboard, Store, 
   BarChart2, Package, Users, Truck, User as UserIcon, Heart, 
-  ChevronRight, Gift, Headphones, ShieldCheck, Clock, ThumbsUp, Plus, Minus, CheckCircle2
+  ChevronRight, Gift, Headphones, ShieldCheck, Clock, ThumbsUp, Plus, Minus, CheckCircle2, Loader2
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import ApplicationModal from "@/components/ApplicationModal";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import CropCard from "./components/CropCard";
+import LocationSelector, { LocationValue } from "@/components/LocationSelector";
 
 // Mock Categories
 const categories = [
@@ -83,6 +84,46 @@ function BuyerDashboardContent() {
   // Application Modal state
   const [appModalOpen, setAppModalOpen] = useState(false);
   const [appRole, setAppRole] = useState<"FARMER" | "DELIVERY" | null>(null);
+
+  // Location Modal state
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [locationData, setLocationData] = useState<LocationValue>({
+    village: "",
+    district: "",
+    state: "",
+    pincode: ""
+  });
+  const [isUpdatingLocation, setIsUpdatingLocation] = useState(false);
+
+  const handleOpenLocationModal = () => {
+    setLocationData({
+      village: user?.village || "",
+      district: user?.district || "",
+      state: user?.state || "",
+      pincode: user?.pincode || ""
+    });
+    setIsLocationModalOpen(true);
+  };
+
+  const handleSaveLocation = async () => {
+    setIsUpdatingLocation(true);
+    try {
+      const res = await api.patch('/users/profile', {
+        village: locationData.village,
+        district: locationData.district,
+        state: locationData.state,
+      });
+      if (res.data.success) {
+        setIsLocationModalOpen(false);
+        window.location.reload();
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.error || 'Failed to update location');
+    } finally {
+      setIsUpdatingLocation(false);
+    }
+  };
 
   const addToCart = (cropId: string, minOrder: number = 5) => {
     setCart(prev => ({
@@ -303,7 +344,10 @@ function BuyerDashboardContent() {
                 </span>
               )}
             </button>
-            <div className="hidden md:flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors">
+            <div 
+              onClick={handleOpenLocationModal}
+              className="hidden md:flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
+            >
               <MapPin className="w-4 h-4 text-[#1B5E20]" />
               <span className="text-sm font-bold text-gray-700">{locationStr}</span>
               <ChevronDown className="w-4 h-4 text-gray-400" />
@@ -847,6 +891,41 @@ function BuyerDashboardContent() {
         onClose={() => setAppModalOpen(false)} 
         role={appRole} 
       />
+
+      {isLocationModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-black text-[#212121]">Change Location</h3>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[70vh]">
+              <LocationSelector
+                value={locationData}
+                onChange={setLocationData}
+                showVillage={true}
+                showPincode={false}
+                label="Location / Address"
+              />
+            </div>
+            <div className="p-6 border-t border-gray-100 flex items-center justify-end gap-3 bg-gray-50 shrink-0">
+              <button 
+                onClick={() => setIsLocationModalOpen(false)}
+                className="px-6 py-2.5 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSaveLocation}
+                disabled={isUpdatingLocation}
+                className="px-6 py-2.5 text-sm font-bold bg-[#1B5E20] hover:bg-[#2E7D32] text-white rounded-xl transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+              >
+                {isUpdatingLocation ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
