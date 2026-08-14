@@ -79,8 +79,9 @@ export default function CropDetailPage() {
   }
 
   // Calculations
-  const basePrice = Number(crop.basePricePerKg) || 0;
-  const marketPrice = Number(crop.marketPrice) || basePrice;
+  const farmerBasePrice = Number(crop.basePricePerKg) || 0;
+  const basePrice = farmerBasePrice * 1.20;
+  const marketPrice = crop.marketPrice ? Math.floor(Number(crop.marketPrice)) : Math.floor(basePrice);
   const quantityKg = quantity;
   const cropCost = basePrice * quantityKg;
   
@@ -89,9 +90,10 @@ export default function CropDetailPage() {
     discountAmount = (cropCost * Number(crop.offer.discountPercentage)) / 100;
   }
   
-  const platformFee = (cropCost - discountAmount) * 0.05;
   const deliveryFee = 50; // Mock base estimated delivery fee
-  const total = cropCost - discountAmount + platformFee + deliveryFee;
+  const total = cropCost - discountAmount + deliveryFee;
+
+  const isOwnCrop = crop.farmerId === user?.id;
 
   const handleQuantityChange = (delta: number) => {
     setQuantity(prev => {
@@ -519,7 +521,7 @@ export default function CropDetailPage() {
             {/* Bill */}
             <div className="bg-gray-50 p-4 rounded-2xl mb-6 space-y-3 text-sm font-medium">
               <div className="flex justify-between text-gray-600">
-                <span>Crop Cost ({quantity} kg × ₹{basePrice})</span>
+                <span>Crop Cost ({quantity} kg × ₹{basePrice.toFixed(2)})</span>
                 <span>₹{cropCost.toFixed(2)}</span>
               </div>
               {discountAmount > 0 && (
@@ -528,10 +530,6 @@ export default function CropDetailPage() {
                   <span>-₹{discountAmount.toFixed(2)}</span>
                 </div>
               )}
-              <div className="flex justify-between text-gray-600">
-                <span>Platform Fee (5%)</span>
-                <span>₹{platformFee.toFixed(2)}</span>
-              </div>
               <div className="flex justify-between text-gray-600">
                 <span>Est. Delivery</span>
                 <span>₹{deliveryFee.toFixed(2)}</span>
@@ -547,21 +545,21 @@ export default function CropDetailPage() {
             <div className="flex flex-col gap-3">
               <button 
                 onClick={handlePlaceOrder}
-                disabled={processing}
-                className="w-full py-4 bg-[#1B5E20] hover:bg-[#2E7D32] text-white rounded-xl font-black text-lg shadow-lg shadow-green-900/20 transition-all flex items-center justify-center gap-2 disabled:opacity-70"
+                disabled={processing || isOwnCrop}
+                className={`w-full py-4 ${isOwnCrop ? 'bg-gray-400' : 'bg-[#1B5E20] hover:bg-[#2E7D32]'} text-white rounded-xl font-black text-lg shadow-lg shadow-green-900/20 transition-all flex items-center justify-center gap-2 disabled:opacity-70`}
               >
                 {processing ? (
                   <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                 ) : (
-                  <>Place Order <ChevronRight size={20} /></>
+                  <>{isOwnCrop ? "Cannot Buy Own Crop" : "Place Order"} <ChevronRight size={20} /></>
                 )}
               </button>
               <button 
                 onClick={addToBasket}
-                disabled={processing}
-                className="w-full py-3 bg-white border-2 border-[#1B5E20] text-[#1B5E20] hover:bg-green-50 rounded-xl font-bold transition-all flex items-center justify-center gap-2"
+                disabled={processing || isOwnCrop}
+                className={`w-full py-3 ${isOwnCrop ? 'bg-gray-200 text-gray-500 border-gray-200' : 'bg-white border-2 border-[#1B5E20] text-[#1B5E20] hover:bg-green-50'} rounded-xl font-bold transition-all flex items-center justify-center gap-2`}
               >
-                <ShoppingBasket size={18} /> Add to Basket
+                <ShoppingBasket size={18} /> {isOwnCrop ? "Unavailable" : "Add to Basket"}
               </button>
             </div>
 

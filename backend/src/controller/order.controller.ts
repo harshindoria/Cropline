@@ -83,9 +83,6 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       res.status(400).json({ success: false, message: 'Delivery coordinates and address are required for delivery' });
       return;
     }
-    
-    // 💡 FIX 1: Removed the rule that blocks CASH_ON_PICKUP for DELIVERY. 
-    // Now CASH_ON_PICKUP acts as generic "Pay at Delivery/Pickup" for both cases.
 
     const pendingOrdersCount = await prisma.order.count({
       where: { buyerId, status: OrderStatus.PENDING }
@@ -95,6 +92,10 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       res.status(403).json({ success: false, message: 'You have too many pending orders. Please complete or cancel them first.' });
       return;
     }
+
+    const platformSettings = await prisma.platformSettings.findFirst();
+    const cropMarkupRate = platformSettings ? platformSettings.cropMarkupRate : new Prisma.Decimal('0.20');
+    const deliveryCommissionRate = platformSettings ? platformSettings.deliveryMarkupRate : new Prisma.Decimal('0.20');
 
     let deliveryFee = new Prisma.Decimal(0);
     if (deliveryType === DeliveryType.DELIVERY) {
@@ -114,9 +115,6 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     }
     
     const farmerEarnings = baseTotal.minus(discountAmount).toDecimalPlaces(2);
-    const cropMarkupRate = new Prisma.Decimal(process.env.CROP_MARKUP_RATE || '0.05');
-    const deliveryCommissionRate = deliveryType === DeliveryType.DELIVERY
-      ? new Prisma.Decimal(process.env.DELIVERY_COMMISSION_RATE || '0.20') : new Prisma.Decimal(0);
     
     const platformFee = farmerEarnings.mul(cropMarkupRate).toDecimalPlaces(2);
     const deliveryPlatformFee = deliveryFee.mul(deliveryCommissionRate).toDecimalPlaces(2);
@@ -141,7 +139,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
           cropMarkupRate, platformFee, deliveryFee, deliveryCommissionRate,
           deliveryPlatformFee, deliveryPartnerPayout, discountAmount, totalBuyerPrice,
           deliveryType,
-          paymentType, // Either ONLINE or CASH_ON_PICKUP
+          paymentType,
           deliveryLatitude,
           deliveryLongitude,
           deliveryAddress,

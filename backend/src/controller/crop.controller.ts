@@ -284,14 +284,21 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
       where: { status: CropStatus.ACTIVE },
       _avg: { basePricePerKg: true }
     });
-    const priceMap = new Map(avgPrices.map(p => [p.catalogId, p._avg.basePricePerKg ? Number(p._avg.basePricePerKg) : null]));
+    
+    // Fetch dynamic platform settings
+    const platformSettings = await prisma.platformSettings.findFirst();
+    const cropMarkupRate = platformSettings ? Number(platformSettings.cropMarkupRate) : 0.20;
+    const markupMultiplier = 1 + cropMarkupRate;
+
+    const priceMap = new Map(avgPrices.map(p => [p.catalogId, p._avg.basePricePerKg ? Math.floor(Number(p._avg.basePricePerKg) * markupMultiplier) : null]));
 
     const cropsWithFreshness = finalCrops.map((crop) => ({
       ...crop,
+      buyerPricePerKg: crop.basePricePerKg ? Math.floor(Number(crop.basePricePerKg) * markupMultiplier) : null,
       cropName: crop.catalog?.englishName,
       hindiName: crop.catalog?.hindiName,
       category: crop.catalog?.category,
-      marketPrice: priceMap.get(crop.catalogId) || (crop.basePricePerKg ? Number(crop.basePricePerKg) : null),
+      marketPrice: priceMap.get(crop.catalogId) || (crop.basePricePerKg ? Math.floor(Number(crop.basePricePerKg) * 1.2) : null),
       freshnessDays: Math.floor(
         (Date.now() - new Date(crop.harvestDate).getTime()) / (1000 * 60 * 60 * 24)
       ),
@@ -364,6 +371,11 @@ export const getCropById = async (req : Request<{id : string}>, res : Response) 
       }
     });
 
+    // Fetch dynamic platform settings
+    const platformSettings = await prisma.platformSettings.findFirst();
+    const cropMarkupRate = platformSettings ? Number(platformSettings.cropMarkupRate) : 0.20;
+    const markupMultiplier = 1 + cropMarkupRate;
+
     const freshnessDays = Math.floor(
       (Date.now() - new Date(crop.harvestDate).getTime())/(1000*60*60*24)
     );
@@ -372,10 +384,11 @@ export const getCropById = async (req : Request<{id : string}>, res : Response) 
       success : true,
       data : {
         ...crop,
+        buyerPricePerKg: crop.basePricePerKg ? Math.floor(Number(crop.basePricePerKg) * markupMultiplier) : null,
         // Frontend convenience ke liye flat fields
         cropName: crop.catalog.englishName,
         hindiName: crop.catalog.hindiName,
-        marketPrice: avgPrice._avg.basePricePerKg ? Number(avgPrice._avg.basePricePerKg) : (crop.basePricePerKg ? Number(crop.basePricePerKg) : null),
+        marketPrice: avgPrice._avg.basePricePerKg ? Math.floor(Number(avgPrice._avg.basePricePerKg) * markupMultiplier) : (crop.basePricePerKg ? Math.floor(Number(crop.basePricePerKg) * markupMultiplier) : null),
         freshnessDays
       },
     });
@@ -414,13 +427,20 @@ export const getMyCrops = async (req : Request, res : Response) : Promise<void> 
       where: { status: CropStatus.ACTIVE },
       _avg: { basePricePerKg: true }
     });
-    const priceMap = new Map(avgPrices.map(p => [p.catalogId, p._avg.basePricePerKg ? Number(p._avg.basePricePerKg) : null]));
+    
+    // Fetch dynamic platform settings
+    const platformSettings = await prisma.platformSettings.findFirst();
+    const cropMarkupRate = platformSettings ? Number(platformSettings.cropMarkupRate) : 0.20;
+    const markupMultiplier = 1 + cropMarkupRate;
+
+    const priceMap = new Map(avgPrices.map(p => [p.catalogId, p._avg.basePricePerKg ? Math.floor(Number(p._avg.basePricePerKg) * markupMultiplier) : null]));
 
     const cropsWithMetaData = crops.map((crop)=>({
       ...crop,
+      buyerPricePerKg: crop.basePricePerKg ? Math.floor(Number(crop.basePricePerKg) * markupMultiplier) : null,
       cropName: crop.catalog.englishName,
       hindiName: crop.catalog.hindiName,
-      marketPrice: priceMap.get(crop.catalogId) || (crop.basePricePerKg ? Number(crop.basePricePerKg) : null),
+      marketPrice: priceMap.get(crop.catalogId) || (crop.basePricePerKg ? Math.floor(Number(crop.basePricePerKg) * markupMultiplier) : null),
       freshnessDays : Math.floor(
         (Date.now()-new Date(crop.harvestDate).getTime())/(1000*60*60*24)
       )

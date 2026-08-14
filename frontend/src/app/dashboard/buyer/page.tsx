@@ -126,6 +126,11 @@ function BuyerDashboardContent() {
   };
 
   const addToCart = (cropId: string, minOrder: number = 5) => {
+    const crop = crops.find(c => c.id === cropId);
+    if (crop?.farmerId === user?.id) {
+      alert("You cannot buy your own crop!");
+      return;
+    }
     setCart(prev => ({
       ...prev,
       [cropId]: prev[cropId] ? prev[cropId] + minOrder : minOrder
@@ -146,7 +151,7 @@ function BuyerDashboardContent() {
 
   const totalCartPrice = Object.entries(cart).reduce((sum, [id, qty]) => {
     const crop = crops.find(c => c.id === id);
-    return sum + (crop ? (crop.basePricePerKg || 0) * qty : 0);
+    return sum + (crop ? (Number(crop.basePricePerKg) * 1.20 || 0) * qty : 0);
   }, 0);
 
   const handleCheckout = async () => {
@@ -296,6 +301,7 @@ function BuyerDashboardContent() {
 
   // Client-side search filtering
   let displayedCrops = crops.filter(c => {
+    if (c.farmerId === user?.id) return false;
     const query = searchQuery.toLowerCase();
     const name = (c.cropName || c.catalog?.englishName || "").toLowerCase();
     const hindiName = (c.catalog?.hindiName || "").toLowerCase();
@@ -820,7 +826,7 @@ function BuyerDashboardContent() {
                       <div key={id} className="flex justify-between items-center border-b border-gray-50 pb-3">
                         <div>
                           <p className="text-sm font-bold text-[#212121]">{getCropName(crop)}</p>
-                          <p className="text-xs text-[#2E7D32] font-semibold">₹{crop.basePricePerKg}/kg × {qty}kg</p>
+                          <p className="text-xs text-[#2E7D32] font-semibold">₹{(Number(crop.basePricePerKg) * 1.20).toFixed(2)}/kg × {qty}kg</p>
                         </div>
                         <div className="flex items-center gap-3">
                           <button onClick={() => removeFromCart(id)} className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-50"><Minus size={12} /></button>

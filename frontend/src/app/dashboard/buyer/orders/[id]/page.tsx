@@ -209,7 +209,7 @@ export default function OrderDetailPage() {
                   {cropLang === "hi" ? (crop?.catalog?.englishName || crop?.cropName || "") : (crop?.catalog?.hindiName || "")}
                 </p>
                 <div className="text-sm font-bold text-[#1B5E20]">
-                  {order.quantityKg} kg × ₹{order.basePricePerKg}/kg
+                  {order.quantityKg} kg × ₹{(Number(order.basePricePerKg) * (1 + Number(order.cropMarkupRate || 0.20))).toFixed(2)}/kg
                 </div>
               </div>
             </div>
@@ -218,18 +218,14 @@ export default function OrderDetailPage() {
             <div className="space-y-3 text-sm font-medium px-2">
               <div className="flex justify-between text-gray-600">
                 <span>Crop Cost</span>
-                <span>₹{Number(order.basePricePerKg) * Number(order.quantityKg)}</span>
+                <span>₹{(Number(order.basePricePerKg) * (1 + Number(order.cropMarkupRate || 0.20)) * Number(order.quantityKg)).toFixed(2)}</span>
               </div>
               {Number(order.discountAmount) > 0 && (
                 <div className="flex justify-between text-green-600 font-bold">
                   <span>Bulk Discount</span>
-                  <span>-₹{Number(order.discountAmount)}</span>
+                  <span>-₹{(Number(order.discountAmount) * (1 + Number(order.cropMarkupRate || 0.20))).toFixed(2)}</span>
                 </div>
               )}
-              <div className="flex justify-between text-gray-600">
-                <span>Platform Fee</span>
-                <span>₹{Number(order.platformFee)}</span>
-              </div>
               <div className="flex justify-between text-gray-600">
                 <span>Delivery Fee</span>
                 <span>₹{Number(order.deliveryFee)}</span>

@@ -665,3 +665,11 @@ enum ComplaintStatus {
   APPROVED
   DISMISSED
 }
+
+// NAYA MODEL: Platform level settings that admin can change
+model PlatformSettings {
+  id                   String   @id @default(cuid())
+  cropMarkupRate       Decimal  @default(0.20) @db.Decimal(10, 2)
+  deliveryMarkupRate   Decimal  @default(0.20) @db.Decimal(10, 2)
+  updatedAt            DateTime @updatedAt
+}

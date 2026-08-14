@@ -57,8 +57,8 @@ export default function CropCard({
         
         <div className="mt-auto pt-4 flex items-end justify-between">
           <div>
-            <p className="text-base font-black text-[#212121]">₹{crop.basePricePerKg} <span className="text-[10px] text-gray-500 font-normal">/ kg</span></p>
-            <p className="text-[10px] font-bold text-[#2E7D32] mt-0.5">Avg Market: ₹{crop.marketPrice || Math.floor(crop.basePricePerKg * 1.2)}/kg</p>
+            <p className="text-base font-black text-[#212121]">₹{(Number(crop.basePricePerKg) * 1.2).toFixed(2).replace(/\.00$/, '')} <span className="text-[10px] text-gray-500 font-normal">/ kg</span></p>
+            <p className="text-[10px] font-bold text-[#2E7D32] mt-0.5">Avg Market: ₹{crop.marketPrice ? Math.floor(Number(crop.marketPrice)) : Math.floor(Number(crop.basePricePerKg) * 1.2)}/kg</p>
           </div>
           <div className="flex flex-col items-end gap-2">
             <div className="flex items-center gap-1 text-[10px] font-semibold text-gray-400">
