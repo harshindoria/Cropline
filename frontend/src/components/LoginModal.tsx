@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Phone, Loader2, User, Calendar, Mail, CreditCard, Check, ChevronRight } from "lucide-react";
 import { useAuth, Role } from "../context/AuthContext";
@@ -31,6 +31,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
     verifyPhoneOtp, 
     completeRegistration, 
     mockLogin,
+    logout,
     user: authUser
   } = useAuth();
   const router = useRouter();
@@ -56,14 +57,23 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
     pincode: "",
   });
 
+  useEffect(() => {
+    if (isOpen && authUser && !authUser.name && step !== "new-user-form") {
+      setStep("new-user-form");
+    }
+  }, [isOpen, authUser, step]);
+
   const handleGoogleLogin = async () => {
     setLoading(true);
     setErrorMessage("");
     try {
-      const { isNew } = await loginWithGoogle();
-      if (isNew) {
+      const res = await loginWithGoogle();
+      if (res && res.cancelled) {
+        return; // User closed the popup, do nothing
+      }
+      if (res && res.isNew) {
         setStep("new-user-form");
-      } else {
+      } else if (res) {
         handleSuccess();
       }
     } catch (err: any) {
@@ -128,13 +138,37 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setErrorMessage("");
+
+    // 1. Mandatory Fields Validation
+    if (!form.name || !form.email || !form.phone || !form.dob || !form.aadhaarLast4) {
+      setErrorMessage("All fields are mandatory. Please fill in your complete details.");
+      return;
+    }
+    if (!location.state || !location.district || !location.village || !location.pincode) {
+      setErrorMessage("Please select your complete location (State, District, Village, Pincode).");
+      return;
+    }
+
+    // 2. Phone Number Validation (Indian Mobile Format: 10 digits starting with 6,7,8,9)
+    const phoneRegex = /^[6-9]\d{9}$/;
+    if (!phoneRegex.test(form.phone)) {
+      setErrorMessage("Please enter a valid 10-digit Indian mobile number.");
+      return;
+    }
+
+    // 3. Aadhaar Validation
+    if (form.aadhaarLast4.length !== 4) {
+      setErrorMessage("Please enter exactly 4 digits for your Aadhaar card.");
+      return;
+    }
+
+    setLoading(true);
     try {
       await completeRegistration({
         name: form.name,
-        email: form.email || undefined,
-        phone: form.phone || undefined,
+        email: form.email,
+        phone: form.phone,
         aadhaarLast4: form.aadhaarLast4,
         village: location.village,
         district: location.district,
@@ -144,7 +178,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
       handleSuccess();
     } catch (err: any) {
       console.error(err);
-      setErrorMessage(err.message || "Failed to save details. Please check the form.");
+      setErrorMessage(err.response?.data?.message || err.message || "Failed to save details. Please check the form.");
     } finally {
       setLoading(false);
     }
@@ -171,7 +205,21 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
     }
   };
 
+  const handleCancelRegistration = () => {
+    logout();
+    setStep("choose");
+    setPhone("");
+    setOtp(["", "", "", "", "", ""]);
+    setLoading(false);
+    setErrorMessage("");
+    onClose();
+  };
+
   const resetModal = () => {
+    if (step === "new-user-form") {
+      setErrorMessage("Please complete your profile to continue.");
+      return;
+    }
     setStep("choose");
     setPhone("");
     setOtp(["", "", "", "", "", ""]);
@@ -205,7 +253,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
               
               {/* Top Cover */}
               <div className="relative bg-gradient-to-br from-[#1B5E20] to-[#2E7D32] px-6 py-8 text-center text-white">
-                <button onClick={resetModal} className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors">
+                <button onClick={step === "new-user-form" ? handleCancelRegistration : resetModal} className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors">
                   <X size={20} />
                 </button>
                 <div className="w-12 h-12 bg-[#FFC107] rounded-2xl flex items-center justify-center mx-auto mb-3 text-2xl shadow-md">

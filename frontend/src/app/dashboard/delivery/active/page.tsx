@@ -62,6 +62,8 @@ export default function ActiveDeliveries() {
   const [tokenInput, setTokenInput] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [cashCollectedChecked, setCashCollectedChecked] = useState(false);
+  const [collectionMethod, setCollectionMethod] = useState<'CASH' | 'UPI'>('CASH');
 
   useEffect(() => {
     if (!loading && (!user || user.activeRole !== 'DELIVERY')) {
@@ -112,6 +114,8 @@ export default function ActiveDeliveries() {
     setTokenInput('');
     setPhotoFile(null);
     setPhotoPreview(null);
+    setCashCollectedChecked(false);
+    setCollectionMethod('CASH');
   };
 
   const submitPickup = async () => {
@@ -122,6 +126,7 @@ export default function ActiveDeliveries() {
       async (position) => {
         try {
           const formData = new FormData();
+          formData.append('jobId', selectedJob.jobId);
           formData.append('token', tokenInput);
           formData.append('lat', position.coords.latitude.toString());
           formData.append('lng', position.coords.longitude.toString());
@@ -149,12 +154,13 @@ export default function ActiveDeliveries() {
   };
 
   const submitDelivery = async () => {
-    if (!photoFile || !selectedJob) return alert('Photo required for delivery proof');
+    if (!tokenInput || !photoFile || !selectedJob) return alert('Token and photo required for delivery proof');
     setProcessingId(selectedJob.jobId);
     
     try {
       const formData = new FormData();
       formData.append('photo', photoFile);
+      formData.append('token', tokenInput);
 
       const res = await api.patch(`/delivery/jobs/${selectedJob.jobId}/deliver`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -163,6 +169,7 @@ export default function ActiveDeliveries() {
       if (res.data.success) {
         closeModals();
         fetchData();
+        alert('Delivery completed successfully!');
       }
     } catch (err: any) {
       alert(err.response?.data?.message || 'Delivery confirmation failed');
@@ -337,7 +344,7 @@ export default function ActiveDeliveries() {
                         
                         {job.status === 'ASSIGNED' && (
                           <button 
-                            onClick={() => { setSelectedJob(job); setShowPickupModal(true); }}
+                            onClick={() => { setSelectedJob(job); setShowPickupModal(true); setTokenInput(''); }}
                             className="w-full bg-[#1B5E20] hover:bg-[#144718] text-white py-2.5 rounded-xl font-bold text-sm transition-colors shadow-md flex items-center justify-center gap-2"
                           >
                             <Navigation size={16} /> Navigate
@@ -346,7 +353,7 @@ export default function ActiveDeliveries() {
 
                         {job.status === 'PICKED_UP' && (
                           <button 
-                            onClick={() => { setSelectedJob(job); setShowDeliveryModal(true); }}
+                            onClick={() => { setSelectedJob(job); setShowDeliveryModal(true); setTokenInput(''); }}
                             className="w-full bg-[#1B5E20] hover:bg-[#144718] text-white py-2.5 rounded-xl font-bold text-sm transition-colors shadow-md flex items-center justify-center gap-2"
                           >
                             <CheckCircle2 size={16} /> Mark Delivered
@@ -521,16 +528,16 @@ export default function ActiveDeliveries() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl">
             <h3 className="text-xl font-black text-[#212121] mb-2">Confirm Pickup</h3>
-            <p className="text-sm text-gray-500 mb-6">Ask the farmer for the QR token code and take a photo of the produce as proof.</p>
+            <p className="text-sm text-gray-500 mb-6">Ask the farmer for the OTP and take a photo of the produce as proof.</p>
             
             <div className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Farmer's Token Code</label>
+                <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Farmer's OTP</label>
                 <input 
                   type="text" 
                   value={tokenInput} 
                   onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="Enter token from farmer"
+                  placeholder="Enter OTP from farmer"
                   className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#1B5E20]"
                 />
               </div>
@@ -569,7 +576,7 @@ export default function ActiveDeliveries() {
               </button>
               <button 
                 onClick={submitPickup}
-                disabled={processingId !== null || !tokenInput || !photoFile}
+                disabled={processingId !== null || !tokenInput || !photoFile || (selectedJob.paymentStatus !== 'SUCCESS' && !cashCollectedChecked)}
                 className="flex-1 py-3 text-sm font-bold text-white bg-[#1B5E20] rounded-xl hover:bg-[#144718] transition-colors disabled:opacity-50"
               >
                 {processingId ? 'Verifying...' : 'Confirm'}
@@ -584,9 +591,87 @@ export default function ActiveDeliveries() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl">
             <h3 className="text-xl font-black text-[#212121] mb-2">Confirm Delivery</h3>
-            <p className="text-sm text-gray-500 mb-6">Take a photo of the delivered produce at the buyer's location as proof of delivery.</p>
+            <p className="text-sm text-gray-500 mb-4">Confirm payment, enter the buyer's OTP, and upload proof of delivery.</p>
             
             <div className="space-y-4">
+              {/* Payment Verification Block */}
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Payment Collection</h4>
+                {selectedJob.paymentStatus === 'SUCCESS' ? (
+                  <div className="flex items-center gap-2 text-green-700 font-bold text-sm bg-green-100 p-3 rounded-lg border border-green-200">
+                    <CheckCircle2 size={18} />
+                    Paid Online. Do NOT collect cash.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 text-orange-700 font-bold text-base bg-orange-100 p-3 rounded-lg border border-orange-200">
+                      <IndianRupee size={18} />
+                      Collect ₹{selectedJob.totalBuyerPrice} from Buyer
+                    </div>
+                    
+                    {/* Payment Method Toggle */}
+                    <div className="flex bg-gray-200 p-1 rounded-lg">
+                      <button 
+                        onClick={() => setCollectionMethod('CASH')}
+                        className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${collectionMethod === 'CASH' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500'}`}
+                      >
+                        Cash
+                      </button>
+                      <button 
+                        onClick={() => setCollectionMethod('UPI')}
+                        className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${collectionMethod === 'UPI' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500'}`}
+                      >
+                        Online (UPI QR)
+                      </button>
+                    </div>
+
+                    {collectionMethod === 'UPI' && (
+                      <div className="flex flex-col items-center bg-white p-4 rounded-xl border border-gray-100">
+                        <p className="text-xs font-bold text-gray-500 mb-2">Have the buyer scan this QR</p>
+                        <img 
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`upi://pay?pa=${user?.phone || 'driver'}@upi&pn=${user?.name || 'Driver'}&am=${selectedJob.totalBuyerPrice}&cu=INR`)}`} 
+                          alt="UPI QR Code" 
+                          className="w-32 h-32 mb-2"
+                        />
+                        <p className="text-[10px] text-gray-400 text-center">Money goes directly to your bank account.</p>
+                      </div>
+                    )}
+
+                    <label className="flex items-center gap-2 p-3 bg-white rounded-lg border border-orange-100 cursor-pointer shadow-sm">
+                      <input 
+                        type="checkbox" 
+                        checked={cashCollectedChecked}
+                        onChange={(e) => setCashCollectedChecked(e.target.checked)}
+                        className="w-4 h-4 text-orange-600 rounded focus:ring-orange-500"
+                      />
+                      <span className="text-xs font-bold text-gray-700">I confirm I received ₹{selectedJob.totalBuyerPrice}</span>
+                    </label>
+                  </div>
+                )}
+                
+                {/* Refresh Payment Status */}
+                {selectedJob.paymentStatus !== 'SUCCESS' && (
+                  <button 
+                    onClick={fetchData}
+                    className="mt-3 w-full py-2 bg-white border border-gray-200 text-gray-600 text-xs font-bold rounded-lg hover:bg-gray-50 transition-colors flex justify-center items-center gap-1"
+                  >
+                    <TrendingUp size={14} /> Check if Buyer Paid Online
+                  </button>
+                )}
+
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Buyer's OTP</label>
+                <input 
+                  type="text" 
+                  value={tokenInput} 
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="Enter OTP from buyer"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#1B5E20]"
+                />
+              </div>
+              
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Delivery Proof Photo</label>
                 <div className="border-2 border-dashed border-gray-200 rounded-xl overflow-hidden relative bg-gray-50">
@@ -621,12 +706,16 @@ export default function ActiveDeliveries() {
               </button>
               <button 
                 onClick={submitDelivery}
-                disabled={processingId !== null || !photoFile}
+                disabled={processingId !== null || !tokenInput || !photoFile}
                 className="flex-1 py-3 text-sm font-bold text-black bg-[#FFC107] rounded-xl hover:bg-[#ffb300] transition-colors disabled:opacity-50"
               >
                 {processingId ? 'Confirming...' : 'Mark Delivered'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
           </div>
         </div>
       )}

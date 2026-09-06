@@ -13,6 +13,7 @@ import Link from "next/link";
 import Image from "next/image";
 import ApplicationModal from "@/components/ApplicationModal";
 import RoleSwitcher from "@/components/RoleSwitcher";
+import NotificationDropdown from "@/components/NotificationDropdown";
 import CropCard from "./components/CropCard";
 import LocationSelector, { LocationValue } from "@/components/LocationSelector";
 
@@ -254,8 +255,12 @@ function BuyerDashboardContent() {
   };
 
   useEffect(() => {
-    if (!loading && (!user || user.activeRole !== "BUYER")) {
-      router.push("/dashboard");
+    if (!loading) {
+      if (!user || user.activeRole !== "BUYER") {
+        router.push("/dashboard");
+      } else if (!user.name) {
+        router.push("/?completeProfile=true");
+      }
     }
   }, [user, loading, router]);
 
@@ -359,10 +364,7 @@ function BuyerDashboardContent() {
               <ChevronDown className="w-4 h-4 text-gray-400" />
             </div>
             
-            <div className="relative p-2 bg-gray-50 rounded-full cursor-pointer hover:bg-gray-100 transition-colors">
-              <Bell className="w-5 h-5 text-gray-600" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-            </div>
+            <NotificationDropdown />
             
             <RoleSwitcher 
               currentRole="BUYER" 

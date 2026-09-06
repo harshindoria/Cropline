@@ -58,6 +58,11 @@ enum VerificationPurpose {
   BUYER_DELIVERY
 }
 
+enum VerificationTokenType {
+  HANDOVER_QR
+  BUYER_DELIVERY_QR
+}
+
 enum LedgerEntryType {
   FARMER_EARNING
   DELIVERY_EARNING
@@ -244,6 +249,7 @@ model User {
   cashLiabilities       CashLiability[]
   complaintsFiled       Complaint[]      @relation("ComplaintsFiled")
   complaintsReceived    Complaint[]      @relation("ComplaintsReceived")
+  verificationTokensIssued VerificationToken[] @relation("VerificationIssuedTo")
 
   @@index([latitude, longitude])
   @@index([activeRole, isOnline])
@@ -392,8 +398,8 @@ model Order {
   status        OrderStatus   @default(PENDING)
   paymentStatus PaymentStatus @default(PENDING)
   paymentId     String?
-  qrCode        String?
   pickupOtp     String?
+  deliveryOtp   String?
 
   cancellationReason     String?
   farmerResponseDeadline DateTime?
@@ -477,15 +483,17 @@ model DeliveryOffer {
 }
 
 model VerificationToken {
-  id             String              @id @default(cuid())
-  order          Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id             String               @id @default(cuid())
+  order          Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
   orderId        String
   purpose        VerificationPurpose
-  jti            String              @unique
+  tokenType      VerificationTokenType
+  jti            String               @unique
+  issuedTo       User                 @relation("VerificationIssuedTo", fields: [issuedToUserId], references: [id], onDelete: Cascade)
   issuedToUserId String
   expiresAt      DateTime
   consumedAt     DateTime?
-  createdAt      DateTime            @default(now())
+  createdAt      DateTime             @default(now())
 
   @@index([orderId, purpose, consumedAt])
 }

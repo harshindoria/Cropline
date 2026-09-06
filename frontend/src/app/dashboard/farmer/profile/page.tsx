@@ -74,7 +74,7 @@ export default function FarmerProfile() {
     setFetching(true);
     try {
       const [res, catRes] = await Promise.all([
-        api.get('/users/profile'),
+        api.get('/users/profile/farmer'),
         api.get('/crops/catalog')
       ]);
       if (res.data.success) {

@@ -243,10 +243,7 @@ export const initiateOrderPayment = async (req: Request, res: Response): Promise
       return;
     }
 
-    if (order.paymentType !== 'ONLINE') {
-      res.status(400).json({ success: false, message: 'This order uses Cash on Delivery' });
-      return;
-    }
+    // Allowed converting COD to ONLINE at the door as requested
 
     // If payment already completed
     if (order.paymentRecord?.status === 'SUCCESS') {

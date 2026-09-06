@@ -203,11 +203,18 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
         vehicleType
       };
 
-      await onboardNewRole(role, additionalData);
-      setSubmitted(true);
-    } catch (error) {
+      const res: any = await onboardNewRole(role, additionalData);
+      if (res && res.message) {
+        alert(res.message);
+      } else {
+        alert("Application submitted successfully! Please wait for Admin verification.");
+      }
+      handleClose();
+    } catch (error: any) {
       console.error(error);
-      alert("Failed to submit application. Please try again.");
+      if (error.response?.status !== 409) {
+        alert("Failed to submit application. Please try again.");
+      }
     } finally {
       setLoading(false);
     }

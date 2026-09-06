@@ -13,6 +13,8 @@ export default function DashboardPage() {
     if (!loading) {
       if (!user) {
         router.push("/");
+      } else if (!user.name) {
+        router.push("/?completeProfile=true");
       } else {
         const activeRole = user.activeRole.toLowerCase();
         router.push(`/dashboard/${activeRole}`);

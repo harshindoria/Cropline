@@ -1,5 +1,8 @@
 "use client";
 
+import ApplicationModal from "@/components/ApplicationModal";
+import RoleSwitcher from "@/components/RoleSwitcher";
+import NotificationDropdown from "@/components/NotificationDropdown";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef, Suspense } from "react";
@@ -92,7 +95,13 @@ function FarmerDashboardContent() {
 
   // Auth guard
   useEffect(() => {
-    if (!loading && (!user || user.activeRole !== "FARMER")) router.push("/dashboard");
+    if (!loading) {
+      if (!user || user.activeRole !== "FARMER") {
+        router.push("/dashboard");
+      } else if (!user.name) {
+        router.push("/?completeProfile=true");
+      }
+    }
   }, [user, loading, router]);
 
   // Fetch stats
@@ -224,7 +233,8 @@ function FarmerDashboardContent() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input type="text" placeholder="Search..." className="pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-full text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#1B5E20]/20 w-56" />
             </div>
-            <button className="relative p-2 bg-gray-50 rounded-full hover:bg-gray-100"><Bell className="w-5 h-5 text-gray-600" /><span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white" /></button>
+            <NotificationDropdown />
+            
             {/* Role Switcher */}
             <div className="relative">
               <div onClick={() => setShowRoleDropdown(!showRoleDropdown)} className="flex items-center gap-2 cursor-pointer bg-gray-50 p-1.5 pr-4 rounded-full border border-gray-100 hover:bg-gray-100">
@@ -701,7 +711,7 @@ const ProfileField = ({ icon: Icon, label, value, editing, onChange }: any) => (
 const FAQ_ITEMS = [
   { emoji: "🌾", q: "How to list your first crop?", a: "Go to the \"Add Crop\" tab in your sidebar. Step 1: Select your crop from our catalog (e.g., Potato, Wheat). Step 2: Enter details like quantity, price per kg, and harvest date. Step 3: Upload photos of your crop and hit submit. Your crop will be live and visible to buyers instantly!" },
   { emoji: "💰", q: "How pricing works on CropLine?", a: "You set the base price per kg. CropLine charges a small platform fee (deducted from earnings). You can offer bulk discounts — if a buyer orders above your minimum quantity, they get the discount automatically. Your earnings per order are shown clearly in the Earnings tab." },
-  { emoji: "🚚", q: "Understanding orders & delivery", a: "When a buyer places an order, you'll get a notification. You can Confirm or Reject the order. Once confirmed, prepare the crop and mark it as 'Ready for Pickup'. For delivery orders, a delivery partner will come to collect. For self-pickup, the buyer will come directly with a QR code for verification." },
+  { emoji: "🚚", q: "Understanding orders & delivery", a: "When a buyer places an order, you'll get a notification. You can Confirm or Reject the order. Once confirmed, prepare the crop and mark it as 'Ready for Pickup'. For delivery orders, a delivery partner will come to collect. For self-pickup, the buyer will come directly with a OTP for verification." },
   { emoji: "🏦", q: "How to get paid?", a: "All earnings are credited to your CropLine Wallet after order completion. You can request a payout to your linked bank account at any time. Payouts are processed within 24-48 hours. Make sure your bank details are updated in your Profile." },
   { emoji: "✅", q: "Account & verification", a: "Your account is verified once an admin reviews your farmer application. Verified farmers get a badge visible to buyers, which increases trust and sales. Keep your Aadhaar last 4 digits and farm area updated for faster verification." },
   { emoji: "📞", q: "Contact support", a: "For any issues, reach out to us at support@cropline.com or call our helpline at 1800-CROP-LINE (toll-free). Our support team is available Monday to Saturday, 9 AM to 6 PM IST. You can also raise a complaint through the buyer's order page if there's a dispute." },

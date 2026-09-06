@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
-import { ArrowLeft, Package, Search, ChevronRight } from "lucide-react";
+import { ArrowLeft, Package, Copy, ShieldCheck, X } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -90,6 +90,16 @@ export default function FarmerOrdersPage() {
     if (activeTab === "Cancelled") return order.status === "CANCELLED" || order.status === "DISPUTED";
     return true;
   });
+
+
+  const markOrderReady = async (orderId: string) => {
+    try {
+      await api.patch(`/orders/${orderId}/ready`);
+      window.location.reload();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Could not mark this order ready for pickup.');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#FAFBFA] font-[family-name:var(--font-poppins)] text-[#212121]">
@@ -213,6 +223,22 @@ export default function FarmerOrdersPage() {
                       Expired
                     </div>
                   )}
+                  {order.status === "CONFIRMED" && (
+                    <div className="border-t border-gray-100 pt-3 flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold text-gray-500">Crop prepared ho jaaye to pickup ke liye ready mark karein.</p>
+                      <button onClick={() => markOrderReady(order.id)} className="shrink-0 px-4 py-2 rounded-full text-xs font-bold text-white bg-[#1B5E20] hover:bg-[#2E7D32]">
+                        Mark ready
+                      </button>
+                    </div>
+                  )}
+                  {order.status === "ASSIGNED" && order.deliveryType === "DELIVERY" && (
+                    <div className="border-t border-gray-100 pt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs font-semibold text-gray-500">Delivery partner aa gaya hai. OTP de kar pickup verify karein.</p>
+                      <div className="shrink-0 px-4 py-2 rounded-xl text-lg font-black tracking-widest text-[#1B5E20] bg-green-50 border border-green-100">
+                        {order.pickupOtp || '----'}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })
@@ -234,6 +260,7 @@ export default function FarmerOrdersPage() {
         </div>
 
       </main>
+
     </div>
   );
 }

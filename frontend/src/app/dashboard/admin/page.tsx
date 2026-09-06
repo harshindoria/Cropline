@@ -57,8 +57,12 @@ export default function AdminDashboard() {
 
   // Auth Guard
   useEffect(() => {
-    if (!loading && (!user || user.activeRole !== "ADMIN")) {
-      router.push("/dashboard");
+    if (!loading) {
+      if (!user || user.activeRole !== "ADMIN") {
+        router.push("/dashboard");
+      } else if (!user.name) {
+        router.push("/?completeProfile=true");
+      }
     }
   }, [user, loading, router]);
 

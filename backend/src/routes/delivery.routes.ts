@@ -34,7 +34,13 @@ router.post('/jobs/:orderId/accept', restrictTo(Role.DELIVERY), requireRoleOpera
 router.patch('/location', restrictTo(Role.DELIVERY), updateLocation);
 
 // (Aapka naya QR wala pickup logic)
-router.patch('/jobs/pickup', restrictTo(Role.DELIVERY), markPickedUp);
+router.patch(
+  '/jobs/pickup',
+  restrictTo(Role.DELIVERY),
+  requireRoleOperational(Role.DELIVERY),
+  upload.single('photo'),
+  markPickedUp,
+);
 
 // (Hamara The Assembly Line Route)
 router.patch(

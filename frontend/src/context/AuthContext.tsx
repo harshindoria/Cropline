@@ -129,6 +129,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const result = await signInWithPopup(auth, provider);
       const idToken = await result.user.getIdToken();
       return await handleBackendLogin(idToken, false);
+    } catch (error: any) {
+      if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
+        return { isNew: false, success: false, cancelled: true };
+      }
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -215,7 +220,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      await api.post("/users/onboard-role", { role, ...additionalData });
+      const response = await api.post("/users/onboard-role", { role, ...additionalData });
+      return response.data;
+    } catch (err: any) {
+      if (err.response?.status === 409) {
+        alert(err.response.data.message || "Application already pending.");
+      }
+      throw err;
     } finally {
       setLoading(false);
     }

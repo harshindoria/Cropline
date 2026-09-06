@@ -48,7 +48,7 @@ export default function DeliveryProfile() {
   const fetchProfileData = async () => {
     setFetching(true);
     try {
-      const res = await api.get('/users/profile');
+      const res = await api.get('/users/profile/delivery');
       if (res.data.success) {
         setProfileData(res.data.user);
         setDeliveryStats(res.data.deliveryStats || {

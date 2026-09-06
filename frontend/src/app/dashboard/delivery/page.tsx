@@ -12,6 +12,7 @@ import {
 
 import api from "@/lib/axios";
 import RoleSwitcher from "@/components/RoleSwitcher";
+import NotificationDropdown from "@/components/NotificationDropdown";
 
 export default function DeliveryDashboard() {
   const { user, loading } = useAuth();
@@ -71,8 +72,12 @@ export default function DeliveryDashboard() {
   };
 
   useEffect(() => {
-    if (!loading && (!user || user.activeRole !== "DELIVERY")) {
-      router.push("/dashboard");
+    if (!loading) {
+      if (!user || user.activeRole !== "DELIVERY") {
+        router.push("/dashboard");
+      } else if (!user.name) {
+        router.push("/?completeProfile=true");
+      }
     } else if (user?.activeRole === "DELIVERY") {
       fetchData();
     }
@@ -195,10 +200,7 @@ export default function DeliveryDashboard() {
           {/* Right Actions */}
           <div className="flex items-center gap-6">
 
-            <div className="relative cursor-pointer group">
-              <Bell className="text-gray-500 group-hover:text-gray-700 transition-colors" size={22} />
-              <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[9px] font-bold text-white">3</div>
-            </div>
+            <NotificationDropdown />
 
             <RoleSwitcher currentRole="DELIVERY" />
           </div>

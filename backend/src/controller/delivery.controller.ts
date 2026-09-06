@@ -1,11 +1,12 @@
 import { Request, Response } from 'express';
-import { Prisma, DeliveryJobStatus, OrderStatus, Role, DeliveryType, RoleAccessStatus } from '@prisma/client';
+import { Prisma, DeliveryJobStatus, OrderStatus, Role, DeliveryType, RoleAccessStatus, VerificationPurpose, VerificationTokenType} from '@prisma/client';
 import prisma from '../config/db';
 import { getIO } from '../sockets/socket.handler';
 import { haversineDistance } from '../utils/geoUtils';
 import { calculateDeliveryFee } from '../utils/feeUtils';
 // import { uploadToCloudinary } from '../utils/cloudinaryUpload'; // Aage baaki APIs mein kaam aayega
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'crypto';
 import { uploadToCloudinary } from '../utils/cloudinaryUpload';
 
 // ── GET NEARBY JOBS (The Radar) ─────────────────────────────────────────────
@@ -158,6 +159,14 @@ export const acceptJob = async (req: Request<{orderId : string}>, res: Response)
           },
         },
         deliveryJob: true, // Checking if someone else already took it
+        deliveryOffers: {
+          where: {
+            partnerId: req.user!.id,
+            status: 'OFFERED',
+            expiresAt: { gte: new Date() },
+          },
+          select: { id: true },
+        },
       },
     });
 
@@ -180,6 +189,10 @@ export const acceptJob = async (req: Request<{orderId : string}>, res: Response)
     // Pre-check for race condition (Though DB constraint is the ultimate guard)
     if (order.deliveryJob) {
       res.status(409).json({ success: false, message: 'Another delivery partner has already accepted this job' });
+      return;
+    }
+    if (order.deliveryOffers.length === 0) {
+      res.status(403).json({ success: false, message: 'This delivery offer is unavailable or has expired.' });
       return;
     }
 
@@ -231,6 +244,14 @@ export const acceptJob = async (req: Request<{orderId : string}>, res: Response)
       prisma.order.update({
         where: { id: orderId },
         data: { status: OrderStatus.ASSIGNED },
+      }),
+      prisma.deliveryOffer.update({
+        where: { id: order.deliveryOffers[0].id },
+        data: { status: 'ACCEPTED', respondedAt: new Date() },
+      }),
+      prisma.deliveryOffer.updateMany({
+        where: { orderId, id: { not: order.deliveryOffers[0].id }, status: 'OFFERED' },
+        data: { status: 'LOST', respondedAt: new Date() },
       }),
     ]);
 
@@ -294,12 +315,16 @@ export const acceptJob = async (req: Request<{orderId : string}>, res: Response)
 export const markPickedUp = async (req: Request, res: Response): Promise<void> => {
   try {
     // 1. Extract data and file
-    const { token, lat, lng } = req.body;
-    const file = req.file as Express.Multer.File; // Multer middleware se aayega
+    const { token, lat, lng, jobId } = req.body;
+    const file = req.file as Express.Multer.File;
 
     // 2. Primary Validations
     if (!token) {
-      res.status(400).json({ success: false, message: 'Verification token is required to mark pickup.' });
+      res.status(400).json({ success: false, message: 'Pickup OTP is required.' });
+      return;
+    }
+    if (!jobId) {
+      res.status(400).json({ success: false, message: 'Job ID is required.' });
       return;
     }
     if (!lat || !lng) {
@@ -311,30 +336,14 @@ export const markPickedUp = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // 3. Cryptographic Verification
-    let decoded: any;
-    try {
-      decoded = jwt.verify(token, process.env.QR_SECRET as string);
-    } catch (err) {
-      res.status(400).json({ success: false, message: 'Invalid or expired QR code.' });
-      return;
-    }
-
-    if (decoded.type !== 'HANDOVER_QR') {
-      res.status(400).json({ success: false, message: 'Invalid token type. Security verification failed.' });
-      return;
-    }
-
-    const orderIdFromToken = decoded.orderId;
-
     // 4. Database & State Guard Checks
     const job = await prisma.deliveryJob.findUnique({
-      where: { orderId: orderIdFromToken },
-      include: { order: { select: { id: true, farmerId: true, buyerId: true, status: true } } },
+      where: { id: jobId },
+      include: { order: true },
     });
 
     if (!job) {
-      res.status(404).json({ success: false, message: 'No delivery job found matching this token.' });
+      res.status(404).json({ success: false, message: 'No delivery job found.' });
       return;
     }
     if (job.deliveryPartnerId !== req.user!.id) {
@@ -343,6 +352,10 @@ export const markPickedUp = async (req: Request, res: Response): Promise<void> =
     }
     if (job.status !== DeliveryJobStatus.ASSIGNED) {
       res.status(400).json({ success: false, message: `Package already processed. Status: ${job.status}` });
+      return;
+    }
+    if (job.order.pickupOtp !== token) {
+      res.status(400).json({ success: false, message: 'Invalid pickup OTP.' });
       return;
     }
 
@@ -360,25 +373,50 @@ export const markPickedUp = async (req: Request, res: Response): Promise<void> =
     const now = new Date();
 
     // 6. THE ATOMIC TRANSACTION
-    await prisma.$transaction([
-      // A) Update Job with Photo and Live Location
-      prisma.deliveryJob.update({
-        where: { id: job.id },
+    await prisma.$transaction(async (tx) => {
+      const updatedJob = await tx.deliveryJob.updateMany({
+        where: { id: job.id, status: DeliveryJobStatus.ASSIGNED },
         data: {
           status: DeliveryJobStatus.PICKED_UP,
           pickedUpAt: now,
-          pickupPhoto: pickupPhotoUrl, // 👈 Saved in DB
+          pickupPhoto: pickupPhotoUrl,
           liveLatitude: Number(lat),
           liveLongitude: Number(lng),
           liveLocationUpdatedAt: now,
         },
-      }),
-      // B) Update Order
-      prisma.order.update({
+      });
+
+      if (updatedJob.count !== 1) {
+        throw new Error('JOB_ALREADY_PROCESSED');
+      }
+
+      await tx.order.update({
         where: { id: job.orderId },
-        data: { status: OrderStatus.IN_DELIVERY },
-      }),
-    ]);
+        data: { status: OrderStatus.PICKED_UP },
+      });
+
+      // Persistent Notification for Farmer
+      await tx.notification.create({
+        data: {
+          userId: job.order.farmerId,
+          type: 'GENERAL',
+          title: 'Order Picked Up 📦',
+          body: 'Your produce has been successfully handed over to the delivery partner.',
+          data: { orderId: job.orderId, jobId: job.id }
+        }
+      });
+
+      // Persistent Notification for Buyer
+      await tx.notification.create({
+        data: {
+          userId: job.order.buyerId,
+          type: 'GENERAL',
+          title: 'Order is on the way! 🚚',
+          body: 'Your order has been picked up from the farm and is now out for delivery.',
+          data: { orderId: job.orderId, jobId: job.id }
+        }
+      });
+    });
 
     // 7. REAL-TIME NOTIFICATIONS
     const io = getIO();
@@ -408,6 +446,10 @@ export const markPickedUp = async (req: Request, res: Response): Promise<void> =
     });
 
   } catch (error) {
+    if (error instanceof Error && error.message === 'JOB_ALREADY_PROCESSED') {
+      res.status(409).json({ success: false, message: 'This pickup was already processed.' });
+      return;
+    }
     console.error('[Delivery] Mark Picked Up Error:', error);
     res.status(500).json({ success: false, message: 'Internal server error during pickup verification.' });
   }
@@ -482,9 +524,14 @@ export const updateLocation = async (req: Request, res: Response): Promise<void>
 export const markDelivered = async (req: Request, res: Response): Promise<void> => {
   try {
     const { jobId } = req.params;
+    const { token } = req.body;
 
     // 1. Proof of Delivery Validation
     const file = req.file as Express.Multer.File;
+    if (!token) {
+      res.status(400).json({ success: false, message: 'Delivery OTP is required.' });
+      return;
+    }
     if (!file) {
       res.status(400).json({ 
         success: false, 
@@ -497,15 +544,7 @@ export const markDelivered = async (req: Request, res: Response): Promise<void> 
     const job = await prisma.deliveryJob.findUnique({
       where: { id: jobId as string},
       include: {
-        order: {
-          select: {
-            id: true,
-            farmerId: true,
-            buyerId: true,
-            status: true,
-            deliveryFee: true, // Fetching fee from the normalized Order table
-          },
-        },
+        order: { include: { paymentRecord: true } },
       },
     });
 
@@ -516,10 +555,7 @@ export const markDelivered = async (req: Request, res: Response): Promise<void> 
 
     // 3. Security & State Guards
     if (job.deliveryPartnerId !== req.user!.id) {
-      res.status(403).json({ 
-        success: false, 
-        message: 'Unauthorized action. This is not your delivery job.' 
-      });
+      res.status(403).json({ success: false, message: 'Unauthorized action. This is not your delivery job.' });
       return;
     }
 
@@ -527,10 +563,17 @@ export const markDelivered = async (req: Request, res: Response): Promise<void> 
       job.status !== DeliveryJobStatus.PICKED_UP &&
       job.status !== DeliveryJobStatus.IN_DELIVERY
     ) {
-      res.status(400).json({
-        success: false,
-        message: `Cannot mark delivered. Current job status is ${job.status}.`,
-      });
+      res.status(400).json({ success: false, message: `Cannot mark delivered. Current job status is ${job.status}.` });
+      return;
+    }
+
+    if (job.order.deliveryOtp !== token) {
+      res.status(400).json({ success: false, message: 'Invalid delivery OTP.' });
+      return;
+    }
+
+    if (job.order.paymentType === 'ONLINE' && job.order.paymentRecord?.status !== 'SUCCESS') {
+      res.status(409).json({ success: false, message: 'Online payment must be completed before delivery verification.' });
       return;
     }
 
@@ -540,70 +583,72 @@ export const markDelivered = async (req: Request, res: Response): Promise<void> 
       deliveryPhotoUrl = await uploadToCloudinary(file.buffer, 'cropland/deliveries');
     } catch (uploadError) {
       console.error('[Delivery] Cloudinary Upload Error:', uploadError);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to upload delivery photo. Please try again.',
-      });
+      res.status(500).json({ success: false, message: 'Failed to upload delivery photo.' });
       return;
     }
 
     const now = new Date();
 
-    // 5. THE FINANCIAL ATOMIC TRANSACTION
-    // This ensures data integrity: if one fails, everything rolls back.
-    await prisma.$transaction([
-      
-      // A) Update Job Status & Save Proof
-      prisma.deliveryJob.update({
-        where: { id : jobId as string},
+    // 5. THE ATOMIC TRANSACTION for final delivery
+    await prisma.$transaction(async (tx) => {
+      await tx.deliveryJob.update({
+        where: { id: jobId as string },
         data: {
           status: DeliveryJobStatus.DELIVERED,
-          deliveryPhoto: deliveryPhotoUrl,
           deliveredAt: now,
+          deliveryPhoto: deliveryPhotoUrl,
         },
-      }),
+      });
 
-      // B) Update Core Order Status
-      prisma.order.update({
-        where: { id: job.order.id },
-        data: { status: OrderStatus.DELIVERED },
-      }),
+      await tx.order.update({
+        where: { id: job.orderId },
+        data: { status: 'DELIVERED', completedAt: now },
+      });
 
-      // C) Settle Payment: Increment Delivery Partner's Wallet
-      prisma.user.update({
-        where: { id: req.user!.id },
-        data: { 
-          walletBalance: { increment: job.order.deliveryFee } 
-        },
-      }),
-    ]);
+      if (job.order.paymentType === 'CASH_ON_PICKUP') {
+        await tx.paymentRecord.update({
+          where: { orderId: job.orderId },
+          data: { status: 'SUCCESS', capturedAt: now },
+        });
+        await tx.cashLiability.upsert({
+          where: { orderId: job.orderId },
+          create: { orderId: job.orderId, deliveryPartnerId: job.deliveryPartnerId, amount: job.order.totalBuyerPrice },
+          update: {},
+        });
+      }
 
-    // 6. Real-Time Engine (Socket.io Multicast)
-    const io = getIO();
+      await tx.user.update({ where: { id: job.deliveryPartnerId }, data: { walletBalance: { increment: job.order.deliveryPartnerPayout } } });
+      await tx.user.update({ where: { id: job.order.farmerId }, data: { walletBalance: { increment: job.order.farmerEarnings } } });
 
-    // Ping Buyer with the visual proof
-    io.to(`user:${job.order.buyerId}`).emit('order:delivered', {
-      orderId: job.order.id,
-      message: 'Your order has been successfully delivered! Please check the delivery proof.',
-      deliveredAt: now.toISOString(),
-      deliveryPhoto: deliveryPhotoUrl,
+      // Notify Farmer
+      await tx.notification.create({
+        data: {
+          userId: job.order.farmerId,
+          type: 'GENERAL',
+          title: 'Order Delivered! 🎉',
+          body: 'Your produce has been successfully delivered to the buyer. Earnings added to wallet.',
+          data: { orderId: job.orderId, jobId: job.id }
+        }
+      });
+
+      // Notify Buyer
+      await tx.notification.create({
+        data: {
+          userId: job.order.buyerId,
+          type: 'GENERAL',
+          title: 'Order Delivered! 🎉',
+          body: 'Your order has been delivered successfully. Enjoy your fresh produce!',
+          data: { orderId: job.orderId, jobId: job.id }
+        }
+      });
     });
 
-    // Ping Farmer to let them know the cycle is complete
-    io.to(`user:${job.order.farmerId}`).emit('order:delivered', {
-      orderId: job.order.id,
-      message: 'Your produce has successfully reached the buyer.',
-    });
-
-    // 7. Success Response
     res.status(200).json({
       success: true,
-      message: 'Delivery confirmed and earnings have been safely credited to your wallet.',
+      message: 'Delivery and payment verified successfully.',
       data: {
         jobId,
-        status: 'DELIVERED',
-        deliveredAt: now,
-        deliveryFeeEarned: job.order.deliveryFee,
+        status: DeliveryJobStatus.DELIVERED,
         deliveryPhotoUrl,
       },
     });
@@ -634,6 +679,7 @@ export const getActiveJobs = async (req: Request, res: Response): Promise<void> 
       include: {
         order: {
           include: {
+            paymentRecord: true,
             crop: { include: { catalog: true } },
             farmer: { select: { name: true, phone: true } },
             buyer: { select: { name: true, phone: true } }
@@ -651,6 +697,9 @@ export const getActiveJobs = async (req: Request, res: Response): Promise<void> 
         cropName: job.order.crop.catalog.englishName,
         weightKg: Number(job.cropWeightKg),
         estimatedFee: job.order.deliveryFee,
+        paymentType: job.order.paymentType,
+        paymentStatus: job.order.paymentRecord?.status || 'PENDING',
+        totalBuyerPrice: job.order.totalBuyerPrice,
         pickupLocation: {
           latitude: job.pickupLatitude,
           longitude: job.pickupLongitude,

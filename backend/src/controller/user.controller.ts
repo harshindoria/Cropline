@@ -8,6 +8,8 @@ import { signToken } from '../utils/jwtUtils';
 // 💡 Zod Schema (Updated to include bank and aadhaar)
 const updateProfileSchema = z.object({
   name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  phone: z.string().regex(/^[6-9]\d{9}$/, "Must be a valid 10-digit Indian mobile number").optional(),
   village: z.string().optional(),
   district: z.string().optional(),
   state: z.string().optional(),
@@ -23,7 +25,7 @@ const updateProfileSchema = z.object({
   
   // New profile fields
   aboutMe: z.string().optional(),
-  dob: z.string().datetime().optional(),
+  dob: z.string().optional(),
   gender: z.string().optional(),
   languagePref: z.string().optional(),
   vehicleNumber: z.string().optional(),
@@ -41,68 +43,143 @@ const updateProfileSchema = z.object({
   waterSource: z.string().optional(),
 });
 
-// 1. Apna Profile Dekhne ka function
+const getCurrentUser = async (userId: string) => {
+  let dbUser = await prisma.user.findUnique({ where: { id: userId } });
+
+  if (!dbUser) {
+    return null;
+  }
+
+  if (dbUser.email === 'harshindoria911@gmail.com' && !dbUser.roles.includes('ADMIN')) {
+    dbUser = await prisma.user.update({
+      where: { id: userId },
+      data: { roles: [...dbUser.roles, 'ADMIN'] }
+    });
+  }
+
+  return dbUser;
+};
+
+export const buyerProfile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(404).json({ success: false, error: 'User not found' });
+      return;
+    }
+
+    const dbUser = await getCurrentUser(userId);
+    if (!dbUser) {
+      res.status(404).json({ success: false, error: 'User not found' });
+      return;
+    }
+
+    res.status(200).json({ success: true, user: sanitizeUser(dbUser) });
+  } catch (error) {
+    console.error('Error in fetching buyer profile:', error);
+    res.status(500).json({ success: false, message: 'Could not fetch buyer profile' });
+  }
+};
+
+export const deliveryProfile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(404).json({ success: false, error: 'User not found' });
+      return;
+    }
+
+    const dbUser = await getCurrentUser(userId);
+    if (!dbUser) {
+      res.status(404).json({ success: false, error: 'User not found' });
+      return;
+    }
+
+    const allJobs = await prisma.deliveryJob.findMany({
+      where: { deliveryPartnerId: userId }
+    });
+
+    const completedJobs = allJobs.filter((j: any) => j.status === 'DELIVERED');
+    const cancelledJobs = allJobs.filter((j: any) => j.status === 'CANCELLED');
+    const totalDeliveries = completedJobs.length;
+    const terminalJobs = totalDeliveries + cancelledJobs.length;
+
+    const completionRate = terminalJobs > 0 ? Math.round((totalDeliveries / terminalJobs) * 100) : 0;
+    const cancellationRate = terminalJobs > 0 ? Math.round((cancelledJobs.length / terminalJobs) * 100) : 0;
+
+    const onTimeDeliveries = completedJobs.filter((j: any) => {
+      if (!j.estimatedDeliveryAt || !j.deliveredAt) return true;
+      return j.deliveredAt <= j.estimatedDeliveryAt;
+    }).length;
+
+    const onTimeRate = totalDeliveries > 0 ? Math.round((onTimeDeliveries / totalDeliveries) * 100) : 0;
+
+    const deliveryStats = {
+      totalDeliveries,
+      completionRate,
+      cancellationRate,
+      onTimeRate
+    };
+
+    res.status(200).json({ success: true, user: sanitizeUser(dbUser), deliveryStats });
+  } catch (error) {
+    console.error('Error in fetching delivery profile:', error);
+    res.status(500).json({ success: false, message: 'Could not fetch delivery profile' });
+  }
+};
+
+export const farmerProfile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(404).json({ success: false, error: 'User not found' });
+      return;
+    }
+
+    const dbUser = await getCurrentUser(userId);
+    if (!dbUser) {
+      res.status(404).json({ success: false, error: 'User not found' });
+      return;
+    }
+
+    const activeCrops = await prisma.crop.findMany({
+      where: { farmerId: userId, status: 'ACTIVE' },
+      include: { catalog: true }
+    });
+
+    res.status(200).json({ success: true, user: sanitizeUser(dbUser), activeCrops });
+  } catch (error) {
+    console.error('Error in fetching farmer profile:', error);
+    res.status(500).json({ success: false, message: 'Could not fetch farmer profile' });
+  }
+};
+
 export const getProfile = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user?.id;
-    if(!userId){
-        res.status(404).json({ success: false, error: "User not found" });
-        return;
-    }
-    
-    let dbUser = await prisma.user.findUnique({ where: { id: userId } });
-
-    if(!dbUser){
-        res.status(404).json({ success: false, error: "User not found" });
-        return;
+    if (!userId) {
+      res.status(404).json({ success: false, error: 'User not found' });
+      return;
     }
 
-    // Auto-promote harshindoria911@gmail.com to ADMIN
-    if (dbUser.email === 'harshindoria911@gmail.com' && !dbUser.roles.includes('ADMIN')) {
-      dbUser = await prisma.user.update({
-        where: { id: userId },
-        data: { roles: [...dbUser.roles, 'ADMIN'] }
-      });
+    const dbUser = await getCurrentUser(userId);
+    if (!dbUser) {
+      res.status(404).json({ success: false, error: 'User not found' });
+      return;
     }
 
-    const safeUser = sanitizeUser(dbUser);
-    
-    let deliveryStats = null;
     if (dbUser.activeRole === 'DELIVERY') {
-      const allJobs = await prisma.deliveryJob.findMany({
-        where: { deliveryPartnerId: userId }
-      });
-      
-      const totalAssigned = allJobs.length;
-      const completedJobs = allJobs.filter((j: any) => j.status === 'DELIVERED');
-      const cancelledJobs = allJobs.filter((j: any) => j.status === 'CANCELLED');
-      
-      const totalDeliveries = completedJobs.length;
-      const terminalJobs = totalDeliveries + cancelledJobs.length;
-      
-      const completionRate = terminalJobs > 0 ? Math.round((totalDeliveries / terminalJobs) * 100) : 0;
-      const cancellationRate = terminalJobs > 0 ? Math.round((cancelledJobs.length / terminalJobs) * 100) : 0;
-      
-      const onTimeDeliveries = completedJobs.filter((j: any) => {
-        if (!j.estimatedDeliveryAt || !j.deliveredAt) return true;
-        return j.deliveredAt <= j.estimatedDeliveryAt;
-      }).length;
-      
-      const onTimeRate = totalDeliveries > 0 ? Math.round((onTimeDeliveries / totalDeliveries) * 100) : 0;
-      
-      deliveryStats = {
-        totalDeliveries,
-        completionRate,
-        cancellationRate,
-        onTimeRate
-      };
+      return deliveryProfile(req, res);
     }
 
-    res.status(200).json({ success: true, user: safeUser, deliveryStats });
-    
+    if (dbUser.activeRole === 'FARMER') {
+      return farmerProfile(req, res);
+    }
+
+    return buyerProfile(req, res);
   } catch (error) {
-    console.error("Error in fetching user data : ", error);
-    res.status(500).json({ success: false, message: "Could not fetch data" });
+    console.error('Error in fetching user data:', error);
+    res.status(500).json({ success: false, message: 'Could not fetch data' });
   }
 };
 
@@ -144,7 +221,12 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
         user: sanitizeUser(updatedUser)
     });
     
-  } catch (error) {
+  } catch (error: any) {
+     if (error.code === 'P2002') {
+         const field = error.meta?.target?.[0] || 'Field';
+         res.status(409).json({ success: false, message: `This ${field} is already in use by another account.` });
+         return;
+     }
      console.error("Update Profile Error:", error);
      res.status(500).json({ success: false, message: "Could not update profile" });
   }
@@ -180,6 +262,16 @@ export const onboardRole = async (req: Request, res: Response): Promise<void> =>
   if (!parsed.success) { res.status(400).json({ success: false, code: 'INVALID_ONBOARDING', errors: parsed.error.issues }); return; }
   if (parsed.data.role === Role.DELIVERY && !(parsed.data.vehicleType || req.user.vehicleType)) {
     res.status(400).json({ success: false, code: 'VEHICLE_REQUIRED', message: 'A vehicle is required for delivery onboarding.' }); return;
+  }
+
+  // Check if application is already pending
+  const existingAccess = await prisma.userRoleAccess.findUnique({
+    where: { userId_role: { userId: req.user.id, role: parsed.data.role } }
+  });
+  
+  if (existingAccess && existingAccess.status === 'PENDING_APPROVAL') {
+    res.status(409).json({ success: false, message: 'You have already submitted an application for this role. Please wait for admin approval.' });
+    return;
   }
 
   const access = await prisma.$transaction(async tx => {

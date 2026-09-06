@@ -20,6 +20,7 @@ import notificationRoutes from './routes/notification.routes';
 
 // Abhi error dega kyunki file banani baaki hai, par yahi iski sahi jagah hai
 import { initSocket } from './sockets/socket.handler'; 
+import { startCronJobs } from './services/cron.service';
 
 dotenv.config();
 
@@ -38,7 +39,8 @@ export const io = new Server(httpServer, {
 
 // Middlewares
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:3000' }));
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.urlencoded({ extended: true }));
 
 // Express Routes (Standard HTTP)
@@ -61,6 +63,7 @@ app.get('/health', (req, res) => {
 
 // 4. Socket Handler ko initialize karna
 initSocket(io);
+startCronJobs();
 
 const PORT = process.env.PORT || 5000;
 

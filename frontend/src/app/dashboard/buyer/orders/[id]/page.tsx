@@ -399,6 +399,22 @@ export default function OrderDetailPage() {
             </button>
           )}
 
+          {order.status === 'IN_DELIVERY' && (
+            <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-center">
+              <h3 className="mb-2 font-bold text-[#1B5E20]">Your Delivery OTP</h3>
+              <p className="mb-4 text-xs text-gray-600">
+                Your driver has arrived! Please share this OTP with the driver to complete your delivery securely.
+              </p>
+              
+              <div className="flex flex-col items-center justify-center bg-white p-4 rounded-xl border border-green-100 shadow-sm">
+                <span className="text-4xl font-black tracking-widest text-[#1B5E20]">
+                  {order.deliveryOtp || '----'}
+                </span>
+                <p className="text-[10px] text-gray-400 font-semibold mt-3 uppercase tracking-wider">Share with delivery partner</p>
+              </div>
+            </div>
+          )}
+
           {order.status !== 'PENDING' && (
             <div className="flex flex-col gap-3 mt-4">
               <button

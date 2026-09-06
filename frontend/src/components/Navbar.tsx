@@ -31,12 +31,19 @@ export default function Navbar() {
   }, []);
 
   const handleAuthAction = () => {
-    if (user) {
+    if (user && user.name) {
       router.push("/dashboard");
     } else {
       setLoginOpen(true);
     }
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("completeProfile") === "true") {
+      setLoginOpen(true);
+    }
+  }, []);
 
   return (
     <>

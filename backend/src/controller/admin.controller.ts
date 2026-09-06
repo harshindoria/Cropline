@@ -463,10 +463,47 @@ export const verifyDocument = async (req: Request, res: Response): Promise<void>
       updateData.isVerified = true;
     }
 
-    await prisma.user.update({
+    const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: updateData
     });
+
+    // Auto-Approve Roles if requirements are met
+    const rolesToAdd: import("@prisma/client").Role[] = [];
+
+    // Farmer requires Aadhaar
+    if (updatedUser.aadhaarVerified && !updatedUser.roles.includes('FARMER')) {
+      const farmerAccess = await prisma.userRoleAccess.findUnique({ where: { userId_role: { userId, role: 'FARMER' } } });
+      if (farmerAccess && farmerAccess.status === 'PENDING_APPROVAL') {
+        rolesToAdd.push("FARMER" as import("@prisma/client").Role);
+        await prisma.userRoleAccess.update({ where: { id: farmerAccess.id }, data: { status: 'ACTIVE' } });
+      }
+    }
+
+    // Delivery requires DL and RC
+    if (updatedUser.dlVerified && updatedUser.rcVerified && !updatedUser.roles.includes('DELIVERY')) {
+      const deliveryAccess = await prisma.userRoleAccess.findUnique({ where: { userId_role: { userId, role: 'DELIVERY' } } });
+      if (deliveryAccess && deliveryAccess.status === 'PENDING_APPROVAL') {
+        rolesToAdd.push("DELIVERY" as import("@prisma/client").Role);
+        await prisma.userRoleAccess.update({ where: { id: deliveryAccess.id }, data: { status: 'ACTIVE' } });
+      }
+    }
+
+    if (rolesToAdd.length > 0) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { roles: { push: rolesToAdd } } // Push all newly approved roles
+      });
+      // Optionally notify user here
+      await prisma.notification.create({
+        data: {
+          userId,
+          type: 'GENERAL',
+          title: 'Application Approved! 🎉',
+          body: `Your documents have been verified and your ${rolesToAdd.join(', ')} application is approved. You can now switch to this role.`
+        }
+      });
+    }
 
     res.json({ success: true, message: `Document ${docType} verification updated to ${status}` });
   } catch (error) {

@@ -1,124 +1,88 @@
 import prisma from '../config/db';
-import { DeliveryOfferStatus, OrderStatus, DeliveryJobStatus } from '@prisma/client';
-import { haversineDistance } from '../utils/geoUtils';
+import { OrderStatus, PaymentStatus } from '@prisma/client';
+import { assignDeliveryJob } from './deliveryAssignment.service';
 
-export async function processDeliveryWaves() {
-  // Find all OFFERED that are expired
-  const expiredOffers = await prisma.deliveryOffer.findMany({
-    where: {
-      status: DeliveryOfferStatus.OFFERED,
-      expiresAt: { lt: new Date() }
-    },
-    include: { order: true }
-  });
-
-  for (const offer of expiredOffers) {
-    await prisma.deliveryOffer.update({
-      where: { id: offer.id },
-      data: { status: DeliveryOfferStatus.EXPIRED }
-    });
-    
-    // Find next partner
-    const nextPartner = await prisma.user.findFirst({
-        where: {
-            roles: { has: 'DELIVERY' },
-            isActive: true,
-            isOnline: true,
-            id: { notIn: [offer.partnerId] }
-        }
-    });
-
-    if (nextPartner) {
-        // Create new offer
-        await prisma.deliveryOffer.create({
-            data: {
-                orderId: offer.orderId,
-                partnerId: nextPartner.id,
-                wave: offer.wave + 1,
-                radiusKm: offer.radiusKm + 5,
-                expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000) // 2 hours
-            }
-        });
-        // Here we would also send a socket notification to the nextPartner
-    } else {
-        await prisma.order.update({
-            where: { id: offer.orderId },
-            data: { status: OrderStatus.DELIVERY_UNAVAILABLE }
-        });
-    }
-  }
-}
-
-export async function processAutoAssignDeliveries() {
-  const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
+export async function processRetryDeliveryAssignments() {
+  console.log('[CRON] Running Delivery Assignment Retry...');
   
-  const unassignedOrders = await prisma.order.findMany({
+  // Find orders that have been waiting for > 2 hours in DELIVERY_SEARCHING state
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+
+  const waitingOrders = await prisma.order.findMany({
     where: {
-      status: OrderStatus.READY_FOR_PICKUP,
-      deliveryType: 'DELIVERY',
-      farmerAcceptedAt: { lte: sixHoursAgo }
+      status: OrderStatus.DELIVERY_SEARCHING,
+      updatedAt: { lte: twoHoursAgo }
     },
-    include: { crop: true }
+    include: { paymentRecord: true }
   });
 
-  if (unassignedOrders.length === 0) return;
+  for (const order of waitingOrders) {
+    try {
+      console.log(`[CRON] Retrying delivery assignment for order: ${order.id}`);
+      
+      const assignedPartner = await assignDeliveryJob(order.id);
 
-  const onlineDeliveryBoys = await prisma.user.findMany({
-    where: { activeRole: 'DELIVERY', isOnline: true }
-  });
+      if (assignedPartner) {
+        console.log(`[CRON] Success! Assigned order ${order.id} to partner ${assignedPartner.id}`);
+      } else {
+        // Ultimate Failure: It's been 2 hours and we STILL can't find a delivery guy.
+        // We must cancel the order.
+        console.log(`[CRON] Failed again for order ${order.id}. Cancelling order...`);
+        
+        await prisma.$transaction(async (tx) => {
+          // 1. Cancel the order
+          await tx.order.update({
+            where: { id: order.id },
+            data: { 
+              status: OrderStatus.CANCELLED,
+              cancellationReason: 'No delivery partner could be found within the time limit.'
+            }
+          });
 
-  if (onlineDeliveryBoys.length === 0) return;
+          // 2. Restore stock
+          await tx.crop.update({
+            where: { id: order.cropId },
+            data: { quantityRemainingKg: { increment: order.quantityKg } }
+          });
 
-  for (const order of unassignedOrders) {
-    if (!order.crop.farmLatitude || !order.crop.farmLongitude) continue;
-
-    let nearestBoy = null;
-    let minDistance = Infinity;
-
-    for (const boy of onlineDeliveryBoys) {
-      if (!boy.latitude || !boy.longitude) continue;
-      const dist = haversineDistance(
-        order.crop.farmLatitude,
-        order.crop.farmLongitude,
-        boy.latitude,
-        boy.longitude
-      );
-      if (dist < minDistance) {
-        minDistance = dist;
-        nearestBoy = boy;
-      }
-    }
-
-    if (nearestBoy) {
-      // Auto assign
-      const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      await prisma.$transaction([
-        prisma.deliveryJob.create({
-          data: {
-            orderId: order.id,
-            deliveryPartnerId: nearestBoy.id,
-            pickupLatitude: order.crop.farmLatitude,
-            pickupLongitude: order.crop.farmLongitude,
-            dropLatitude: order.deliveryLatitude || 0,
-            dropLongitude: order.deliveryLongitude || 0,
-            distanceKm: minDistance,
-            cropWeightKg: order.quantityKg,
-            status: DeliveryJobStatus.ASSIGNED,
-            estimatedDeliveryAt: deadline
+          // 3. Initiate Refund if pre-paid
+          if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS) {
+            await tx.paymentRecord.update({
+              where: { id: order.paymentRecord.id },
+              data: { status: PaymentStatus.REFUNDED }
+            });
           }
-        }),
-        prisma.order.update({
-          where: { id: order.id },
-          data: { status: OrderStatus.ASSIGNED }
-        })
-      ]);
+
+          // 4. Notify Farmer
+          await tx.notification.create({
+            data: {
+              userId: order.farmerId,
+              title: 'Order Cancelled 🚫',
+              body: 'Unfortunately, we could not find a delivery partner after 2 hours. The order has been cancelled and stock restored.',
+              data: { orderId: order.id }
+            }
+          });
+
+          // 5. Notify Buyer
+          await tx.notification.create({
+            data: {
+              userId: order.buyerId,
+              title: 'Order Cancelled & Refunded 🚫',
+              body: 'Unfortunately, we could not find a delivery partner to deliver your order. The order has been cancelled. If you paid online, your refund has been initiated.',
+              data: { orderId: order.id }
+            }
+          });
+        });
+      }
+    } catch (error) {
+      console.error(`[CRON] Error processing order ${order.id}:`, error);
     }
   }
 }
 
 export function startCronJobs() {
+    // Run every 10 minutes to check if any order has crossed the 2-hour threshold
     setInterval(() => {
-        processDeliveryWaves().catch(console.error);
-        processAutoAssignDeliveries().catch(console.error);
-    }, 5 * 60 * 1000); // run every 5 mins
+        processRetryDeliveryAssignments().catch(console.error);
+    }, 10 * 60 * 1000);
 }
