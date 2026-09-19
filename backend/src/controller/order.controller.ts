@@ -6,7 +6,8 @@ import { calculateDeliveryFee } from '../utils/feeUtils';
 import { haversineDistance } from '../utils/geoUtils';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
-import { assignDeliveryJob } from '../services/deliveryAssignment.service';
+import { assignDeliveryJob, assignDeliveryJobByPincode } from '../services/deliveryAssignment.service';
+import { issueRazorpayRefund } from '../services/payment.service';
 
 // ── ZOD SCHEMA ──────────────────────────────────────────────────────────────
 const createOrderSchema = z.object({
@@ -211,7 +212,8 @@ export const confirmOrder = async (req: Request<{ id: string }>, res: Response):
       where: { id },
       include: {
         farmer: true,
-        crop: true
+        crop: true,
+        paymentRecord: true
       }
     });
 
@@ -233,7 +235,16 @@ export const confirmOrder = async (req: Request<{ id: string }>, res: Response):
       return;
     }
 
-    const updatedOrder = await prisma.order.update({
+    // Ensure farmer cannot confirm an unpaid ONLINE order
+    if (order.paymentType === 'ONLINE' && order.paymentRecord?.status !== 'SUCCESS') {
+      res.status(400).json({
+        success: false,
+        message: 'Cannot confirm order. The buyer has not completed the online payment yet.'
+      });
+      return;
+    }
+
+    let updatedOrder = await prisma.order.update({
       where: { id },
       data: {
         status: OrderStatus.CONFIRMED,
@@ -241,6 +252,14 @@ export const confirmOrder = async (req: Request<{ id: string }>, res: Response):
       },
       include: { crop: { include: { catalog: true } } }
     });
+
+    let assignedPartner = null;
+    if (updatedOrder.deliveryType === DeliveryType.DELIVERY) {
+      assignedPartner = await assignDeliveryJobByPincode(id);
+      if (assignedPartner) {
+        updatedOrder.status = OrderStatus.ASSIGNED;
+      }
+    }
 
     // Notify the buyer
     await prisma.notification.create({
@@ -254,7 +273,9 @@ export const confirmOrder = async (req: Request<{ id: string }>, res: Response):
 
     res.status(200).json({
       success: true,
-      message: 'Order confirmed successfully. Mark the crop ready when it is prepared.',
+      message: assignedPartner 
+        ? `Order confirmed and delivery assigned to ${assignedPartner.name || 'a partner'}.` 
+        : 'Order confirmed successfully. Mark the crop ready when it is prepared.',
       data: updatedOrder
     });
 
@@ -309,12 +330,13 @@ export const rejectOrder = async (req: Request<{ id: string }>, res: Response): 
       });
 
       // 3. 💡 FIX 3: Handle Refund Scenario for Pre-paid Orders
-      if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS) {
-        // Here you would ideally call Razorpay Refund API
-        // For now, we update the DB to signify refund is initiated
+      if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS && order.paymentRecord.providerPaymentId) {
+        // Call Razorpay Refund API
+        await issueRazorpayRefund(order.paymentRecord.providerPaymentId, undefined, { reason: 'Order rejected by farmer' });
+        
         await tx.paymentRecord.update({
           where: { id: order.paymentRecord.id },
-          data: { status: PaymentStatus.REFUNDED }
+          data: { status: PaymentStatus.REFUNDED, refundedAt: new Date() }
         });
       }
       
@@ -425,13 +447,6 @@ export const markReady = async (req: Request<{ id: string }>, res: Response): Pr
   }
 };
 
-// ── GET BUYER DELIVERY QR ────────────────────────────────────────────────────
-// Buyer fetches their QR code when the driver is on the way.
-// The Driver will scan this QR at the doorstep to complete the delivery.
-
-// ── GET HANDOVER TOKEN (For Farmer's QR Code) ───────────────────────────────
-
-
 const autoRejectExpiredOrders = async () => {
   try {
     const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
@@ -461,10 +476,11 @@ const autoRejectExpiredOrders = async () => {
           }
         });
         // Process refund DB state
-        if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS) {
+        if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS && order.paymentRecord.providerPaymentId) {
+          await issueRazorpayRefund(order.paymentRecord.providerPaymentId, undefined, { reason: 'Order auto-rejected (timeout)' });
           await tx.paymentRecord.update({
             where: { id: order.paymentRecord.id },
-            data: { status: PaymentStatus.REFUNDED }
+            data: { status: PaymentStatus.REFUNDED, refundedAt: new Date() }
           });
         }
       }
@@ -481,7 +497,16 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
       where: {
         OR: [
           { buyerId: req.user!.id },
-          { farmerId: req.user!.id }
+          { 
+            farmerId: req.user!.id,
+            NOT: {
+              status: OrderStatus.PENDING,
+              paymentType: PaymentType.ONLINE,
+              paymentRecord: {
+                status: { in: [PaymentStatus.PENDING, PaymentStatus.FAILED] }
+              }
+            }
+          }
         ]
       },
       include: {
@@ -556,12 +581,12 @@ export const cancelOrder = async (req: Request<{ id: string }>, res: Response): 
       });
 
       // 3. If payment was captured, mark for refund
-      if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS) {
+      if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS && order.paymentRecord.providerPaymentId) {
+        await issueRazorpayRefund(order.paymentRecord.providerPaymentId, undefined, { reason: 'Order cancelled by buyer' });
         await tx.paymentRecord.update({
           where: { id: order.paymentRecord.id },
           data: { status: PaymentStatus.REFUNDED, refundedAt: new Date() }
         });
-        // TODO: Trigger actual Razorpay refund API
       }
     });
 

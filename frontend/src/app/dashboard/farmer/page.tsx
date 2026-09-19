@@ -3,6 +3,7 @@
 import ApplicationModal from "@/components/ApplicationModal";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import NotificationDropdown from "@/components/NotificationDropdown";
+import { getCurrentLocation, reverseGeocode } from "@/lib/location";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef, Suspense } from "react";
@@ -86,6 +87,11 @@ function FarmerDashboardContent() {
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // ── Edit Crop ──
+  const [editingCrop, setEditingCrop] = useState<any>(null);
+  const [editCropForm, setEditCropForm] = useState({ basePricePerKg: "", offerMinQuantityKg: "", offerDiscountPercentage: "" });
+  const [savingCrop, setSavingCrop] = useState(false);
+
   // ── Profile ──
   const [editing, setEditing] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: "", village: "", district: "", state: "", pincode: "", farmArea: "", latitude: "", longitude: "" });
@@ -116,7 +122,7 @@ function FarmerDashboardContent() {
   useEffect(() => {
     if (user?.activeRole === "FARMER" && activeTab === "mycrops") {
       setLoadingCrops(true);
-      api.get("/crops/farmer/mine").then(r => setCrops(r.data.crops || [])).catch(console.error).finally(() => setLoadingCrops(false));
+      api.get("/crops/farmer/mine").then(r => setCrops(r.data.data || [])).catch(console.error).finally(() => setLoadingCrops(false));
     }
   }, [activeTab, user]);
 
@@ -150,11 +156,44 @@ function FarmerDashboardContent() {
     try { await api.delete(`/crops/${id}`); setCrops(prev => prev.filter(c => c.id !== id)); } catch (e: any) { alert(e.response?.data?.message || "Failed to delete"); }
   };
 
+  const handleSaveCrop = async () => {
+    if (!editingCrop) return;
+    setSavingCrop(true);
+    try {
+      const payload: any = {
+        basePricePerKg: editCropForm.basePricePerKg
+      };
+      if (editCropForm.offerMinQuantityKg && editCropForm.offerDiscountPercentage) {
+        payload.offerMinQuantityKg = editCropForm.offerMinQuantityKg;
+        payload.offerDiscountPercentage = editCropForm.offerDiscountPercentage;
+      }
+      await api.put(`/crops/${editingCrop.id}`, payload);
+      setCrops(prev => prev.map(c => c.id === editingCrop.id ? { 
+        ...c, 
+        basePricePerKg: editCropForm.basePricePerKg, 
+        offer: (editCropForm.offerMinQuantityKg ? { minQuantityKg: editCropForm.offerMinQuantityKg, discountPercentage: editCropForm.offerDiscountPercentage } : null) 
+      } : c));
+      setEditingCrop(null);
+      alert("Crop updated successfully!");
+    } catch (e: any) {
+      alert(e.response?.data?.message || "Failed to update crop");
+    } finally {
+      setSavingCrop(false);
+    }
+  };
+
   // ── Add Crop Submit ──
   const handleAddCrop = async () => {
     if (!selectedCatalog) return;
     setSubmitting(true);
     try {
+      const coords = await getCurrentLocation(
+        user.latitude ? Number(user.latitude) : 26.9124,
+        user.longitude ? Number(user.longitude) : 75.7873
+      );
+      
+      const geoData = await reverseGeocode(coords.lat, coords.lng);
+
       const fd = new FormData();
       fd.append("catalogId", selectedCatalog.id);
       fd.append("quantityKg", cropForm.quantityKg);
@@ -167,17 +206,24 @@ function FarmerDashboardContent() {
       if (cropForm.isPreHarvest) {
         fd.append("preHarvestDeadline", cropForm.harvestDate);
       }
-      fd.append("farmVillage", user.village || "Unknown");
-      fd.append("farmDistrict", user.district || "Unknown");
-      fd.append("farmState", user.state || "Unknown");
-      fd.append("farmLatitude", "26.9124");
-      fd.append("farmLongitude", "75.7873");
+      fd.append("farmVillage", geoData?.village || user.village || "Unknown");
+      fd.append("farmDistrict", geoData?.district || user.district || "Unknown");
+      fd.append("farmState", geoData?.state || user.state || "Unknown");
+      fd.append("farmLatitude", coords.lat.toString());
+      fd.append("farmLongitude", coords.lng.toString());
       if (offerForm.offerMinQuantityKg) fd.append("offerMinQuantityKg", offerForm.offerMinQuantityKg);
       if (offerForm.offerDiscountPercentage) fd.append("offerDiscountPercentage", offerForm.offerDiscountPercentage);
       photos.forEach(p => fd.append("photos", p));
       await api.post("/crops", fd, { headers: { "Content-Type": "multipart/form-data" } });
       setSubmitSuccess(true);
-      setTimeout(() => { setSubmitSuccess(false); setAddStep(1); setSelectedCatalog(null); setCropForm({ quantityKg: "", basePricePerKg: "", minOrderKg: "1", harvestDate: "", description: "", selfPickupEnabled: false, isPreHarvest: false }); setPhotos([]); setPhotoPreviews([]); setOfferForm({ offerMinQuantityKg: "", offerDiscountPercentage: "" }); router.push("/dashboard/farmer?tab=mycrops"); }, 2000);
+      setTimeout(() => {
+        setSubmitSuccess(false); 
+        setAddStep(1); setSelectedCatalog(null); 
+        setCropForm({ quantityKg: "", basePricePerKg: "", minOrderKg: "1", harvestDate: "", description: "", selfPickupEnabled: false, isPreHarvest: false }); 
+        setPhotos([]); 
+        setPhotoPreviews([]); setOfferForm({ offerMinQuantityKg: "", offerDiscountPercentage: "" }); 
+        router.push("/dashboard/farmer?tab=mycrops");
+      }, 2000);
     } catch (e: any) { alert(e.response?.data?.message || "Failed to add crop"); }
     finally { setSubmitting(false); }
   };
@@ -386,6 +432,16 @@ function FarmerDashboardContent() {
                           <div className="flex items-center justify-between">
                             <span className="text-[11px] font-bold text-gray-400"><ShoppingCart className="w-3 h-3 inline mr-1" />{crop._count?.orders || 0} orders</span>
                             <div className="flex gap-2">
+                              <button onClick={() => {
+                                setEditingCrop(crop);
+                                setEditCropForm({
+                                  basePricePerKg: crop.basePricePerKg || "",
+                                  offerMinQuantityKg: crop.offer?.minQuantityKg || "",
+                                  offerDiscountPercentage: crop.offer?.discountPercentage || ""
+                                });
+                              }} className="p-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-500 transition-colors">
+                                <Edit3 size={14} />
+                              </button>
                               <button onClick={() => togglePause(crop.id, crop.status)} className={`p-2 rounded-lg transition-colors ${crop.status === "ACTIVE" ? "bg-amber-50 hover:bg-amber-100 text-amber-600" : "bg-green-50 hover:bg-green-100 text-green-600"}`}>
                                 {crop.status === "ACTIVE" ? <Pause size={14} /> : <Play size={14} />}
                               </button>
@@ -656,6 +712,36 @@ function FarmerDashboardContent() {
                     {openFaq.includes(i) && <div className="px-6 pb-4 text-sm text-gray-600 leading-relaxed border-t border-gray-50 pt-3">{faq.a}</div>}
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Edit Crop Modal */}
+          {editingCrop && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-xl font-black text-[#212121]">Edit Price & Discount</h3>
+                  <button onClick={() => setEditingCrop(null)} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-500"><X size={18}/></button>
+                </div>
+                <div className="space-y-4">
+                  <InputField label="Base Price (₹/kg)" type="number" placeholder="Enter new base price" value={editCropForm.basePricePerKg} onChange={v => setEditCropForm(p => ({...p, basePricePerKg: v}))} />
+                  
+                  <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 mt-2">
+                    <h4 className="text-sm font-bold text-orange-800 mb-2">Bulk Discount (Optional)</h4>
+                    <div className="space-y-3">
+                      <InputField label="Min Qty for Discount (kg)" type="number" placeholder="e.g. 100" value={editCropForm.offerMinQuantityKg} onChange={v => setEditCropForm(p => ({...p, offerMinQuantityKg: v}))} />
+                      <InputField label="Discount %" type="number" placeholder="e.g. 5" value={editCropForm.offerDiscountPercentage} onChange={v => setEditCropForm(p => ({...p, offerDiscountPercentage: v}))} />
+                    </div>
+                  </div>
+                </div>
+                <button 
+                  onClick={handleSaveCrop}
+                  disabled={savingCrop || !editCropForm.basePricePerKg}
+                  className="w-full mt-6 py-3 bg-[#1B5E20] hover:bg-[#144718] text-white font-bold rounded-xl disabled:opacity-50 transition-colors"
+                >
+                  {savingCrop ? "Saving..." : "Save Changes"}
+                </button>
               </div>
             </div>
           )}

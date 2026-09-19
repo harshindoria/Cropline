@@ -53,15 +53,6 @@ enum DeliveryOfferStatus {
   LOST
 }
 
-enum VerificationPurpose {
-  FARMER_HANDOVER
-  BUYER_DELIVERY
-}
-
-enum VerificationTokenType {
-  HANDOVER_QR
-  BUYER_DELIVERY_QR
-}
 
 enum LedgerEntryType {
   FARMER_EARNING
@@ -249,7 +240,6 @@ model User {
   cashLiabilities       CashLiability[]
   complaintsFiled       Complaint[]      @relation("ComplaintsFiled")
   complaintsReceived    Complaint[]      @relation("ComplaintsReceived")
-  verificationTokensIssued VerificationToken[] @relation("VerificationIssuedTo")
 
   @@index([latitude, longitude])
   @@index([activeRole, isOnline])
@@ -415,7 +405,6 @@ model Order {
   deliveryJob        DeliveryJob?
   reviews            Review[]
   deliveryOffers     DeliveryOffer[]
-  verificationTokens VerificationToken[]
   paymentRecord      PaymentRecord?
   ledgerEntries      LedgerEntry[]
   cashLiability      CashLiability?
@@ -482,21 +471,7 @@ model DeliveryOffer {
   @@index([orderId, wave])
 }
 
-model VerificationToken {
-  id             String               @id @default(cuid())
-  order          Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  orderId        String
-  purpose        VerificationPurpose
-  tokenType      VerificationTokenType
-  jti            String               @unique
-  issuedTo       User                 @relation("VerificationIssuedTo", fields: [issuedToUserId], references: [id], onDelete: Cascade)
-  issuedToUserId String
-  expiresAt      DateTime
-  consumedAt     DateTime?
-  createdAt      DateTime             @default(now())
 
-  @@index([orderId, purpose, consumedAt])
-}
 
 model PaymentRecord {
   id                String        @id @default(cuid())

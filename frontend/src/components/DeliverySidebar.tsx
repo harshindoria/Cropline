@@ -32,6 +32,7 @@ export default function DeliverySidebar() {
     { name: "Dashboard", href: "/dashboard/delivery", icon: Home },
     { name: "Available Deliveries", href: "/dashboard/delivery/available", icon: ShoppingBag },
     { name: "Active Deliveries", href: "/dashboard/delivery/active", icon: Truck },
+    { name: "Cash Settlements", href: "/dashboard/delivery/settlements", icon: require('lucide-react').Wallet },
     { name: "Ratings & Reviews", href: "/dashboard/delivery/reviews", icon: Star },
     { name: "Profile", href: "/dashboard/delivery/profile", icon: User },
     { name: "Help", href: "#", icon: HelpCircle },

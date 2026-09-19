@@ -1,10 +1,11 @@
 import { Request, Response } from 'express';
-import { prisma } from '../config/db'; 
-import { 
-  verifyRazorpayWebhookSignature, 
-  createRazorpayPaymentLink, 
-  createRazorpayOrder 
+import { prisma } from '../config/db';
+import {
+  verifyRazorpayWebhookSignature,
+  createRazorpayPaymentLink,
+  createRazorpayOrder
 } from '../services/payment.service';
+import crypto from 'crypto';
 
 // ============================================================================
 // 1. THE MASTER SWITCHBOARD (Webhook Listener)
@@ -14,7 +15,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
     const signature = req.headers['x-razorpay-signature'] as string;
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET || '';
 
-    const rawBody = (req as any).rawBody; 
+    const rawBody = (req as any).rawBody;
 
     if (!rawBody || !verifyRazorpayWebhookSignature(rawBody, signature, secret)) {
       res.status(400).json({ success: false, message: 'Invalid signature' });
@@ -37,7 +38,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
 
         await prisma.paymentRecord.updateMany({
           where: { providerOrderId: razorpayOrderId },
-          data: { 
+          data: {
             status: 'SUCCESS', // Exactly matches PaymentStatus Enum
             providerPaymentId: paymentEntity.id,
             capturedAt: new Date() // Aapke schema ke mutabiq precise date
@@ -49,7 +50,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
       case 'payment.failed': {
         const paymentEntity = payload.payment.entity;
         const razorpayOrderId = paymentEntity.order_id;
-        
+
         await prisma.paymentRecord.updateMany({
           where: { providerOrderId: razorpayOrderId },
           data: { status: 'FAILED' }
@@ -63,18 +64,42 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
       // ---------------------------------------------------------
       case 'payment_link.paid': {
         const linkEntity = payload.payment_link.entity;
-        const driverId = linkEntity.reference_id; 
+        const driverId = linkEntity.reference_id;
+        const notes = linkEntity.notes || {};
+        const specificLiabilityId = notes.liabilityId;
+        const amountPaidInRupees = Number(linkEntity.amount_paid) / 100;
 
         await prisma.$transaction(async (tx) => {
-          const liabilities = await tx.cashLiability.findMany({
-            where: { deliveryPartnerId: driverId, reconciledAt: null }
-          });
-
-          if (liabilities.length > 0) {
+          if (specificLiabilityId && specificLiabilityId !== 'ALL') {
+            // Settle specific liability
             await tx.cashLiability.updateMany({
-              where: { deliveryPartnerId: driverId, reconciledAt: null },
-              data: { reconciledAt: new Date() }
+              where: { id: specificLiabilityId, deliveryPartnerId: driverId, reconciledAt: null },
+              data: { reconciledAt: new Date(), status: 'VERIFIED' }
             });
+          } else {
+            // Fallback: Settle oldest liabilities up to amountPaid
+            const liabilities = await tx.cashLiability.findMany({
+              where: { deliveryPartnerId: driverId, reconciledAt: null },
+              orderBy: { createdAt: 'asc' }
+            });
+
+            let remainingAmountToSettle = amountPaidInRupees;
+            const liabilitiesToSettle = [];
+
+            for (const liability of liabilities) {
+              const liabilityAmount = Number(liability.amount);
+              if (remainingAmountToSettle >= liabilityAmount) {
+                liabilitiesToSettle.push(liability.id);
+                remainingAmountToSettle -= liabilityAmount;
+              }
+            }
+
+            if (liabilitiesToSettle.length > 0) {
+              await tx.cashLiability.updateMany({
+                where: { id: { in: liabilitiesToSettle } },
+                data: { reconciledAt: new Date(), status: 'VERIFIED' }
+              });
+            }
           }
         });
         break;
@@ -95,9 +120,9 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
 
         await prisma.paymentRecord.updateMany({
           where: { providerPaymentId: paymentId },
-          data: { 
-            status: 'REFUNDED', 
-            refundedAt: new Date() 
+          data: {
+            status: 'REFUNDED',
+            refundedAt: new Date()
           }
         });
         break;
@@ -122,7 +147,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
         }
         break;
       }
-      
+
       case 'settlement.processed': {
         console.log('Bank settlement received from Razorpay.');
         break;
@@ -151,12 +176,27 @@ export const createDriverSettlementLink = async (req: Request, res: Response): P
       return;
     }
 
-    const liabilityData = await prisma.cashLiability.aggregate({
-      _sum: { amount: true },
-      where: { deliveryPartnerId: user.id, reconciledAt: null }
-    });
+    const { liabilityId } = req.body;
+    let amountDue = 0;
 
-    const amountDue = Number(liabilityData._sum.amount || 0);
+    if (liabilityId) {
+      // Settle a specific liability
+      const liability = await prisma.cashLiability.findUnique({
+        where: { id: liabilityId }
+      });
+      if (!liability || liability.deliveryPartnerId !== user.id || liability.reconciledAt) {
+        res.status(400).json({ success: false, message: 'Invalid or already settled liability.' });
+        return;
+      }
+      amountDue = Number(liability.amount);
+    } else {
+      // Settle all at once
+      const liabilityData = await prisma.cashLiability.aggregate({
+        _sum: { amount: true },
+        where: { deliveryPartnerId: user.id, reconciledAt: null }
+      });
+      amountDue = Number(liabilityData._sum.amount || 0);
+    }
 
     if (amountDue <= 0) {
       res.status(400).json({ success: false, message: 'No pending liability to settle.' });
@@ -169,7 +209,10 @@ export const createDriverSettlementLink = async (req: Request, res: Response): P
       email: user.email || ''
     };
 
-    const linkResponse = await createRazorpayPaymentLink(amountDue, user.id, driverDetails);
+    // Pass liabilityId in notes so webhook knows exactly what to settle
+    const linkResponse = await createRazorpayPaymentLink(amountDue, user.id, driverDetails, {
+      liabilityId: liabilityId || 'ALL'
+    });
 
     res.status(200).json({
       success: true,
@@ -197,13 +240,25 @@ export const getDriverOutstandingSummary = async (req: Request, res: Response): 
        return;
     }
 
-    const [liabilitySum, liabilityCount] = await prisma.$transaction([
+    const [liabilitySum, liabilityCount, liabilities] = await prisma.$transaction([
       prisma.cashLiability.aggregate({
         _sum: { amount: true },
         where: { deliveryPartnerId: user.id, reconciledAt: null }
       }),
       prisma.cashLiability.count({
         where: { deliveryPartnerId: user.id, reconciledAt: null }
+      }),
+      prisma.cashLiability.findMany({
+        where: { deliveryPartnerId: user.id, reconciledAt: null },
+        include: {
+          order: {
+            include: {
+              crop: { include: { catalog: true } },
+              buyer: { select: { id: true, name: true, phone: true } }
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
       })
     ]);
 
@@ -211,7 +266,8 @@ export const getDriverOutstandingSummary = async (req: Request, res: Response): 
       success: true,
       data: {
         totalPendingAmount: Number(liabilitySum._sum.amount || 0),
-        totalPendingOrders: liabilityCount
+        totalPendingOrders: liabilityCount,
+        liabilities: liabilities
       }
     });
   } catch (error) {
@@ -224,10 +280,43 @@ export const getDriverOutstandingSummary = async (req: Request, res: Response): 
 // ============================================================================
 // 4. INITIATE ORDER PAYMENT 
 // ============================================================================
+export const verifyOrderPayment = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orderId } = req.params;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+    const secret = process.env.RAZORPAY_KEY_SECRET || '';
+
+    const generated_signature = crypto
+      .createHmac('sha256', secret)
+      .update(razorpay_order_id + "|" + razorpay_payment_id)
+      .digest('hex');
+
+    if (generated_signature !== razorpay_signature) {
+      res.status(400).json({ success: false, message: 'Invalid payment signature' });
+      return;
+    }
+
+    await prisma.paymentRecord.updateMany({
+      where: { providerOrderId: razorpay_order_id },
+      data: {
+        status: 'SUCCESS',
+        providerPaymentId: razorpay_payment_id,
+        capturedAt: new Date()
+      }
+    });
+
+    res.status(200).json({ success: true, message: 'Payment verified successfully' });
+  } catch (error) {
+    console.error('Error verifying payment:', error);
+    res.status(500).json({ success: false, message: 'Payment verification failed' });
+  }
+};
+
 export const initiateOrderPayment = async (req: Request, res: Response): Promise<void> => {
   try {
     const { orderId } = req.params;
-    
+
     const order = await prisma.order.findUnique({
       where: { id: orderId as string },
       include: { paymentRecord: true }

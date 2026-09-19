@@ -142,8 +142,20 @@ export default function CropDetailPage() {
             name: "CropLine",
             description: `Order for ${crop.catalog?.englishName || "Crop"}`,
             order_id: providerOrderId,
-            handler: function(response: any) {
-              // Usually handled by webhook, but we redirect on frontend success
+            handler: async function(response: any) {
+              try {
+                // Verify the payment synchronously with the backend
+                await api.post(`/payments/order/${orderId}/verify`, {
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_signature: response.razorpay_signature,
+                  orderId: orderId
+                });
+              } catch (verifyErr) {
+                console.error("Payment verification failed:", verifyErr);
+                alert("Payment was successful but verification failed. Please check your orders or contact support.");
+              }
+              // Redirect to order page regardless to see current status
               router.push(`/dashboard/buyer/orders/${orderId}`);
             },
             prefill: {

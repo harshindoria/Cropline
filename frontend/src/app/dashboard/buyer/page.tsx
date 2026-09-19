@@ -4,9 +4,9 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef, Suspense } from "react";
 import api from "@/lib/axios";
-import { 
-  Search, MapPin, Bell, ChevronDown, Leaf, LayoutDashboard, Store, 
-  BarChart2, Package, Users, Truck, User as UserIcon, Heart, 
+import {
+  Search, MapPin, Bell, ChevronDown, Leaf, LayoutDashboard, Store,
+  BarChart2, Package, Users, Truck, User as UserIcon, Heart,
   ChevronRight, Gift, Headphones, ShieldCheck, Clock, ThumbsUp, Plus, Minus, CheckCircle2, Loader2
 } from "lucide-react";
 import Link from "next/link";
@@ -16,6 +16,7 @@ import RoleSwitcher from "@/components/RoleSwitcher";
 import NotificationDropdown from "@/components/NotificationDropdown";
 import CropCard from "./components/CropCard";
 import LocationSelector, { LocationValue } from "@/components/LocationSelector";
+import { getCurrentLocation, reverseGeocode } from "@/lib/location";
 
 // Mock Categories
 const categories = [
@@ -31,7 +32,7 @@ function BuyerDashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
-  
+
   const [cropLang, setCropLang] = useState<"en" | "hi">("en");
 
   useEffect(() => {
@@ -53,7 +54,7 @@ function BuyerDashboardContent() {
     }
     return crop.cropName || crop.catalog?.englishName || "Crop";
   };
-  
+
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [sortBy, setSortBy] = useState("newest");
@@ -61,7 +62,7 @@ function BuyerDashboardContent() {
   const [loadingCrops, setLoadingCrops] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  
+
   const [activeSidebarTab, setActiveSidebarTab] = useState<"Dashboard" | "Marketplace">("Dashboard");
 
   useEffect(() => {
@@ -95,6 +96,9 @@ function BuyerDashboardContent() {
     pincode: ""
   });
   const [isUpdatingLocation, setIsUpdatingLocation] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [coords, setCoords] = useState({ lat: "", lng: "" });
 
   const handleOpenLocationModal = () => {
     setLocationData({
@@ -109,11 +113,19 @@ function BuyerDashboardContent() {
   const handleSaveLocation = async () => {
     setIsUpdatingLocation(true);
     try {
-      const res = await api.patch('/users/profile', {
+      const payload: any = {
         village: locationData.village,
         district: locationData.district,
         state: locationData.state,
-      });
+        pincode: locationData.pincode,
+      };
+      
+      if (coords.lat && coords.lng) {
+        payload.latitude = coords.lat;
+        payload.longitude = coords.lng;
+      }
+      
+      const res = await api.patch('/users/profile', payload);
       if (res.data.success) {
         setIsLocationModalOpen(false);
         window.location.reload();
@@ -124,6 +136,58 @@ function BuyerDashboardContent() {
     } finally {
       setIsUpdatingLocation(false);
     }
+  };
+
+  const handleGetLocation = () => {
+    setErrorMsg("");
+    
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setErrorMsg("Geolocation is not supported by your browser");
+      return;
+    }
+
+    setLocationLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        
+        setCoords({ lat: String(lat), lng: String(lng) });
+
+        const geoData = await reverseGeocode(lat, lng);
+        if (geoData) {
+          setLocationData({
+            state: geoData.state || '',
+            district: geoData.district || '',
+            village: geoData.village || '',
+            pincode: geoData.pincode || '',
+          });
+        }
+        
+        setLocationLoading(false);
+      },
+      (error) => {
+        setLocationLoading(false);
+        let msg = "Unable to retrieve your location.";
+        if (error.code === 1) {
+          msg = "Location permission denied. Please allow location access in your browser settings.";
+        } else if (error.code === 2) {
+          msg = "Location information is unavailable (Position Unavailable).";
+        } else if (error.code === 3) {
+          msg = "The request to get your location timed out.";
+        } else if (error.message && !error.message.toLowerCase().includes("denied")) {
+          msg = error.message;
+        }
+
+        setErrorMsg(msg);
+        setTimeout(() => setErrorMsg(""), 5000);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0
+      }
+    );
   };
 
   const addToCart = (cropId: string, minOrder: number = 5) => {
@@ -157,7 +221,7 @@ function BuyerDashboardContent() {
 
   const handleCheckout = async () => {
     if (Object.keys(cart).length === 0) return;
-    
+
     // Add Razorpay Script dynamically if it's not present
     if (paymentMethod === "ONLINE" && !document.getElementById("razorpay-script")) {
       const script = document.createElement("script");
@@ -170,20 +234,25 @@ function BuyerDashboardContent() {
       let firstOrderId: string | null = null;
       let firstOrderAmount = 0;
       let firstCropDetails = null;
-      
+
       // We will place orders sequentially
       for (const [cropId, quantityKg] of Object.entries(cart)) {
         const crop = crops.find(c => c.id === cropId);
         if (!crop) continue;
+
+        const coords = await getCurrentLocation(
+          user?.latitude ? Number(user.latitude) : 26.9124,
+          user?.longitude ? Number(user.longitude) : 75.7873
+        );
 
         const orderRes = await api.post("/orders", {
           cropId: crop.id,
           quantityKg,
           deliveryType: "DELIVERY",
           paymentType: paymentMethod === "ONLINE" ? "ONLINE" : "CASH_ON_PICKUP",
-          deliveryLatitude: 26.9124, 
-          deliveryLongitude: 75.7873, 
-          deliveryAddress: user?.district ? `${user.district}, ${user.state}` : "Jaipur, Rajasthan"
+          deliveryLatitude: coords.lat,
+          deliveryLongitude: coords.lng,
+          deliveryAddress: user?.district ? `${user.district}, ${user.state}` : "Unknown Address"
         });
 
         if (orderRes.data.success) {
@@ -205,7 +274,7 @@ function BuyerDashboardContent() {
         const payRes = await api.post(`/payments/order/${firstOrderId}/initiate`);
         if (payRes.data.success) {
           const { providerOrderId, amount, currency } = payRes.data.data;
-          
+
           const options = {
             key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
             amount: amount,
@@ -213,7 +282,7 @@ function BuyerDashboardContent() {
             name: "CropLine",
             description: `Payment for Order`,
             order_id: providerOrderId,
-            handler: function(response: any) {
+            handler: function (response: any) {
               setCart({});
               setShowCart(false);
               router.push(`/dashboard/buyer/orders`);
@@ -228,7 +297,7 @@ function BuyerDashboardContent() {
           const rzp = new (window as any).Razorpay(options);
           rzp.open();
         } else {
-            alert("Failed to initiate payment");
+          alert("Failed to initiate payment");
         }
       } else {
         alert(`Order placed successfully using COD!`);
@@ -245,7 +314,7 @@ function BuyerDashboardContent() {
   // Handle role switching
   const handleRoleSwitch = (targetRole: string) => {
     setShowRoleDropdown(false);
-    
+
     if (!user || !user.roles.includes(targetRole as any)) {
       setAppRole(targetRole as "FARMER" | "DELIVERY");
       setAppModalOpen(true);
@@ -272,10 +341,10 @@ function BuyerDashboardContent() {
     const fetchCrops = async () => {
       try {
         setLoadingCrops(true);
-        let endpoint = selectedCategory === "All" 
-          ? `/crops?limit=${limit}&page=${page}` 
+        let endpoint = selectedCategory === "All"
+          ? `/crops?limit=${limit}&page=${page}`
           : `/crops?category=${selectedCategory.toUpperCase()}&limit=${limit}&page=${page}`;
-        
+
         if (isDistanceFilterEnabled && user?.latitude && user?.longitude) {
           endpoint += `&lat=${user.latitude}&lng=${user.longitude}&radius=${maxDistance}`;
         }
@@ -326,336 +395,160 @@ function BuyerDashboardContent() {
 
   return (
     <>
-        
-        {/* Header */}
-        <header className="h-20 bg-white border-b border-gray-100 flex items-center justify-between px-6 shrink-0">
-          <div className="flex-1 max-w-xl">
-            {/* Search bar removed from here */}
+
+      {/* Header */}
+      <header className="h-20 bg-white border-b border-gray-100 flex items-center justify-between px-6 shrink-0">
+        <div className="flex-1 max-w-xl">
+          {/* Search bar removed from here */}
+        </div>
+
+        <div className="flex items-center gap-6 ml-6">
+          {/* Language Toggle Button */}
+          <button
+            onClick={toggleCropLang}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-green-200 hover:border-green-400 rounded-full text-xs font-bold text-[#1B5E20] transition-all shadow-sm cursor-pointer"
+            title="Toggle Crop Language"
+          >
+            <span>🌐</span>
+            <span>{cropLang === "en" ? "English Name" : "हिन्दी नाम"}</span>
+          </button>
+
+          <button
+            onClick={() => setShowCart(true)}
+            className="relative p-2 bg-[#1B5E20] hover:bg-[#2E7D32] rounded-full cursor-pointer transition-colors"
+          >
+            <Package className="w-5 h-5 text-white" />
+            {Object.keys(cart).length > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-[#FFC107] text-[#1B5E20] text-[9px] font-black rounded-full flex items-center justify-center shadow border-2 border-white">
+                {Object.keys(cart).length}
+              </span>
+            )}
+          </button>
+          <div
+            onClick={handleOpenLocationModal}
+            className="hidden md:flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
+          >
+            <MapPin className="w-4 h-4 text-[#1B5E20]" />
+            <span className="text-sm font-bold text-gray-700">{locationStr}</span>
+            <ChevronDown className="w-4 h-4 text-gray-400" />
           </div>
-          
-          <div className="flex items-center gap-6 ml-6">
-            {/* Language Toggle Button */}
-            <button 
-              onClick={toggleCropLang} 
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-green-200 hover:border-green-400 rounded-full text-xs font-bold text-[#1B5E20] transition-all shadow-sm cursor-pointer"
-              title="Toggle Crop Language"
-            >
-              <span>🌐</span>
-              <span>{cropLang === "en" ? "English Name" : "हिन्दी नाम"}</span>
-            </button>
 
-            <button 
-              onClick={() => setShowCart(true)}
-              className="relative p-2 bg-[#1B5E20] hover:bg-[#2E7D32] rounded-full cursor-pointer transition-colors"
-            >
-              <Package className="w-5 h-5 text-white" />
-              {Object.keys(cart).length > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-[#FFC107] text-[#1B5E20] text-[9px] font-black rounded-full flex items-center justify-center shadow border-2 border-white">
-                  {Object.keys(cart).length}
-                </span>
-              )}
-            </button>
-            <div 
-              onClick={handleOpenLocationModal}
-              className="hidden md:flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
-            >
-              <MapPin className="w-4 h-4 text-[#1B5E20]" />
-              <span className="text-sm font-bold text-gray-700">{locationStr}</span>
-              <ChevronDown className="w-4 h-4 text-gray-400" />
-            </div>
-            
-            <NotificationDropdown />
-            
-            <RoleSwitcher 
-              currentRole="BUYER" 
-              onApplyRole={(role) => {
-                setAppRole(role);
-                setAppModalOpen(true);
-              }}
-            />
-          </div>
-        </header>
+          <NotificationDropdown />
 
-        {/* Scrollable Dashboard Area */}
-        <div className="flex-1 overflow-y-auto p-6 md:p-8 flex flex-col xl:flex-row gap-8">
-          
-          {/* Left Column (Main) */}
-          <div className="flex-1 space-y-8">
-            
-            {activeSidebarTab === "Dashboard" ? (
-              <>
-                {/* Hero Banner */}
-                <div className="relative bg-gradient-to-r from-[#eef7ef] to-[#dcf0df] rounded-[32px] p-8 md:p-12 overflow-hidden border border-green-50 shadow-sm flex items-center">
-                  <div className="relative z-10 w-full max-w-lg">
-                    <h1 className="text-3xl md:text-4xl font-black text-[#1B5E20] leading-tight mb-3">
-                      Khet se, <br />
-                      <span className="text-[#2E7D32]">Seedha Aap Tak</span>
-                    </h1>
-                    <p className="text-sm font-semibold text-gray-700 mb-6">
-                      Fresh crops, trusted farmers, <br />direct to your home.
-                    </p>
+          <RoleSwitcher
+            currentRole="BUYER"
+            onApplyRole={(role) => {
+              setAppRole(role);
+              setAppModalOpen(true);
+            }}
+          />
+        </div>
+      </header>
 
-                    {/* SEARCH BAR (MOVED HERE) */}
-                    <div className="relative flex items-center w-full max-w-md mb-6 shadow-sm rounded-full bg-white/95 backdrop-blur-sm border border-green-100">
-                      <Leaf className="absolute left-4 w-5 h-5 text-[#2E7D32]" />
-                      <input
-                        type="text"
-                        placeholder="Search crops, farmers..."
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                        className="w-full bg-transparent border-none py-3.5 pl-12 pr-24 text-sm font-semibold outline-none focus:ring-2 focus:ring-green-200 rounded-full text-[#212121]"
-                      />
-                      <div onClick={() => setActiveSidebarTab("Marketplace")} className="absolute right-1.5 top-1.5 bottom-1.5 bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-5 rounded-full flex items-center justify-center text-xs font-bold shadow cursor-pointer transition-colors">
-                        Search
-                      </div>
-                    </div>
+      {/* Scrollable Dashboard Area */}
+      <div className="flex-1 overflow-y-auto p-6 md:p-8 flex flex-col xl:flex-row gap-8">
 
-                    <button onClick={() => setActiveSidebarTab("Marketplace")} className="bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-6 py-3 rounded-full text-sm font-bold flex items-center gap-2 transition-transform hover:scale-105 shadow-md w-max">
-                      Shop Now <ChevronRight size={16} />
-                    </button>
-                  </div>
-                  
-                  {/* Decorative elements simulating the farm landscape */}
-                  <div className="absolute right-0 bottom-0 top-0 w-1/2 opacity-20 pointer-events-none flex justify-end items-end overflow-hidden">
-                    <div className="absolute -bottom-10 -right-10 w-64 h-64 bg-green-500 rounded-full blur-3xl"></div>
-                    <div className="absolute top-10 right-20 w-32 h-32 bg-yellow-400 rounded-full blur-2xl"></div>
-                  </div>
-                </div>
+        {/* Left Column (Main) */}
+        <div className="flex-1 space-y-8">
 
-                {/* Shop by Category */}
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-bold text-[#212121]">Shop by Category</h2>
-                    <button onClick={() => setActiveSidebarTab("Marketplace")} className="text-sm font-bold text-[#1B5E20] hover:underline">View All</button>
-                  </div>
-                  <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-none">
-                    <div 
-                      onClick={() => { setSelectedCategory("All"); setActiveSidebarTab("Marketplace"); }}
-                      className="flex flex-col items-center gap-3 cursor-pointer group shrink-0 w-24"
-                    >
-                      <div className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl transition-transform shadow-sm border ${
-                        selectedCategory === "All" ? "bg-[#1B5E20] border-[#1B5E20] scale-110" : "bg-gray-50 border-gray-100 group-hover:scale-110"
-                      }`}>
-                        <span className={selectedCategory === "All" ? "text-white text-sm font-bold" : "text-gray-400 text-sm font-bold"}>ALL</span>
-                      </div>
-                      <span className="text-xs font-semibold text-gray-600">All Produce</span>
-                    </div>
+          {activeSidebarTab === "Dashboard" ? (
+            <>
+              {/* Hero Banner */}
+              <div className="relative bg-gradient-to-r from-[#eef7ef] to-[#dcf0df] rounded-[32px] p-8 md:p-12 overflow-hidden border border-green-50 shadow-sm flex items-center">
+                <div className="relative z-10 w-full max-w-lg">
+                  <h1 className="text-3xl md:text-4xl font-black text-[#1B5E20] leading-tight mb-3">
+                    Khet se, <br />
+                    <span className="text-[#2E7D32]">Seedha Aap Tak</span>
+                  </h1>
+                  <p className="text-sm font-semibold text-gray-700 mb-6">
+                    Fresh crops, trusted farmers, <br />direct to your home.
+                  </p>
 
-                    {categories.map((cat) => (
-                      <div 
-                        key={cat.name} 
-                        onClick={() => { setSelectedCategory(cat.name); setActiveSidebarTab("Marketplace"); }}
-                        className="flex flex-col items-center gap-3 cursor-pointer group shrink-0 w-24"
-                      >
-                        <div className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl transition-transform shadow-sm border ${
-                          selectedCategory === cat.name ? "bg-[#1B5E20] border-[#1B5E20] scale-110" : `${cat.bg} border-gray-50 group-hover:scale-110`
-                        }`}>
-                          {cat.emoji}
-                        </div>
-                        <span className="text-xs font-semibold text-gray-600">{cat.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Popular Near You */}
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-bold text-[#212121]">Popular Near You</h2>
-                    <div className="flex items-center gap-2">
-                      <select 
-                        value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value)}
-                        className="text-sm font-semibold text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-[#1B5E20]/20"
-                      >
-                        <option value="newest">Newest</option>
-                        <option value="price_asc">Price: Low to High</option>
-                        <option value="price_desc">Price: High to Low</option>
-                        <option value="rating">Highest Rated</option>
-                      </select>
-                      <button onClick={() => setActiveSidebarTab("Marketplace")} className="text-sm font-bold text-[#1B5E20] hover:underline ml-2">View All</button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {loadingCrops ? (
-                      // Skeleton loader
-                      [...Array(4)].map((_, i) => (
-                        <div key={i} className="bg-white rounded-2xl border border-gray-100 h-64 animate-pulse overflow-hidden">
-                          <div className="h-32 bg-gray-200"></div>
-                          <div className="p-4 space-y-3">
-                            <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                            <div className="h-3 bg-gray-200 rounded w-1/2"></div>
-                            <div className="h-6 bg-gray-200 rounded w-full mt-4"></div>
-                          </div>
-                        </div>
-                      ))
-                    ) : displayedCrops.length > 0 ? (
-                      displayedCrops.map((crop) => (
-                        <CropCard 
-                          key={crop.id}
-                          crop={crop}
-                          categories={categories}
-                          getCropName={getCropName}
-                          cart={cart}
-                          addToCart={addToCart}
-                          removeFromCart={removeFromCart}
-                        />
-                      ))
-                    ) : (
-                      <div className="col-span-full py-10 text-center text-gray-400 font-semibold text-sm">
-                        No crops found matching your criteria.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                {/* Marketplace Header & Banner */}
-                <div className="flex flex-col lg:flex-row gap-6 mb-8">
-                  <div className="lg:w-1/3 flex flex-col justify-center">
-                    <h1 className="text-3xl font-black text-[#0B3B24]">Marketplace</h1>
-                    <p className="text-sm text-gray-600 font-medium mt-2 leading-relaxed">
-                      Buy fresh produce directly from verified farmers across India.
-                    </p>
-                  </div>
-                  <div className="lg:w-2/3 relative rounded-2xl overflow-hidden h-32 md:h-40 bg-gradient-to-r from-[#98d28c] to-[#cbe5ad] flex items-center shadow-sm">
-                    {/* Placeholder for Banner Image / SVG */}
-                    <div className="absolute inset-0 opacity-40">
-                      <div className="absolute bottom-0 w-full h-1/2 bg-[#5d9c53] rounded-t-[100%]"></div>
-                      <div className="absolute bottom-0 left-10 w-20 h-20 bg-[#3a7531] rounded-t-full"></div>
-                      <div className="absolute bottom-0 right-32 w-32 h-32 bg-[#4b8a40] rounded-t-full"></div>
-                    </div>
-                    <div className="relative z-10 p-6 md:p-8 flex items-center justify-end w-full">
-                      <div className="bg-white/90 backdrop-blur-sm px-6 py-4 rounded-xl shadow-sm flex flex-col items-center">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Leaf className="w-5 h-5 text-[#2E7D32]" />
-                          <span className="text-sm font-black text-[#0B3B24]">100% Fresh</span>
-                        </div>
-                        <span className="text-xs font-semibold text-gray-600">Sourced directly from farmers</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Full-width Search Bar & Sort */}
-                <div className="flex flex-col md:flex-row items-center gap-4 mb-8">
-                  <div className="relative flex items-center flex-1 shadow-sm rounded-xl bg-white border border-gray-200 overflow-hidden">
-                    <Leaf className="absolute left-4 w-5 h-5 text-gray-400" />
+                  {/* SEARCH BAR (MOVED HERE) */}
+                  <div className="relative flex items-center w-full max-w-md mb-6 shadow-sm rounded-full bg-white/95 backdrop-blur-sm border border-green-100">
+                    <Leaf className="absolute left-4 w-5 h-5 text-[#2E7D32]" />
                     <input
                       type="text"
-                      placeholder="Search crops by name, category, or farmer name..."
+                      placeholder="Search crops, farmers..."
                       value={searchQuery}
                       onChange={e => setSearchQuery(e.target.value)}
-                      className="w-full bg-transparent border-none py-3 pl-12 pr-28 text-sm font-medium outline-none focus:ring-0 text-[#212121]"
+                      className="w-full bg-transparent border-none py-3.5 pl-12 pr-24 text-sm font-semibold outline-none focus:ring-2 focus:ring-green-200 rounded-full text-[#212121]"
                     />
-                    <div className="absolute right-1.5 top-1.5 bottom-1.5 bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-6 rounded-lg flex items-center justify-center text-xs font-bold cursor-pointer transition-colors shadow">
+                    <div onClick={() => setActiveSidebarTab("Marketplace")} className="absolute right-1.5 top-1.5 bottom-1.5 bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-5 rounded-full flex items-center justify-center text-xs font-bold shadow cursor-pointer transition-colors">
                       Search
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-xs font-bold text-gray-500">Sort by:</span>
-                    <select 
+
+                  <button onClick={() => setActiveSidebarTab("Marketplace")} className="bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-6 py-3 rounded-full text-sm font-bold flex items-center gap-2 transition-transform hover:scale-105 shadow-md w-max">
+                    Shop Now <ChevronRight size={16} />
+                  </button>
+                </div>
+
+                {/* Decorative elements simulating the farm landscape */}
+                <div className="absolute right-0 bottom-0 top-0 w-1/2 opacity-20 pointer-events-none flex justify-end items-end overflow-hidden">
+                  <div className="absolute -bottom-10 -right-10 w-64 h-64 bg-green-500 rounded-full blur-3xl"></div>
+                  <div className="absolute top-10 right-20 w-32 h-32 bg-yellow-400 rounded-full blur-2xl"></div>
+                </div>
+              </div>
+
+              {/* Shop by Category */}
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-bold text-[#212121]">Shop by Category</h2>
+                  <button onClick={() => setActiveSidebarTab("Marketplace")} className="text-sm font-bold text-[#1B5E20] hover:underline">View All</button>
+                </div>
+                <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-none">
+                  <div
+                    onClick={() => { setSelectedCategory("All"); setActiveSidebarTab("Marketplace"); }}
+                    className="flex flex-col items-center gap-3 cursor-pointer group shrink-0 w-24"
+                  >
+                    <div className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl transition-transform shadow-sm border ${selectedCategory === "All" ? "bg-[#1B5E20] border-[#1B5E20] scale-110" : "bg-gray-50 border-gray-100 group-hover:scale-110"
+                      }`}>
+                      <span className={selectedCategory === "All" ? "text-white text-sm font-bold" : "text-gray-400 text-sm font-bold"}>ALL</span>
+                    </div>
+                    <span className="text-xs font-semibold text-gray-600">All Produce</span>
+                  </div>
+
+                  {categories.map((cat) => (
+                    <div
+                      key={cat.name}
+                      onClick={() => { setSelectedCategory(cat.name); setActiveSidebarTab("Marketplace"); }}
+                      className="flex flex-col items-center gap-3 cursor-pointer group shrink-0 w-24"
+                    >
+                      <div className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl transition-transform shadow-sm border ${selectedCategory === cat.name ? "bg-[#1B5E20] border-[#1B5E20] scale-110" : `${cat.bg} border-gray-50 group-hover:scale-110`
+                        }`}>
+                        {cat.emoji}
+                      </div>
+                      <span className="text-xs font-semibold text-gray-600">{cat.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Popular Near You */}
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-bold text-[#212121]">Popular Near You</h2>
+                  <div className="flex items-center gap-2">
+                    <select
                       value={sortBy}
                       onChange={(e) => setSortBy(e.target.value)}
-                      className="text-sm font-bold text-[#212121] bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#1B5E20]/20 appearance-none pr-10 relative"
+                      className="text-sm font-semibold text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-[#1B5E20]/20"
                     >
                       <option value="newest">Newest</option>
                       <option value="price_asc">Price: Low to High</option>
                       <option value="price_desc">Price: High to Low</option>
                       <option value="rating">Highest Rated</option>
                     </select>
+                    <button onClick={() => setActiveSidebarTab("Marketplace")} className="text-sm font-bold text-[#1B5E20] hover:underline ml-2">View All</button>
                   </div>
                 </div>
-
-                {/* Category Filters */}
-                <div className="mb-8">
-                  <h3 className="text-sm font-bold text-[#212121] mb-3">Browse by Category</h3>
-                  <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
-                    <button 
-                      onClick={() => setSelectedCategory("All")}
-                      className={`px-5 py-2 rounded-xl text-sm font-bold transition-all border flex items-center gap-2 shrink-0 ${
-                        selectedCategory === "All" ? "bg-[#1B5E20] text-white border-[#1B5E20]" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-                      }`}
-                    >
-                      <LayoutDashboard className="w-4 h-4" /> All Produce
-                    </button>
-                    {categories.map((cat) => (
-                      <button 
-                        key={cat.name} 
-                        onClick={() => setSelectedCategory(cat.name)}
-                        className={`px-5 py-2 rounded-xl text-sm font-bold transition-all border flex items-center gap-2 shrink-0 ${
-                          selectedCategory === cat.name ? "bg-[#1B5E20] text-white border-[#1B5E20]" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-                        }`}
-                      >
-                        <span className="text-base">{cat.emoji}</span>
-                        <span>{cat.name}</span>
-                      </button>
-                    ))}
-                    <button className="px-5 py-2 rounded-xl text-sm font-bold transition-all border bg-white text-gray-600 border-gray-200 hover:bg-gray-50 flex items-center gap-2 shrink-0">
-                      More <ChevronDown className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Advanced Filters */}
-                <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 mb-8">
-                  <div className="flex flex-wrap gap-4 flex-1">
-                    <div className="space-y-1.5 flex-1 min-w-[150px]">
-                      <label className="text-xs font-bold text-gray-500">Price Range</label>
-                      <div className="relative">
-                        <select className="w-full text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none appearance-none">
-                          <option>Min price - Max price</option>
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5 flex-1 min-w-[150px]">
-                      <label className="text-xs font-bold text-gray-500">Location</label>
-                      <div className="relative">
-                        <select className="w-full text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none appearance-none">
-                          <option>All Locations</option>
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5 flex-1 min-w-[150px]">
-                      <label className="text-xs font-bold text-gray-500">Delivery Type</label>
-                      <div className="relative">
-                        <select className="w-full text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none appearance-none">
-                          <option>All Types</option>
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4 bg-white border border-gray-200 rounded-xl p-2.5 shrink-0 shadow-sm">
-                    <div className="flex items-center gap-3">
-                      <input 
-                        type="checkbox"
-                        checked={isDistanceFilterEnabled}
-                        onChange={(e) => setIsDistanceFilterEnabled(e.target.checked)}
-                        className="w-5 h-5 accent-[#1B5E20] border-gray-300 rounded cursor-pointer"
-                      />
-                      <div>
-                        <p className="text-sm font-bold text-[#212121] leading-none">Nearby Farmers</p>
-                        <p className="text-[10px] font-semibold text-gray-500 mt-0.5">Show results near you</p>
-                      </div>
-                    </div>
-                    <div className="w-8 h-8 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center">
-                      <MapPin className="w-4 h-4 text-gray-400" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Crops Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   {loadingCrops ? (
                     // Skeleton loader
-                    [...Array(limit)].map((_, i) => (
-                      <div key={i} className="bg-white rounded-2xl border border-gray-100 h-72 animate-pulse overflow-hidden">
-                        <div className="h-40 bg-gray-200"></div>
+                    [...Array(4)].map((_, i) => (
+                      <div key={i} className="bg-white rounded-2xl border border-gray-100 h-64 animate-pulse overflow-hidden">
+                        <div className="h-32 bg-gray-200"></div>
                         <div className="p-4 space-y-3">
                           <div className="h-4 bg-gray-200 rounded w-3/4"></div>
                           <div className="h-3 bg-gray-200 rounded w-1/2"></div>
@@ -665,7 +558,7 @@ function BuyerDashboardContent() {
                     ))
                   ) : displayedCrops.length > 0 ? (
                     displayedCrops.map((crop) => (
-                      <CropCard 
+                      <CropCard
                         key={crop.id}
                         crop={crop}
                         categories={categories}
@@ -681,124 +574,296 @@ function BuyerDashboardContent() {
                     </div>
                   )}
                 </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Marketplace Header & Banner */}
+              <div className="flex flex-col lg:flex-row gap-6 mb-8">
+                <div className="lg:w-1/3 flex flex-col justify-center">
+                  <h1 className="text-3xl font-black text-[#0B3B24]">Marketplace</h1>
+                  <p className="text-sm text-gray-600 font-medium mt-2 leading-relaxed">
+                    Buy fresh produce directly from verified farmers across India.
+                  </p>
+                </div>
+                <div className="lg:w-2/3 relative rounded-2xl overflow-hidden h-32 md:h-40 bg-gradient-to-r from-[#98d28c] to-[#cbe5ad] flex items-center shadow-sm">
+                  {/* Placeholder for Banner Image / SVG */}
+                  <div className="absolute inset-0 opacity-40">
+                    <div className="absolute bottom-0 w-full h-1/2 bg-[#5d9c53] rounded-t-[100%]"></div>
+                    <div className="absolute bottom-0 left-10 w-20 h-20 bg-[#3a7531] rounded-t-full"></div>
+                    <div className="absolute bottom-0 right-32 w-32 h-32 bg-[#4b8a40] rounded-t-full"></div>
+                  </div>
+                  <div className="relative z-10 p-6 md:p-8 flex items-center justify-end w-full">
+                    <div className="bg-white/90 backdrop-blur-sm px-6 py-4 rounded-xl shadow-sm flex flex-col items-center">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Leaf className="w-5 h-5 text-[#2E7D32]" />
+                        <span className="text-sm font-black text-[#0B3B24]">100% Fresh</span>
+                      </div>
+                      <span className="text-xs font-semibold text-gray-600">Sourced directly from farmers</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-                {/* Pagination Controls */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-4 mt-8">
-                    <button 
-                      onClick={() => setPage(p => Math.max(1, p - 1))}
-                      disabled={page === 1}
-                      className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              {/* Full-width Search Bar & Sort */}
+              <div className="flex flex-col md:flex-row items-center gap-4 mb-8">
+                <div className="relative flex items-center flex-1 shadow-sm rounded-xl bg-white border border-gray-200 overflow-hidden">
+                  <Leaf className="absolute left-4 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search crops by name, category, or farmer name..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="w-full bg-transparent border-none py-3 pl-12 pr-28 text-sm font-medium outline-none focus:ring-0 text-[#212121]"
+                  />
+                  <div className="absolute right-1.5 top-1.5 bottom-1.5 bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-6 rounded-lg flex items-center justify-center text-xs font-bold cursor-pointer transition-colors shadow">
+                    Search
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-xs font-bold text-gray-500">Sort by:</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="text-sm font-bold text-[#212121] bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#1B5E20]/20 appearance-none pr-10 relative"
+                  >
+                    <option value="newest">Newest</option>
+                    <option value="price_asc">Price: Low to High</option>
+                    <option value="price_desc">Price: High to Low</option>
+                    <option value="rating">Highest Rated</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Category Filters */}
+              <div className="mb-8">
+                <h3 className="text-sm font-bold text-[#212121] mb-3">Browse by Category</h3>
+                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-none">
+                  <button
+                    onClick={() => setSelectedCategory("All")}
+                    className={`px-5 py-2 rounded-xl text-sm font-bold transition-all border flex items-center gap-2 shrink-0 ${selectedCategory === "All" ? "bg-[#1B5E20] text-white border-[#1B5E20]" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                      }`}
+                  >
+                    <LayoutDashboard className="w-4 h-4" /> All Produce
+                  </button>
+                  {categories.map((cat) => (
+                    <button
+                      key={cat.name}
+                      onClick={() => setSelectedCategory(cat.name)}
+                      className={`px-5 py-2 rounded-xl text-sm font-bold transition-all border flex items-center gap-2 shrink-0 ${selectedCategory === cat.name ? "bg-[#1B5E20] text-white border-[#1B5E20]" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                        }`}
                     >
-                      Previous
+                      <span className="text-base">{cat.emoji}</span>
+                      <span>{cat.name}</span>
                     </button>
-                    <span className="text-sm font-bold text-gray-500">
-                      Page {page} of {totalPages}
-                    </span>
-                    <button 
-                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                      disabled={page === totalPages}
-                      className="px-4 py-2 bg-[#1B5E20] hover:bg-[#2E7D32] text-white rounded-lg text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-                    >
-                      Next
-                    </button>
+                  ))}
+                  <button className="px-5 py-2 rounded-xl text-sm font-bold transition-all border bg-white text-gray-600 border-gray-200 hover:bg-gray-50 flex items-center gap-2 shrink-0">
+                    More <ChevronDown className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Advanced Filters */}
+              <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 mb-8">
+                <div className="flex flex-wrap gap-4 flex-1">
+                  <div className="space-y-1.5 flex-1 min-w-[150px]">
+                    <label className="text-xs font-bold text-gray-500">Price Range</label>
+                    <div className="relative">
+                      <select className="w-full text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none appearance-none">
+                        <option>Min price - Max price</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 flex-1 min-w-[150px]">
+                    <label className="text-xs font-bold text-gray-500">Location</label>
+                    <div className="relative">
+                      <select className="w-full text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none appearance-none">
+                        <option>All Locations</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 flex-1 min-w-[150px]">
+                    <label className="text-xs font-bold text-gray-500">Delivery Type</label>
+                    <div className="relative">
+                      <select className="w-full text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none appearance-none">
+                        <option>All Types</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 bg-white border border-gray-200 rounded-xl p-2.5 shrink-0 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={isDistanceFilterEnabled}
+                      onChange={(e) => setIsDistanceFilterEnabled(e.target.checked)}
+                      className="w-5 h-5 accent-[#1B5E20] border-gray-300 rounded cursor-pointer"
+                    />
+                    <div>
+                      <p className="text-sm font-bold text-[#212121] leading-none">Nearby Farmers</p>
+                      <p className="text-[10px] font-semibold text-gray-500 mt-0.5">Show results near you</p>
+                    </div>
+                  </div>
+                  <div className="w-8 h-8 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center">
+                    <MapPin className="w-4 h-4 text-gray-400" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Crops Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {loadingCrops ? (
+                  // Skeleton loader
+                  [...Array(limit)].map((_, i) => (
+                    <div key={i} className="bg-white rounded-2xl border border-gray-100 h-72 animate-pulse overflow-hidden">
+                      <div className="h-40 bg-gray-200"></div>
+                      <div className="p-4 space-y-3">
+                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                        <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                        <div className="h-6 bg-gray-200 rounded w-full mt-4"></div>
+                      </div>
+                    </div>
+                  ))
+                ) : displayedCrops.length > 0 ? (
+                  displayedCrops.map((crop) => (
+                    <CropCard
+                      key={crop.id}
+                      crop={crop}
+                      categories={categories}
+                      getCropName={getCropName}
+                      cart={cart}
+                      addToCart={addToCart}
+                      removeFromCart={removeFromCart}
+                    />
+                  ))
+                ) : (
+                  <div className="col-span-full py-10 text-center text-gray-400 font-semibold text-sm">
+                    No crops found matching your criteria.
                   </div>
                 )}
-              </>
-            )}
+              </div>
 
-            {/* Features Footer */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4">
-              {[
-                { icon: Leaf, title: "Farm Fresh", desc: "Direct from farmers" },
-                { icon: ShieldCheck, title: "Safe Payments", desc: "100% secure" },
-                { icon: Clock, title: "On-time Delivery", desc: "Quick & reliable" },
-                { icon: ThumbsUp, title: "Best Prices", desc: "Fair and transparent" },
-              ].map((feat, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-[#f4fbf4] flex items-center justify-center shrink-0">
-                    <feat.icon className="w-5 h-5 text-[#2E7D32]" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-[#212121]">{feat.title}</p>
-                    <p className="text-[10px] text-gray-500 font-semibold">{feat.desc}</p>
-                  </div>
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-4 mt-8">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm font-bold text-gray-500">
+                    Page {page} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="px-4 py-2 bg-[#1B5E20] hover:bg-[#2E7D32] text-white rounded-lg text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                  >
+                    Next
+                  </button>
                 </div>
-              ))}
-            </div>
-            
+              )}
+            </>
+          )}
+
+          {/* Features Footer */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4">
+            {[
+              { icon: Leaf, title: "Farm Fresh", desc: "Direct from farmers" },
+              { icon: ShieldCheck, title: "Safe Payments", desc: "100% secure" },
+              { icon: Clock, title: "On-time Delivery", desc: "Quick & reliable" },
+              { icon: ThumbsUp, title: "Best Prices", desc: "Fair and transparent" },
+            ].map((feat, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-[#f4fbf4] flex items-center justify-center shrink-0">
+                  <feat.icon className="w-5 h-5 text-[#2E7D32]" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-[#212121]">{feat.title}</p>
+                  <p className="text-[10px] text-gray-500 font-semibold">{feat.desc}</p>
+                </div>
+              </div>
+            ))}
           </div>
 
-          {/* Right Column (Widgets) */}
-          {activeSidebarTab === "Dashboard" && (
-            <div className="w-full xl:w-80 space-y-4 shrink-0">
-              
-              {/* My Orders Widget */}
-              <div 
-                onClick={() => router.push("/dashboard/buyer/orders")}
-                className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-center justify-between cursor-pointer hover:border-green-200 transition-colors group"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-[#F1F8E9] flex items-center justify-center shrink-0">
-                    <Package className="w-6 h-6 text-[#2E7D32]" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-[#212121]">My Orders</h3>
-                    <p className="text-[11px] text-gray-500 font-semibold mt-0.5">View your orders<br/>and track delivery</p>
-                  </div>
-                </div>
-                <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-[#1B5E20] transition-colors" />
-              </div>
-
-              {/* Favourites Widget */}
-              <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-center justify-between cursor-pointer hover:border-green-200 transition-colors group">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-[#FFF8E1] flex items-center justify-center shrink-0">
-                    <Heart className="w-6 h-6 text-[#FFB300] fill-[#FFB300]" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-[#212121]">Favourites</h3>
-                    <p className="text-[11px] text-gray-500 font-semibold mt-0.5">Your saved crops<br/>and farmers</p>
-                  </div>
-                </div>
-                <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-[#1B5E20] transition-colors" />
-              </div>
-
-              {/* Refer & Earn */}
-              <div className="bg-gradient-to-br from-[#f2f8f2] to-[#e8f5e9] rounded-2xl p-5 border border-green-50 shadow-sm relative overflow-hidden">
-                <div className="relative z-10 w-2/3">
-                  <h3 className="text-sm font-bold text-[#1B5E20] mb-1">Refer & Earn</h3>
-                  <p className="text-[11px] text-gray-600 font-semibold leading-relaxed mb-4">
-                    Invite your friends and earn exciting rewards!
-                  </p>
-                  <button className="bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors">
-                    Refer Now
-                  </button>
-                </div>
-                <div className="absolute right-0 bottom-0 top-0 w-1/3 flex items-center justify-center pr-2">
-                  <Gift className="w-16 h-16 text-[#4CAF50] opacity-80" strokeWidth={1.5} />
-                </div>
-              </div>
-
-              {/* Need Help? (Replacing Free Delivery) */}
-              <div className="bg-gradient-to-br from-[#fafafa] to-[#f5f5f5] rounded-2xl p-5 border border-gray-100 shadow-sm relative overflow-hidden">
-                <div className="relative z-10 w-2/3">
-                  <h3 className="text-sm font-bold text-[#212121] mb-1">Need Help?</h3>
-                  <p className="text-[11px] text-gray-500 font-semibold leading-relaxed mb-4">
-                    We&apos;re here to support you 24x7
-                  </p>
-                  <button className="bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors">
-                    Contact Support
-                  </button>
-                </div>
-                <div className="absolute right-2 bottom-0 top-0 w-1/3 flex items-center justify-center">
-                  <Headphones className="w-16 h-16 text-[#2E7D32] opacity-80" strokeWidth={1.5} />
-                </div>
-              </div>
-
-            </div>
-          )}
         </div>
+
+        {/* Right Column (Widgets) */}
+        {activeSidebarTab === "Dashboard" && (
+          <div className="w-full xl:w-80 space-y-4 shrink-0">
+
+            {/* My Orders Widget */}
+            <div
+              onClick={() => router.push("/dashboard/buyer/orders")}
+              className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-center justify-between cursor-pointer hover:border-green-200 transition-colors group"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-[#F1F8E9] flex items-center justify-center shrink-0">
+                  <Package className="w-6 h-6 text-[#2E7D32]" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#212121]">My Orders</h3>
+                  <p className="text-[11px] text-gray-500 font-semibold mt-0.5">View your orders<br />and track delivery</p>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-[#1B5E20] transition-colors" />
+            </div>
+
+            {/* Favourites Widget */}
+            <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-center justify-between cursor-pointer hover:border-green-200 transition-colors group">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-[#FFF8E1] flex items-center justify-center shrink-0">
+                  <Heart className="w-6 h-6 text-[#FFB300] fill-[#FFB300]" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#212121]">Favourites</h3>
+                  <p className="text-[11px] text-gray-500 font-semibold mt-0.5">Your saved crops<br />and farmers</p>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-[#1B5E20] transition-colors" />
+            </div>
+
+            {/* Refer & Earn */}
+            <div className="bg-gradient-to-br from-[#f2f8f2] to-[#e8f5e9] rounded-2xl p-5 border border-green-50 shadow-sm relative overflow-hidden">
+              <div className="relative z-10 w-2/3">
+                <h3 className="text-sm font-bold text-[#1B5E20] mb-1">Refer & Earn</h3>
+                <p className="text-[11px] text-gray-600 font-semibold leading-relaxed mb-4">
+                  Invite your friends and earn exciting rewards!
+                </p>
+                <button className="bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors">
+                  Refer Now
+                </button>
+              </div>
+              <div className="absolute right-0 bottom-0 top-0 w-1/3 flex items-center justify-center pr-2">
+                <Gift className="w-16 h-16 text-[#4CAF50] opacity-80" strokeWidth={1.5} />
+              </div>
+            </div>
+
+            {/* Need Help? (Replacing Free Delivery) */}
+            <div className="bg-gradient-to-br from-[#fafafa] to-[#f5f5f5] rounded-2xl p-5 border border-gray-100 shadow-sm relative overflow-hidden">
+              <div className="relative z-10 w-2/3">
+                <h3 className="text-sm font-bold text-[#212121] mb-1">Need Help?</h3>
+                <p className="text-[11px] text-gray-500 font-semibold leading-relaxed mb-4">
+                  We&apos;re here to support you 24x7
+                </p>
+                <button className="bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors">
+                  Contact Support
+                </button>
+              </div>
+              <div className="absolute right-2 bottom-0 top-0 w-1/3 flex items-center justify-center">
+                <Headphones className="w-16 h-16 text-[#2E7D32] opacity-80" strokeWidth={1.5} />
+              </div>
+            </div>
+
+          </div>
+        )}
+      </div>
       {/* Cart Modal Slideover */}
       {showCart && (
         <div className="fixed inset-0 z-[100] flex justify-end">
@@ -863,26 +928,24 @@ function BuyerDashboardContent() {
                 <div>
                   <label className="text-xs font-bold text-gray-400 uppercase block mb-2">Payment Method</label>
                   <div className="grid grid-cols-2 gap-2">
-                    <button 
+                    <button
                       onClick={() => setPaymentMethod("ONLINE")}
-                      className={`py-3 rounded-xl text-xs font-bold border transition-all ${
-                        paymentMethod === "ONLINE" ? "border-[#1B5E20] bg-green-50/50 text-[#1B5E20]" : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                      }`}
+                      className={`py-3 rounded-xl text-xs font-bold border transition-all ${paymentMethod === "ONLINE" ? "border-[#1B5E20] bg-green-50/50 text-[#1B5E20]" : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                        }`}
                     >
                       💳 Pay Online
                     </button>
-                    <button 
+                    <button
                       onClick={() => setPaymentMethod("COD")}
-                      className={`py-3 rounded-xl text-xs font-bold border transition-all ${
-                        paymentMethod === "COD" ? "border-[#1B5E20] bg-green-50/50 text-[#1B5E20]" : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                      }`}
+                      className={`py-3 rounded-xl text-xs font-bold border transition-all ${paymentMethod === "COD" ? "border-[#1B5E20] bg-green-50/50 text-[#1B5E20]" : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                        }`}
                     >
                       💵 Cash on Delivery
                     </button>
                   </div>
                 </div>
 
-                <button 
+                <button
                   onClick={handleCheckout}
                   className="w-full bg-[#1B5E20] hover:bg-[#2E7D32] text-white py-4 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 shadow-md"
                 >
@@ -894,10 +957,10 @@ function BuyerDashboardContent() {
         </div>
       )}
 
-      <ApplicationModal 
-        isOpen={appModalOpen} 
-        onClose={() => setAppModalOpen(false)} 
-        role={appRole} 
+      <ApplicationModal
+        isOpen={appModalOpen}
+        onClose={() => setAppModalOpen(false)}
+        role={appRole}
       />
 
       {isLocationModalOpen && (
@@ -907,22 +970,36 @@ function BuyerDashboardContent() {
               <h3 className="text-lg font-black text-[#212121]">Change Location</h3>
             </div>
             <div className="p-6 overflow-y-auto max-h-[70vh]">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">Address Details</h3>
+                <button
+                  type="button"
+                  onClick={handleGetLocation}
+                  disabled={locationLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-green-100 transition-colors cursor-pointer"
+                >
+                  {locationLoading ? 'Locating...' : 'Auto Detect GPS'}
+                </button>
+              </div>
+              {errorMsg && (
+                <div className="text-red-500 text-xs font-semibold mb-4">{errorMsg}</div>
+              )}
               <LocationSelector
                 value={locationData}
                 onChange={setLocationData}
                 showVillage={true}
-                showPincode={false}
+                showPincode={true}
                 label="Location / Address"
               />
             </div>
             <div className="p-6 border-t border-gray-100 flex items-center justify-end gap-3 bg-gray-50 shrink-0">
-              <button 
+              <button
                 onClick={() => setIsLocationModalOpen(false)}
                 className="px-6 py-2.5 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded-xl transition-colors cursor-pointer"
               >
                 Cancel
               </button>
-              <button 
+              <button
                 onClick={handleSaveLocation}
                 disabled={isUpdatingLocation}
                 className="px-6 py-2.5 text-sm font-bold bg-[#1B5E20] hover:bg-[#2E7D32] text-white rounded-xl transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2 cursor-pointer"

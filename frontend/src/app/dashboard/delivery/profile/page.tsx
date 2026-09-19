@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/axios';
 import LocationSelector, { LocationValue } from '@/components/LocationSelector';
+import { reverseGeocode } from '@/lib/location';
 
 export default function DeliveryProfile() {
   const { user, loading, logout } = useAuth();
@@ -32,6 +33,8 @@ export default function DeliveryProfile() {
     village: '',
     pincode: '',
   });
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     if (!loading && (!user || user.activeRole !== 'DELIVERY')) {
@@ -142,11 +145,68 @@ export default function DeliveryProfile() {
         closeModal();
       }
     } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.error || 'Failed to update profile');
+      console.error("Profile update error", err);
+      setErrorMsg(err.response?.data?.message || err.response?.data?.error || "Failed to update profile.");
+      setTimeout(() => setErrorMsg(""), 4000);
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleGetLocation = () => {
+    setErrorMsg("");
+    
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setErrorMsg("Geolocation is not supported by your browser");
+      return;
+    }
+
+    setLocationLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        
+        setFormData((prev: any) => ({
+          ...prev,
+          latitude: String(lat),
+          longitude: String(lng)
+        }));
+
+        const geoData = await reverseGeocode(lat, lng);
+        if (geoData) {
+          setLocationData({
+            state: geoData.state || '',
+            district: geoData.district || '',
+            village: geoData.village || '',
+            pincode: geoData.pincode || '',
+          });
+        }
+        
+        setLocationLoading(false);
+      },
+      (error) => {
+        setLocationLoading(false);
+        let msg = "Unable to retrieve your location.";
+        if (error.code === 1) {
+          msg = "Location permission denied. Please allow location access in your browser settings.";
+        } else if (error.code === 2) {
+          msg = "Location information is unavailable (Position Unavailable).";
+        } else if (error.code === 3) {
+          msg = "The request to get your location timed out.";
+        } else if (error.message && !error.message.toLowerCase().includes("denied")) {
+          msg = error.message;
+        }
+
+        setErrorMsg(msg);
+        setTimeout(() => setErrorMsg(""), 5000);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0
+      }
+    );
   };
 
   if (loading || fetching) return <div className="p-8 flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#1B5E20]"></div></div>;
@@ -607,6 +667,20 @@ export default function DeliveryProfile() {
                   <label className="text-xs font-bold text-gray-500">Language Preference</label>
                   <input type="text" value={formData.languagePref || ''} onChange={e => setFormData({...formData, languagePref: e.target.value})} placeholder="e.g. English, Hindi" className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100" />
                 </div>
+                <div className="col-span-2 flex items-center justify-between mt-4">
+                  <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">Address Details</h3>
+                  <button
+                    type="button"
+                    onClick={handleGetLocation}
+                    disabled={locationLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-green-100 transition-colors cursor-pointer"
+                  >
+                    {locationLoading ? 'Locating...' : 'Auto Detect GPS'}
+                  </button>
+                </div>
+                {errorMsg && (
+                  <div className="col-span-2 text-red-500 text-xs font-semibold">{errorMsg}</div>
+                )}
                 <div className="col-span-2">
                   <LocationSelector
                     value={locationData}

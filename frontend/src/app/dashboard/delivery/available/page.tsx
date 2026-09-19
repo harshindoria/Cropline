@@ -6,6 +6,7 @@ import { Search, MapPin, List, Clock, IndianRupee, LayoutGrid, CheckCircle2, Ale
 import Image from 'next/image';
 import api from '@/lib/axios';
 import dynamic from 'next/dynamic';
+import { getCurrentLocation } from '@/lib/location';
 
 // Dynamically import Leaflet Map to avoid SSR issues
 const DeliveryMap = dynamic(() => import('@/components/DeliveryMap'), { ssr: false });
@@ -40,49 +41,22 @@ export default function AvailableDeliveries() {
     setError('');
     
     try {
-      // 1. Get GPS coordinates
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const { latitude, longitude } = position.coords;
-          setUserLoc({ lat: latitude, lng: longitude });
-
-          // 2. Fetch from backend
-          const res = await api.get(`/delivery/nearby?lat=${latitude}&lng=${longitude}&radius=20`);
-          if (res.data.success) {
-            setJobs(res.data.data.jobs);
-          } else {
-            setError(res.data.message || 'Failed to fetch jobs');
-          }
-          setFetching(false);
-        },
-        async (geoError) => {
-          console.warn("GPS failed, trying profile coordinates fallback:", geoError);
-          let lat = user?.latitude ? Number(user.latitude) : null;
-          let lng = user?.longitude ? Number(user.longitude) : null;
-
-          if (!lat || !lng) {
-            console.warn("No profile coordinates found, falling back to default test coordinates (Delhi: 28.6139, 77.2090)");
-            lat = 28.6139;
-            lng = 77.2090;
-          }
-
-          setUserLoc({ lat, lng });
-          try {
-            const res = await api.get(`/delivery/nearby?lat=${lat}&lng=${lng}&radius=20`);
-            if (res.data.success) {
-              setJobs(res.data.data.jobs);
-            } else {
-              setError(res.data.message || 'Failed to fetch jobs');
-            }
-          } catch (err: any) {
-            setError(err.response?.data?.message || 'Failed to fetch nearby jobs.');
-          }
-          setFetching(false);
-        }
+      const coords = await getCurrentLocation(
+        user?.latitude ? Number(user.latitude) : 28.6139,
+        user?.longitude ? Number(user.longitude) : 77.2090
       );
+      setUserLoc(coords);
+
+      const res = await api.get(`/delivery/nearby?lat=${coords.lat}&lng=${coords.lng}&radius=20`);
+      if (res.data.success) {
+        setJobs(res.data.data.jobs);
+      } else {
+        setError(res.data.message || 'Failed to fetch jobs');
+      }
     } catch (err: any) {
       console.error(err);
       setError(err.response?.data?.message || 'Something went wrong while fetching jobs.');
+    } finally {
       setFetching(false);
     }
   };

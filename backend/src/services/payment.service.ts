@@ -52,7 +52,8 @@ export const createRazorpayOrder = async (
 export const createRazorpayPaymentLink = async (
   amountInINR: number,
   referenceId: string,
-  driverDetails: { name: string; contact: string; email?: string }
+  driverDetails: { name: string; contact: string; email?: string },
+  notes: Record<string, string> = {}
 ) => {
   try {
     const options = {
@@ -71,6 +72,7 @@ export const createRazorpayPaymentLink = async (
         email: false,
       },
       reminder_enable: true,
+      notes: notes
     };
 
     const paymentLink = await razorpay.paymentLink.create(options);
@@ -142,5 +144,33 @@ export const cancelExpiredPaymentLink = async (linkId: string) => {
   } catch (error) {
     console.error('Error cancelling payment link:', error);
     throw new Error('Failed to cancel payment link');
+  }
+};
+
+/**
+ * 6. ISSUE REFUND (For Cancelled/Rejected Orders)
+ * Yeh function successfully captured payment ko refund karne ke liye hai.
+ * 
+ * @param paymentId - Razorpay 'pay_xxxx' ID
+ * @param amountInINR - (Optional) Partial refund in INR. Agar blank choda to full refund.
+ * @param notes - (Optional) Extra reason/data for refund
+ */
+export const issueRazorpayRefund = async (
+  paymentId: string,
+  amountInINR?: number,
+  notes: Record<string, string> = {}
+) => {
+  try {
+    const options: any = {
+      notes
+    };
+    if (amountInINR) {
+      options.amount = Math.round(amountInINR * 100);
+    }
+    const refund = await razorpay.payments.refund(paymentId, options);
+    return refund;
+  } catch (error) {
+    console.error('Error issuing Razorpay refund:', error);
+    throw new Error('Failed to issue refund via Razorpay');
   }
 };

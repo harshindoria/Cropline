@@ -36,4 +36,14 @@ if (!getApps().length) {
 }
 
 // 3. Export the Auth instance for use in the service layer
-export const firebaseAuth = getAuth();
+ export const firebaseAuth = getAuth();
+// export const firebaseAuth = {
+//   verifyIdToken: async (token: string) => {
+//     console.log('[MOCK] Verifying Firebase Token:', token);
+//     return {
+//       uid: 'mock-user-123',
+//       phone_number: '+919999999999',
+//       email: 'mockuser@example.com'
+//     };
+//   }
+// } as any;

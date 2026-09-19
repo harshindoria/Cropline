@@ -1,18 +1,18 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, FC, ReactNode } from "react";
 import { 
   signInWithPopup, 
   GoogleAuthProvider, 
   RecaptchaVerifier, 
   signInWithPhoneNumber, 
-  signOut as firebaseSignOut,
-  ConfirmationResult
-} from "firebase/auth";
-import { auth } from "../lib/firebase";
-import api from "../lib/axios";
+  signOut as firebaseSignOut,  
+  ConfirmationResult 
+} from "firebase/auth"; 
+import { auth } from "../lib/firebase"; 
+import api from "../lib/axios"; 
 
-export type Role = "BUYER" | "FARMER" | "DELIVERY" | "ADMIN";
+export type Role = "BUYER" | "FARMER" | "DELIVERY" | "ADMIN"; 
 
 export interface UserProfile {
   id: string;
@@ -41,7 +41,7 @@ interface AuthContextType {
   loading: boolean;
   token: string | null;
   isNewUser: boolean;
-  loginWithGoogle: () => Promise<{ isNew: boolean }>;
+  loginWithGoogle: () => Promise<{ isNew: boolean; success?: boolean; cancelled?: boolean }>;
   sendPhoneOtp: (phoneNumber: string) => Promise<ConfirmationResult>;
   verifyPhoneOtp: (confirmationResult: ConfirmationResult, otp: string) => Promise<{ isNew: boolean }>;
   completeRegistration: (profileData: Partial<UserProfile>) => Promise<void>;
@@ -53,7 +53,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isNewUser, setIsNewUser] = useState(false);

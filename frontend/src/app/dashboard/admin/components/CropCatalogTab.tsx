@@ -30,7 +30,7 @@ export default function CropCatalogTab() {
 
   // Add Form
   const [addForm, setAddForm] = useState({
-    category: "",
+    category: "", 
     englishName: "",
     hindiName: "",
     isActive: true

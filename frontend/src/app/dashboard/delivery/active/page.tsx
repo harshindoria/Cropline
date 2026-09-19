@@ -716,10 +716,6 @@ export default function ActiveDeliveries() {
         </div>
       )}
 
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

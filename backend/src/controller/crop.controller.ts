@@ -46,6 +46,7 @@ const updateCropSchema = z.object({
   offerDiscountPercentage: z.coerce.number().min(1).max(100).optional(),
 });
 
+// Route: POST /
 export const createCrop = async (req: Request, res: Response): Promise<void> => {
   try {
     // 1. Validate request body
@@ -176,6 +177,7 @@ export const createCrop = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
+// Route: GET /
 export const getCrops = async (req: Request, res: Response): Promise<void> => {
   try {
     const {
@@ -329,6 +331,7 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
   }
 }
 
+// Route: GET /:id
 export const getCropById = async (req : Request<{id : string}>, res : Response) : Promise<void> => {
   try {
     const { id } = req.params;
@@ -398,6 +401,7 @@ export const getCropById = async (req : Request<{id : string}>, res : Response) 
   }
 }
 
+// Route: GET /farmer/mine
 export const getMyCrops = async (req : Request, res : Response) : Promise<void> => {
   try {
     const {status} = req.query;
@@ -453,6 +457,7 @@ export const getMyCrops = async (req : Request, res : Response) : Promise<void> 
   }
 }
 
+// Route: PUT /:id
 export const updateCrop = async (req: Request<{id: string}>, res: Response): Promise<void> => {
   try {
     const { id } = req.params; 
@@ -532,6 +537,7 @@ export const updateCrop = async (req: Request<{id: string}>, res: Response): Pro
   }
 };
 
+// Route: PATCH /:id/pause
 export const pauseCrop = async(req : Request<{id : string}>, res : Response) : Promise<void> => {
   try {
     const { id } = req.params;
@@ -575,6 +581,7 @@ export const pauseCrop = async(req : Request<{id : string}>, res : Response) : P
   }
 }
 
+// Route: PATCH /:id/resume
 export const resumeCrop = async (req : Request<{id : string}>, res : Response) : Promise<void> => {
   try {
     const { id } = req.params;
@@ -620,6 +627,7 @@ export const resumeCrop = async (req : Request<{id : string}>, res : Response) :
 }
 
 // ── DELETE CROP (soft delete) ─────────────────────────────────────────────────
+// Route: DELETE /:id
 export const deleteCrop = async (req: Request<{ id: string }>, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -688,6 +696,7 @@ export const deleteCrop = async (req: Request<{ id: string }>, res: Response): P
 };
 
 // ── GET CATALOG ─ Returns all active CropCatalog items grouped by category ──
+// Route: GET /catalog
 export const getCatalog = async (req: Request, res: Response): Promise<void> => {
   try {
     const items = await prisma.cropCatalog.findMany({
@@ -722,6 +731,7 @@ export const getCatalog = async (req: Request, res: Response): Promise<void> => 
 };
 
 // ── GET FARMER STATS ─ Aggregated earnings, monthly breakdown, crop sales ──
+// Route: GET /farmer/stats
 export const getFarmerStats = async (req: Request, res: Response): Promise<void> => {
   try {
     if (!req.user) { res.status(401).json({ success: false }); return; }

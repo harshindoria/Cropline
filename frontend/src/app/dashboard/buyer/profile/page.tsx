@@ -8,6 +8,7 @@ import {
   ArrowLeft, User, MapPin, Save, Loader2, CheckCircle2, Navigation, AlertCircle, Wallet
 } from "lucide-react";
 import LocationSelector, { LocationValue } from "@/components/LocationSelector";
+import { reverseGeocode } from "@/lib/location";
 
 export default function BuyerProfilePage() {
   const { user, loading } = useAuth();
@@ -93,23 +94,46 @@ export default function BuyerProfilePage() {
   };
 
   const handleGetLocation = () => {
-    if (!navigator.geolocation) {
+    setErrorMsg("");
+    console.log("[handleGetLocation] Started. Auto Detect GPS clicked.");
+    
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      console.log("[handleGetLocation] Geolocation not supported by browser.");
       setErrorMsg("Geolocation is not supported by your browser");
       return;
     }
 
     setLocationLoading(true);
+    console.log("[handleGetLocation] Calling navigator.geolocation.getCurrentPosition...");
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        console.log("[handleGetLocation] Success! Lat:", lat, "Lng:", lng);
+        
         setFormData(prev => ({
           ...prev,
-          latitude: String(position.coords.latitude),
-          longitude: String(position.coords.longitude)
+          latitude: String(lat),
+          longitude: String(lng)
         }));
+
+        const geoData = await reverseGeocode(lat, lng);
+        if (geoData) {
+          setLocationData({
+            state: geoData.state || '',
+            district: geoData.district || '',
+            village: geoData.village || '',
+            pincode: geoData.pincode || '',
+          });
+        }
+        
         setLocationLoading(false);
       },
       (error) => {
-        console.error("Geolocation Error Code:", error.code, "Message:", error.message);
+        console.log("[handleGetLocation] Error Callback Triggered!");
+        console.log("[handleGetLocation] Error Code:", error.code);
+        console.log("[handleGetLocation] Error Message:", error.message);
+        
         setLocationLoading(false);
         
         let msg = "Unable to retrieve your location.";
@@ -119,10 +143,11 @@ export default function BuyerProfilePage() {
           msg = "Location information is unavailable (Position Unavailable).";
         } else if (error.code === 3) {
           msg = "The request to get your location timed out.";
-        } else if (error.message) {
+        } else if (error.message && !error.message.toLowerCase().includes("denied")) {
           msg = error.message;
         }
 
+        console.log("[handleGetLocation] Setting UI error message to:", msg);
         setErrorMsg(msg);
         setTimeout(() => setErrorMsg(""), 5000);
       },

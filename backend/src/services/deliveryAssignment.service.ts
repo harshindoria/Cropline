@@ -139,3 +139,91 @@ export const assignDeliveryJob = async (orderId: string) => {
 
   return null;
 }
+
+export const assignDeliveryJobByPincode = async (orderId: string) => {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: { farmer: true, buyer: true }
+  });
+
+  if (!order || order.deliveryType !== 'DELIVERY' || !order.farmer.pincode) return null;
+
+  const qty = Number(order.quantityKg);
+
+  // Preferred vehicle based on weight
+  let preferredVehicle: VehicleType = VehicleType.MINI_TRUCK;
+  if (qty <= 50) preferredVehicle = VehicleType.BIKE;
+  else if (qty <= 300) preferredVehicle = VehicleType.AUTO;
+  else if (qty <= 1000) preferredVehicle = VehicleType.TEMPO;
+
+  const candidates = await prisma.user.findMany({
+    where: {
+      roles: { has: Role.DELIVERY },
+      isActive: true,
+      isOnline: true,
+      pincode: order.farmer.pincode // STRICTLY SAME PINCODE
+    },
+    include: {
+      deliveryJobs: {
+        where: {
+          status: { in: [DeliveryJobStatus.ASSIGNED, DeliveryJobStatus.PICKED_UP, DeliveryJobStatus.IN_DELIVERY] }
+        }
+      }
+    }
+  });
+
+  let capableCandidates = candidates.filter(c => {
+    if (!c.vehicleType) return false;
+    return VEHICLE_CAPACITY[c.vehicleType] >= qty;
+  });
+
+  let availableCandidates = capableCandidates.filter(c => c.deliveryJobs.length === 0);
+  if (availableCandidates.length === 0) {
+    availableCandidates = capableCandidates;
+  }
+  if (availableCandidates.length === 0) return null;
+
+  // Priority 1: Preferred Vehicle
+  let selectedPartner = availableCandidates.find(c => c.vehicleType === preferredVehicle);
+  // Priority 2: Any capable
+  if (!selectedPartner) {
+    selectedPartner = availableCandidates[0];
+  }
+
+  if (selectedPartner) {
+    const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000); 
+    const job = await prisma.deliveryJob.create({
+      data: {
+        orderId: order.id,
+        deliveryPartnerId: selectedPartner.id,
+        pickupLatitude: order.farmer.latitude || 0,
+        pickupLongitude: order.farmer.longitude || 0,
+        dropLatitude: order.buyer.latitude || 0,
+        dropLongitude: order.buyer.longitude || 0,
+        distanceKm: 0,
+        cropWeightKg: order.quantityKg,
+        status: DeliveryJobStatus.ASSIGNED,
+        estimatedDeliveryAt: deadline
+      }
+    });
+
+    await prisma.notification.create({
+      data: {
+        userId: selectedPartner.id,
+        title: 'New Priority Delivery Job! 🚚',
+        body: `You got a priority assignment in your area (${order.farmer.pincode}). Deadline: ${deadline.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
+        type: 'OFFER',
+        data: { jobId: job.id, orderId: order.id }
+      }
+    });
+
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { status: OrderStatus.ASSIGNED }
+    });
+
+    return selectedPartner;
+  }
+
+  return null;
+}

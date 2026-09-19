@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   initiateOrderPayment,
+  verifyOrderPayment,
   razorpayWebhook,
   getDriverOutstandingSummary,
   createDriverSettlementLink
@@ -30,6 +31,13 @@ router.post(
   restrictTo(Role.BUYER),
   requireRoleOperational(Role.BUYER),
   initiateOrderPayment
+);
+
+// Verify Razorpay payment synchronously
+router.post(
+  '/order/:orderId/verify',
+  restrictTo(Role.BUYER),
+  verifyOrderPayment
 );
 
 // ── DELIVERY PARTNER ROUTES ────────────────────────────────────────────────
