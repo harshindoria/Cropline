@@ -1,5 +1,5 @@
 import prisma from '../config/db';
-import { VehicleType, Role, DeliveryJobStatus, OrderStatus } from '@prisma/client';
+import { VehicleType, Role, DeliveryJobStatus, OrderStatus, DeliveryOfferStatus } from '@prisma/client';
 import { haversineDistance } from '../utils/geoUtils';
 
 const VEHICLE_CAPACITY = {
@@ -46,61 +46,52 @@ export const assignDeliveryJob = async (orderId: string) => {
     return VEHICLE_CAPACITY[c.vehicleType] >= qty;
   });
 
-  // 2. Strict Distance Filter (Fallback): Delivery guy shouldn't be hundreds of km away
-  // If they are not in the same district, they must be within their coverage radius (or default 50km)
-  capableCandidates = capableCandidates.filter(c => {
-    if (c.district === order.farmer.district) return true;
+  // 2. Distance Filter: Delivery guy must be within their coverage radius (default 20km)
+  const candidatesWithDistance = capableCandidates.map(c => {
     const distance = haversineDistance(
       order.farmer.latitude || 0, order.farmer.longitude || 0,
       c.latitude || 0, c.longitude || 0
     );
-    const maxRadius = c.coverageRadiusKm || 50;
-    return distance <= maxRadius;
+    return { ...c, distanceToPickup: distance };
+  });
+
+  const validDistanceCandidates = candidatesWithDistance.filter(c => {
+    const maxRadius = c.coverageRadiusKm || 20;
+    return c.distanceToPickup <= maxRadius;
   });
 
   // Filter those without active jobs first
-  let availableCandidates = capableCandidates.filter(c => c.deliveryJobs.length === 0);
+  let availableCandidates = validDistanceCandidates.filter(c => c.deliveryJobs.length === 0);
 
   if (availableCandidates.length === 0) {
-    availableCandidates = capableCandidates;
+    availableCandidates = validDistanceCandidates;
   }
 
   if (availableCandidates.length === 0) return null;
 
-  // Sort by rating to give highest rated priority among ties
-  availableCandidates.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+  // Sort by Priority:
+  // 1. Preferred Vehicle (True > False)
+  // 2. Distance (Closest > Furthest)
+  // 3. Rating (Highest > Lowest)
+  availableCandidates.sort((a, b) => {
+    const aIsPreferred = a.vehicleType === preferredVehicle ? 1 : 0;
+    const bIsPreferred = b.vehicleType === preferredVehicle ? 1 : 0;
+    
+    if (aIsPreferred !== bIsPreferred) return bIsPreferred - aIsPreferred; // Preferred first
+    if (a.distanceToPickup !== b.distanceToPickup) return a.distanceToPickup - b.distanceToPickup; // Closest first
+    return (b.rating || 0) - (a.rating || 0); // Highest rated first
+  });
 
-  const farmerPincode = order.farmer.pincode;
-  const farmerDistrict = order.farmer.district;
-
-  let selectedPartner = null;
-
-  // Priority 1: Same Pincode & Preferred Vehicle
-  selectedPartner = availableCandidates.find(c => c.pincode === farmerPincode && c.vehicleType === preferredVehicle);
-
-  // Priority 2: Same Pincode & Any Capable Vehicle
-  if (!selectedPartner) {
-    selectedPartner = availableCandidates.find(c => c.pincode === farmerPincode);
-  }
-
-  // Priority 3: Same District & Preferred Vehicle
-  if (!selectedPartner) {
-    selectedPartner = availableCandidates.find(c => c.district === farmerDistrict && c.vehicleType === preferredVehicle);
-  }
-
-  // Priority 4: Same District & Any Capable Vehicle
-  if (!selectedPartner) {
-    selectedPartner = availableCandidates.find(c => c.district === farmerDistrict);
-  }
-
-  // Priority 5: Fallback to highest rated available (who is strictly within distance & weight capacity)
-  if (!selectedPartner) {
-    selectedPartner = availableCandidates[0];
-  }
+  const selectedPartner = availableCandidates[0];
 
   if (selectedPartner) {
     // 24-hour deadline as requested
     const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000); 
+
+    const jobDistance = haversineDistance(
+      order.farmer.latitude || 0, order.farmer.longitude || 0,
+      order.deliveryLatitude || 0, order.deliveryLongitude || 0
+    );
 
     const job = await prisma.deliveryJob.create({
       data: {
@@ -108,9 +99,9 @@ export const assignDeliveryJob = async (orderId: string) => {
         deliveryPartnerId: selectedPartner.id,
         pickupLatitude: order.farmer.latitude || 0,
         pickupLongitude: order.farmer.longitude || 0,
-        dropLatitude: order.buyer.latitude || 0,
-        dropLongitude: order.buyer.longitude || 0,
-        distanceKm: 0,
+        dropLatitude: order.deliveryLatitude || 0,
+        dropLongitude: order.deliveryLongitude || 0,
+        distanceKm: jobDistance,
         cropWeightKg: order.quantityKg,
         status: DeliveryJobStatus.ASSIGNED,
         estimatedDeliveryAt: deadline
@@ -140,90 +131,140 @@ export const assignDeliveryJob = async (orderId: string) => {
   return null;
 }
 
-export const assignDeliveryJobByPincode = async (orderId: string) => {
+// ============================================================================
+// BROADCAST DELIVERY OFFER (Pull/Radar Model)
+// ============================================================================
+// Ye function silently assign nahi karta. Ye eligible drivers ko notify karta
+// hai aur DB me DeliveryOffer records banata hai. Jo sabse pahle accept karega
+// use job milegi (handled by acceptJob in delivery.controller.ts).
+
+export const broadcastDeliveryOffer = async (
+  orderId: string,
+  radiusKm: number = 10
+): Promise<number> => {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { farmer: true, buyer: true }
+    include: { farmer: true }
   });
 
-  if (!order || order.deliveryType !== 'DELIVERY' || !order.farmer.pincode) return null;
+  if (
+    !order ||
+    order.deliveryType !== 'DELIVERY' ||
+    order.status !== OrderStatus.DELIVERY_SEARCHING
+  ) {
+    console.log(`[BROADCAST] Skipping order ${orderId} — not eligible.`);
+    return 0;
+  }
 
   const qty = Number(order.quantityKg);
 
-  // Preferred vehicle based on weight
-  let preferredVehicle: VehicleType = VehicleType.MINI_TRUCK;
-  if (qty <= 50) preferredVehicle = VehicleType.BIKE;
-  else if (qty <= 300) preferredVehicle = VehicleType.AUTO;
-  else if (qty <= 1000) preferredVehicle = VehicleType.TEMPO;
-
-  const candidates = await prisma.user.findMany({
+  // Fetch all online + active delivery partners
+  const allDrivers = await prisma.user.findMany({
     where: {
       roles: { has: Role.DELIVERY },
       isActive: true,
       isOnline: true,
-      pincode: order.farmer.pincode // STRICTLY SAME PINCODE
     },
     include: {
       deliveryJobs: {
         where: {
-          status: { in: [DeliveryJobStatus.ASSIGNED, DeliveryJobStatus.PICKED_UP, DeliveryJobStatus.IN_DELIVERY] }
+          status: {
+            in: [DeliveryJobStatus.ASSIGNED, DeliveryJobStatus.PICKED_UP, DeliveryJobStatus.IN_DELIVERY]
+          }
         }
       }
     }
   });
 
-  let capableCandidates = candidates.filter(c => {
-    if (!c.vehicleType) return false;
-    return VEHICLE_CAPACITY[c.vehicleType] >= qty;
+  // Filter by: free (no active job) + vehicle capacity + within radius
+  const eligibleDrivers = allDrivers.filter(driver => {
+    if (driver.deliveryJobs.length > 0) return false;
+    if (!driver.vehicleType) return false;
+    if (VEHICLE_CAPACITY[driver.vehicleType] < qty) return false;
+
+    const distance = haversineDistance(
+      order.farmer.latitude || 0, order.farmer.longitude || 0,
+      driver.latitude || 0, driver.longitude || 0
+    );
+    return distance <= radiusKm;
   });
 
-  let availableCandidates = capableCandidates.filter(c => c.deliveryJobs.length === 0);
-  if (availableCandidates.length === 0) {
-    availableCandidates = capableCandidates;
-  }
-  if (availableCandidates.length === 0) return null;
-
-  // Priority 1: Preferred Vehicle
-  let selectedPartner = availableCandidates.find(c => c.vehicleType === preferredVehicle);
-  // Priority 2: Any capable
-  if (!selectedPartner) {
-    selectedPartner = availableCandidates[0];
+  if (eligibleDrivers.length === 0) {
+    console.log(`[BROADCAST] No eligible drivers within ${radiusKm}km for order ${orderId}.`);
+    return 0;
   }
 
-  if (selectedPartner) {
-    const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000); 
-    const job = await prisma.deliveryJob.create({
-      data: {
-        orderId: order.id,
-        deliveryPartnerId: selectedPartner.id,
-        pickupLatitude: order.farmer.latitude || 0,
-        pickupLongitude: order.farmer.longitude || 0,
-        dropLatitude: order.buyer.latitude || 0,
-        dropLongitude: order.buyer.longitude || 0,
-        distanceKm: 0,
-        cropWeightKg: order.quantityKg,
-        status: DeliveryJobStatus.ASSIGNED,
-        estimatedDeliveryAt: deadline
-      }
-    });
+  // Expire any old pending offers for a clean slate
+  await prisma.deliveryOffer.updateMany({
+    where: { orderId, status: DeliveryOfferStatus.OFFERED },
+    data: { status: DeliveryOfferStatus.EXPIRED }
+  });
 
-    await prisma.notification.create({
-      data: {
-        userId: selectedPartner.id,
-        title: 'New Priority Delivery Job! 🚚',
-        body: `You got a priority assignment in your area (${order.farmer.pincode}). Deadline: ${deadline.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
-        type: 'OFFER',
-        data: { jobId: job.id, orderId: order.id }
-      }
-    });
+  const offerExpiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours
 
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { status: OrderStatus.ASSIGNED }
-    });
+  // Create a DeliveryOffer + Notification for each eligible driver in parallel
+  await Promise.all(
+    eligibleDrivers.map(driver => {
+      const distanceToPickup = haversineDistance(
+        order.farmer.latitude || 0, order.farmer.longitude || 0,
+        driver.latitude || 0, driver.longitude || 0
+      );
 
-    return selectedPartner;
+      return prisma.$transaction([
+        prisma.deliveryOffer.create({
+          data: {
+            orderId,
+            partnerId: driver.id,
+            status: DeliveryOfferStatus.OFFERED,
+            wave: 1,
+            radiusKm,
+            expiresAt: offerExpiresAt,
+          }
+        }),
+        prisma.notification.create({
+          data: {
+            userId: driver.id,
+            title: '🚚 New Delivery Job Available!',
+            body: `Pickup: ${order.farmer.village}, ${order.farmer.district} | Weight: ${qty}kg | Distance to pickup: ~${distanceToPickup.toFixed(1)}km | Earning: ₹${Number(order.deliveryPartnerPayout).toFixed(0)}`,
+            type: 'OFFER',
+            data: {
+              orderId,
+              distanceToPickupKm: distanceToPickup.toFixed(1),
+              weightKg: qty,
+              earning: Number(order.deliveryPartnerPayout).toFixed(0),
+              expiresAt: offerExpiresAt.toISOString(),
+            }
+          }
+        })
+      ]);
+    })
+  );
+
+  console.log(`[BROADCAST] Sent offer to ${eligibleDrivers.length} drivers within ${radiusKm}km for order ${orderId}.`);
+  return eligibleDrivers.length;
+};
+
+// ============================================================================
+// RETRY WITH EXPANDED RADIUS (Called by Cron after 2 hours)
+// ============================================================================
+
+export const retryBroadcastWithExpandedRadius = async (orderId: string): Promise<void> => {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+
+  // If already assigned or cancelled, nothing to do
+  if (!order || order.status !== OrderStatus.DELIVERY_SEARCHING) return;
+
+  // Check if any offers are still pending (someone might still be reviewing)
+  const pendingOffers = await prisma.deliveryOffer.count({
+    where: { orderId, status: DeliveryOfferStatus.OFFERED }
+  });
+
+  if (pendingOffers > 0) {
+    console.log(`[BROADCAST] Order ${orderId} still has ${pendingOffers} active offer(s). Waiting...`);
+    return;
   }
 
-  return null;
-}
+  // No takers within 2 hours — expand radius to 20km and re-broadcast
+  console.log(`[BROADCAST] No takers for order ${orderId}. Expanding radius to 20km...`);
+  await broadcastDeliveryOffer(orderId, 20);
+};

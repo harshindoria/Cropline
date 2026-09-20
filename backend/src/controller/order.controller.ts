@@ -6,7 +6,7 @@ import { calculateDeliveryFee } from '../utils/feeUtils';
 import { haversineDistance } from '../utils/geoUtils';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
-import { assignDeliveryJob, assignDeliveryJobByPincode } from '../services/deliveryAssignment.service';
+import { broadcastDeliveryOffer } from '../services/deliveryAssignment.service';
 import { issueRazorpayRefund } from '../services/payment.service';
 
 // ── ZOD SCHEMA ──────────────────────────────────────────────────────────────
@@ -253,12 +253,10 @@ export const confirmOrder = async (req: Request<{ id: string }>, res: Response):
       include: { crop: { include: { catalog: true } } }
     });
 
-    let assignedPartner = null;
+    let notifiedCount = 0;
     if (updatedOrder.deliveryType === DeliveryType.DELIVERY) {
-      assignedPartner = await assignDeliveryJobByPincode(id);
-      if (assignedPartner) {
-        updatedOrder.status = OrderStatus.ASSIGNED;
-      }
+      notifiedCount = await broadcastDeliveryOffer(id);
+      // Status stays DELIVERY_SEARCHING — drivers will accept via Radar
     }
 
     // Notify the buyer
@@ -273,9 +271,9 @@ export const confirmOrder = async (req: Request<{ id: string }>, res: Response):
 
     res.status(200).json({
       success: true,
-      message: assignedPartner 
-        ? `Order confirmed and delivery assigned to ${assignedPartner.name || 'a partner'}.` 
-        : 'Order confirmed successfully. Mark the crop ready when it is prepared.',
+      message: notifiedCount > 0 
+        ? `Order confirmed! Broadcast sent to ${notifiedCount} nearby delivery partner(s).` 
+        : 'Order confirmed successfully. No delivery partner found nearby yet; will keep searching.',
       data: updatedOrder
     });
 
@@ -397,18 +395,18 @@ export const markReady = async (req: Request<{ id: string }>, res: Response): Pr
       data: { status: OrderStatus.READY_FOR_PICKUP },
     });
 
-    let assignedPartner = null;
+    let notifiedCount = 0;
     if (order.deliveryType === DeliveryType.DELIVERY) {
-       assignedPartner = await assignDeliveryJob(id);
-       
-       if (!assignedPartner) {
-         // No partner found! Update state to DELIVERY_SEARCHING
-         updatedOrder = await prisma.order.update({
-           where: { id },
-           data: { status: OrderStatus.DELIVERY_SEARCHING }
-         });
+      notifiedCount = await broadcastDeliveryOffer(id);
 
-         // Notify Farmer
+      if (notifiedCount === 0) {
+        // No drivers found nearby — update state to DELIVERY_SEARCHING for cron retry
+        updatedOrder = await prisma.order.update({
+          where: { id },
+          data: { status: OrderStatus.DELIVERY_SEARCHING }
+        });
+
+        // Notify Farmer
          await prisma.notification.create({
            data: {
              userId: order.farmerId,
@@ -433,10 +431,10 @@ export const markReady = async (req: Request<{ id: string }>, res: Response): Pr
     // 6. Success Response
     res.status(200).json({
       success: true,
-      message: assignedPartner
-        ? `Order marked ready. Delivery assigned to ${assignedPartner.name || 'a partner'} (${assignedPartner.vehicleType}).`
-        : (order.deliveryType === DeliveryType.DELIVERY 
-            ? 'Order marked ready. No delivery partner found, scheduled for automatic retry.' 
+      message: notifiedCount > 0
+        ? `Order marked ready. Broadcast sent to ${notifiedCount} nearby delivery partner(s).`
+        : (order.deliveryType === DeliveryType.DELIVERY
+            ? 'Order marked ready. No delivery partner found nearby, scheduled for automatic retry.'
             : 'Order marked ready for self-pickup.'),
       data: updatedOrder
     });

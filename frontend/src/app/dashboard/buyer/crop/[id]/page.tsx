@@ -119,14 +119,13 @@ export default function CropDetailPage() {
     try {
       setProcessing(true);
       
-      // Create Order
       const orderRes = await api.post("/orders", {
         cropId: crop.id,
         quantityKg,
         deliveryType: "DELIVERY",
         paymentType: paymentMethod === "ONLINE" ? "ONLINE" : "CASH_ON_PICKUP", // COD acts as CASH_ON_PICKUP
-        deliveryLatitude: 26.9124, // Mock lat
-        deliveryLongitude: 75.7873, // Mock lng
+        deliveryLatitude: buyerLat,
+        deliveryLongitude: buyerLng,
         deliveryAddress
       });
 

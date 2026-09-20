@@ -71,11 +71,22 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
 
         await prisma.$transaction(async (tx) => {
           if (specificLiabilityId && specificLiabilityId !== 'ALL') {
-            // Settle specific liability
-            await tx.cashLiability.updateMany({
-              where: { id: specificLiabilityId, deliveryPartnerId: driverId, reconciledAt: null },
-              data: { reconciledAt: new Date(), status: 'VERIFIED' }
+            // Settle specific liability ONLY if amount paid is sufficient
+            const liability = await tx.cashLiability.findUnique({
+              where: { id: specificLiabilityId }
             });
+            
+            if (liability && liability.deliveryPartnerId === driverId && liability.reconciledAt === null) {
+              const requiredAmount = Number(liability.amount);
+              if (amountPaidInRupees >= requiredAmount) {
+                await tx.cashLiability.update({
+                  where: { id: specificLiabilityId },
+                  data: { reconciledAt: new Date(), status: 'VERIFIED' }
+                });
+              } else {
+                console.warn(`[Webhook] Insufficient amount paid for specific liability. Paid: ${amountPaidInRupees}, Required: ${requiredAmount}`);
+              }
+            }
           } else {
             // Fallback: Settle oldest liabilities up to amountPaid
             const liabilities = await tx.cashLiability.findMany({
