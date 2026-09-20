@@ -9,6 +9,7 @@ import {
   ArrowLeft, Leaf, Clock, TrendingUp, MapPin, Star, ShieldCheck, Package, Minus, Plus, CreditCard, Banknote, ShoppingBasket, ChevronLeft
 } from "lucide-react";
 import Image from "next/image";
+import { haversineDistance, calculateDeliveryFee } from "@/lib/location";
 
 export default function CropDetailPage() {
   const { user, loading } = useAuth();
@@ -90,7 +91,13 @@ export default function CropDetailPage() {
     discountAmount = (cropCost * Number(crop.offer.discountPercentage)) / 100;
   }
   
-  const deliveryFee = 50; // Mock base estimated delivery fee
+  const buyerLat = user?.latitude ? Number(user.latitude) : 26.9124;
+  const buyerLng = user?.longitude ? Number(user.longitude) : 75.7873;
+  const farmerLat = crop.farmer?.latitude ? Number(crop.farmer.latitude) : 26.9124;
+  const farmerLng = crop.farmer?.longitude ? Number(crop.farmer.longitude) : 75.7873;
+  
+  const distanceKm = haversineDistance(buyerLat, buyerLng, farmerLat, farmerLng);
+  const deliveryFee = calculateDeliveryFee(distanceKm, quantityKg);
   const total = cropCost - discountAmount + deliveryFee;
 
   const isOwnCrop = crop.farmerId === user?.id;
