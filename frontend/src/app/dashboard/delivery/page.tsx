@@ -1,5 +1,6 @@
 "use client";
 
+import WithdrawFunds from "@/components/WithdrawFunds";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
@@ -285,7 +286,7 @@ export default function DeliveryDashboard() {
                   <p className="text-3xl font-black text-[#212121]">₹{user.walletBalance}</p>
                 </div>
               </div>
-              <p className="text-xs font-bold text-purple-600">Available to withdraw</p>
+              <WithdrawFunds balance={Number(user.walletBalance)} className="text-purple-600" />
             </div>
           </div>
 

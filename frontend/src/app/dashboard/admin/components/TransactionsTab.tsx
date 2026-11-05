@@ -7,6 +7,7 @@ import {
   Clock, Download, ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import PendingWithdrawals from './PendingWithdrawals';
 
 // --- Types ---
 type TabType = 'ONLINE' | 'CASH' | 'SETTLEMENTS';
@@ -310,6 +311,8 @@ export default function TransactionsTab() {
           </div>
         </div>
       </div>
+
+      <PendingWithdrawals />
 
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-gray-200">

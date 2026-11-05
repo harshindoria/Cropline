@@ -1,5 +1,6 @@
 "use client";
 
+import WithdrawFunds from "@/components/WithdrawFunds";
 import ApplicationModal from "@/components/ApplicationModal";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import NotificationDropdown from "@/components/NotificationDropdown";
@@ -345,6 +346,7 @@ function FarmerDashboardContent() {
                     <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center mb-4 backdrop-blur-sm"><Wallet className="w-6 h-6 text-purple-200" /></div>
                     <p className="text-xs font-bold text-purple-200 uppercase tracking-wider">Wallet Balance</p>
                     <p className="text-3xl font-black mt-1">₹{Number(user.walletBalance).toLocaleString("en-IN")}</p>
+                    <div className="mt-2"><WithdrawFunds balance={Number(user.walletBalance)} className="text-purple-100" /></div>
                   </div>
                 </div>
               )}
