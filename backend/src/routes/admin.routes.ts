@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getRoleApplications, processRoleApplication, getUsers, deleteReview, deleteComplaint, processWithdrawalRequest, verifyDocument, getVerificationDocuments, getDashboardOverview, getBuyers, getFarmers, getDeliveryPartners, mergeUsers, blockBuyer, sendBulkNotification, getNotificationHistory, searchUsers, getComplaints, getComplaintStats, processComplaint } from '../controller/admin.controller';
+import { getRoleApplications, processRoleApplication, getUsers, deleteReview, deleteComplaint, processWithdrawalRequest, verifyDocument, getVerificationDocuments, getDashboardOverview, getBuyers, getFarmers, getDeliveryPartners, blockBuyer, sendBulkNotification, getNotificationHistory, searchUsers, getComplaints, getComplaintStats, processComplaint } from '../controller/admin.controller';
 import { getTransactionsOverview, getOnlinePayments, getCashCollections, getSettlements, verifyCashDeposit } from '../controller/transaction.controller';
 import { getAdminCatalog, createCatalogItem, updateCatalogItem, deleteCatalogItem } from '../controller/admin.catalog.controller';
 import { protect, requireRole } from '../middleware/auth.middleware';
@@ -19,7 +19,6 @@ router.get('/users', getUsers);
 router.get('/buyers', getBuyers);
 router.get('/farmers', getFarmers);
 router.get('/delivery', getDeliveryPartners);
-router.post('/buyers/merge', mergeUsers);
 router.patch('/buyers/:id/block', blockBuyer);
 router.delete('/reviews/:id', deleteReview);
 router.delete('/complaints/:id', deleteComplaint);

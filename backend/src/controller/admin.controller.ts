@@ -242,61 +242,6 @@ export const getDeliveryPartners = async (req: Request, res: Response): Promise<
   }
 };
 
-// Merge two duplicate user accounts (keep primaryId, delete secondaryId)
-export const mergeUsers = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { primaryId, secondaryId } = req.body;
-    if (!primaryId || !secondaryId) {
-      res.status(400).json({ success: false, message: "primaryId and secondaryId are required" });
-      return;
-    }
-
-    const primary = await prisma.user.findUnique({ where: { id: primaryId } });
-    const secondary = await prisma.user.findUnique({ where: { id: secondaryId } });
-
-    if (!primary || !secondary) {
-      res.status(404).json({ success: false, message: "One or both users not found" });
-      return;
-    }
-
-    // Merge: Update all secondary references to point to primary, then delete secondary
-    await prisma.$transaction(async (tx) => {
-      // Re-assign orders
-      await tx.order.updateMany({ where: { buyerId: secondaryId }, data: { buyerId: primaryId } });
-      await tx.order.updateMany({ where: { farmerId: secondaryId }, data: { farmerId: primaryId } });
-      // Re-assign delivery jobs
-      await tx.deliveryJob.updateMany({ where: { deliveryPartnerId: secondaryId }, data: { deliveryPartnerId: primaryId } });
-      // Re-assign reviews
-      await tx.review.updateMany({ where: { reviewerId: secondaryId }, data: { reviewerId: primaryId } });
-      await tx.review.updateMany({ where: { targetId: secondaryId }, data: { targetId: primaryId } });
-      // Notifications
-      await tx.notification.updateMany({ where: { userId: secondaryId }, data: { userId: primaryId } });
-      // Complaints
-      await tx.complaint.updateMany({ where: { complainerId: secondaryId }, data: { complainerId: primaryId } });
-      await tx.complaint.updateMany({ where: { accusedId: secondaryId }, data: { accusedId: primaryId } });
-
-      // Merge fields into primary if primary is missing them
-      const mergeData: any = {};
-      if (!primary.email && secondary.email) mergeData.email = secondary.email;
-      if (!primary.phone && secondary.phone) mergeData.phone = secondary.phone;
-      if (!primary.name && secondary.name) mergeData.name = secondary.name;
-      if (!primary.firebaseUid && secondary.firebaseUid) mergeData.firebaseUid = secondary.firebaseUid;
-      if (Object.keys(mergeData).length > 0) {
-        await tx.user.update({ where: { id: primaryId }, data: mergeData });
-      }
-
-      // Delete secondary roleAccess and the user
-      await tx.userRoleAccess.deleteMany({ where: { userId: secondaryId } });
-      await tx.user.delete({ where: { id: secondaryId } });
-    });
-
-    res.json({ success: true, message: "Accounts merged successfully" });
-  } catch (error) {
-    console.error("Merge Users Error:", error);
-    res.status(500).json({ success: false, message: "Could not merge accounts" });
-  }
-};
-
 // Block or unblock a buyer
 export const blockBuyer = async (req: Request<{id: string}>, res: Response): Promise<void> => {
   try {
