@@ -413,6 +413,8 @@ model Order {
   @@index([buyerId, status])
   @@index([farmerId, status])
   @@index([createdAt])
+  @@index([cropId])
+  @@index([status, createdAt])
 }
 
 model DeliveryJob {
@@ -475,11 +477,11 @@ model DeliveryOffer {
 
 model PaymentRecord {
   id                String        @id @default(cuid())
-  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
   orderId           String        @unique
   provider          String
-  providerOrderId   String?
-  providerPaymentId String?
+  providerOrderId   String?       @unique
+  providerPaymentId String?       @unique
   status            PaymentStatus @default(PENDING)
   amount            Decimal       @db.Decimal(10, 2)
   authorizedAt      DateTime?
@@ -556,6 +558,7 @@ model Review {
 
   @@unique([reviewerId, targetId])
   @@index([targetId])
+  @@index([orderId])
 }
 
 model Subscription {
@@ -640,6 +643,9 @@ model Complaint {
   updatedAt DateTime @updatedAt
 
   @@index([accusedId, accusedRole])
+  @@index([orderId])
+  @@index([complainerId])
+  @@index([status])
 }
 
 enum ComplaintStatus {
@@ -652,7 +658,7 @@ enum ComplaintStatus {
 // NAYA MODEL: Platform level settings that admin can change
 model PlatformSettings {
   id                   String   @id @default(cuid())
-  cropMarkupRate       Decimal  @default(0.20) @db.Decimal(10, 2)
-  deliveryMarkupRate   Decimal  @default(0.20) @db.Decimal(10, 2)
+  cropMarkupRate       Decimal  @default(0.20) @db.Decimal(5, 4)
+  deliveryMarkupRate   Decimal  @default(0.20) @db.Decimal(5, 4)
   updatedAt            DateTime @updatedAt
 }

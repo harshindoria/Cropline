@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../config/db';
 import { z } from 'zod';
-import { Role, RoleAccessStatus, NotificationType, NotificationAlertLevel, ComplaintStatus, Prisma } from '@prisma/client';
+import { Role, RoleAccessStatus, NotificationType, NotificationAlertLevel, ComplaintStatus, OrderStatus, Prisma } from '@prisma/client';
 
 export const getRoleApplications = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -79,6 +79,9 @@ export const getUsers = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
+// Orders currently end at DELIVERED; COMPLETED is counted too so these totals stay right if that changes.
+const FULFILLED_ORDER_STATUSES: OrderStatus[] = [OrderStatus.DELIVERED, OrderStatus.COMPLETED];
+
 export const getBuyers = async (req: Request, res: Response): Promise<void> => {
   try {
     const buyers = await prisma.user.findMany({
@@ -94,8 +97,8 @@ export const getBuyers = async (req: Request, res: Response): Promise<void> => {
     const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const formattedBuyers = buyers.map(buyer => {
-      // Only count and sum COMPLETED orders for totalOrders and totalSpent
-      const completedOrders = buyer.ordersAsBuyer.filter(o => o.status === 'COMPLETED');
+      // Only count and sum fulfilled orders for totalOrders and totalSpent
+      const completedOrders = buyer.ordersAsBuyer.filter(o => FULFILLED_ORDER_STATUSES.includes(o.status));
       const totalOrders = completedOrders.length;
       const totalSpent = completedOrders.reduce((sum, order) => sum + Number(order.totalBuyerPrice || 0), 0);
       
@@ -142,7 +145,7 @@ export const getFarmers = async (req: Request, res: Response): Promise<void> => 
     const farmers = await prisma.user.findMany({
       where: { roles: { has: 'FARMER' } },
       include: {
-        ordersAsFarmer: { where: { status: 'COMPLETED' } },
+        ordersAsFarmer: { where: { status: { in: FULFILLED_ORDER_STATUSES } } },
         crops: true
       }
     });
