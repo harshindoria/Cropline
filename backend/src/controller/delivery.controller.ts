@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Prisma, DeliveryJobStatus, OrderStatus, Role, DeliveryType, RoleAccessStatus, VerificationPurpose, VerificationTokenType} from '@prisma/client';
+import { Prisma, DeliveryJobStatus, OrderStatus, Role, DeliveryType, RoleAccessStatus} from '@prisma/client';
 import prisma from '../config/db';
 import { getIO } from '../sockets/socket.handler';
 import { haversineDistance } from '../utils/geoUtils';
