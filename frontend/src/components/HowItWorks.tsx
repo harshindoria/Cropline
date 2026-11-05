@@ -9,7 +9,7 @@ const steps = [
   {
     icon: UserPlus,
     title: "Register",
-    desc: "Sign in with your phone or Google account. Choose your role — Buyer, Farmer, or Delivery Partner.",
+    desc: "Sign in with your phone number. Choose your role — Buyer, Farmer, or Delivery Partner.",
     color: "#1B5E20",
     bg: "#E8F5E9",
     step: "01",

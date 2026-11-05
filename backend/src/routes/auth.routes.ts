@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { loginWithPhone, loginWithEmail } from '../controller/auth.controller';
+import { changePhone, loginWithPhone } from '../controller/auth.controller';
+import { protect } from '../middleware/auth.middleware';
 
 const router = Router();
 
@@ -7,8 +8,8 @@ const router = Router();
 // Endpoint: POST /api/v1/auth/login/phone
 router.post('/login/phone', loginWithPhone);
 
-// 2. Google (Email) se login karne ka route
-// Endpoint: POST /api/v1/auth/login/email
-router.post('/login/email', loginWithEmail);
+// 2. Verified phone number change
+// Endpoint: POST /api/v1/auth/change-phone
+router.post('/change-phone', protect, changePhone);
 
 export default router;

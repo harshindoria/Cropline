@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/axios';
 import LocationSelector, { LocationValue } from '@/components/LocationSelector';
+import ChangePhoneNumber from '@/components/ChangePhoneNumber';
 
 const FARMING_TYPES = [
   { en: "Organic", hi: "जैविक" },
@@ -459,6 +460,7 @@ export default function FarmerProfile() {
                   <div>
                     <p className="text-xs font-bold text-gray-500 mb-1">Phone Number</p>
                     <p className="text-sm font-semibold text-[#212121]">{p.phone || 'Not Provided'}</p>
+                    <ChangePhoneNumber />
                   </div>
                 </div>
 

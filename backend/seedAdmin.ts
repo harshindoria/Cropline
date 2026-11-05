@@ -3,19 +3,10 @@ import { Role } from '@prisma/client';
 
 async function main() {
   const email = "harshindoria911@gmail.com";
-  const phone = "+919116015261"; // Firebase formatting usually includes +91
-  const phoneAlt = "9116015261";
-  
-  // Try to find if user already exists
-  let user = await prisma.user.findFirst({
-    where: {
-      OR: [
-        { email },
-        { phone },
-        { phone: phoneAlt }
-      ]
-    }
-  });
+  const phone = "+919116015261";
+
+  // Only the verified phone identifies a user. Email is unverified, so anyone could have typed this one.
+  const user = await prisma.user.findUnique({ where: { phone } });
 
   if (user) {
     console.log("User found! Updating roles to include ADMIN...");

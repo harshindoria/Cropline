@@ -8,26 +8,18 @@ import { ConfirmationResult } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import LocationSelector, { LocationValue } from "./LocationSelector";
 
-type Step = "choose" | "phone" | "otp" | "new-user-form" | "success";
+type Step = "phone" | "otp" | "new-user-form" | "success";
 
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const GoogleIcon = () => (
-  <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">
-    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-  </svg>
-);
+const VALID_MOBILE = /^[6-9]\d{9}$/;
 
 export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
-  const { 
-    loginWithGoogle, 
-    sendPhoneOtp, 
+  const {
+    sendPhoneOtp,
     verifyPhoneOtp, 
     completeRegistration, 
     mockLogin,
@@ -36,7 +28,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
   } = useAuth();
   const router = useRouter();
 
-  const [step, setStep] = useState<Step>("choose");
+  const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [loading, setLoading] = useState(false);
@@ -46,7 +38,6 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
   const [form, setForm] = useState({
     name: "",
     email: "",
-    phone: "",
     dob: "",
     aadhaarLast4: "",
   });
@@ -62,27 +53,6 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
       setStep("new-user-form");
     }
   }, [isOpen, authUser, step]);
-
-  const handleGoogleLogin = async () => {
-    setLoading(true);
-    setErrorMessage("");
-    try {
-      const res = await loginWithGoogle();
-      if (res && res.cancelled) {
-        return; // User closed the popup, do nothing
-      }
-      if (res && res.isNew) {
-        setStep("new-user-form");
-      } else if (res) {
-        handleSuccess();
-      }
-    } catch (err: any) {
-      console.error(err);
-      setErrorMessage(err.message || "Failed to log in with Google.");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handlePhoneSubmit = async () => {
     setLoading(true);
@@ -120,7 +90,6 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
         const { isNew } = await verifyPhoneOtp(confirmationResult, code);
         
         if (isNew) {
-          setForm(prev => ({ ...prev, phone }));
           setStep("new-user-form");
         } else {
           handleSuccess();
@@ -141,7 +110,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
     setErrorMessage("");
 
     // 1. Mandatory Fields Validation
-    if (!form.name || !form.email || !form.phone || !form.dob || !form.aadhaarLast4) {
+    if (!form.name || !form.email || !form.dob || !form.aadhaarLast4) {
       setErrorMessage("All fields are mandatory. Please fill in your complete details.");
       return;
     }
@@ -150,14 +119,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
       return;
     }
 
-    // 2. Phone Number Validation (Indian Mobile Format: 10 digits starting with 6,7,8,9)
-    const phoneRegex = /^[6-9]\d{9}$/;
-    if (!phoneRegex.test(form.phone)) {
-      setErrorMessage("Please enter a valid 10-digit Indian mobile number.");
-      return;
-    }
-
-    // 3. Aadhaar Validation
+    // 2. Aadhaar Validation
     if (form.aadhaarLast4.length !== 4) {
       setErrorMessage("Please enter exactly 4 digits for your Aadhaar card.");
       return;
@@ -168,7 +130,6 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
       await completeRegistration({
         name: form.name,
         email: form.email,
-        phone: form.phone,
         aadhaarLast4: form.aadhaarLast4,
         village: location.village,
         district: location.district,
@@ -207,7 +168,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
   const handleCancelRegistration = () => {
     logout();
-    setStep("choose");
+    setStep("phone");
     setPhone("");
     setOtp(["", "", "", "", "", ""]);
     setLoading(false);
@@ -220,7 +181,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
       setErrorMessage("Please complete your profile to continue.");
       return;
     }
-    setStep("choose");
+    setStep("phone");
     setPhone("");
     setOtp(["", "", "", "", "", ""]);
     setLoading(false);
@@ -260,15 +221,13 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
                   🌾
                 </div>
                 <h2 className="text-2xl font-bold font-[family-name:var(--font-poppins)]">
-                  {step === "choose" && "Welcome to CropLine"}
-                  {step === "phone" && "Enter Phone Number"}
+                  {step === "phone" && "Welcome to CropLine"}
                   {step === "otp" && "Verify SMS Code"}
                   {step === "new-user-form" && "Complete Profile"}
                   {step === "success" && "Successfully Logged In!"}
                 </h2>
                 <p className="text-white/75 text-sm mt-1">
-                  {step === "choose" && "Connecting farmers directly with buyers"}
-                  {step === "phone" && "We will send you a 6-digit OTP code"}
+                  {step === "phone" && "Enter your mobile number. We will send you a 6-digit OTP code"}
                   {step === "otp" && `Verification code sent to +91 ${phone}`}
                   {step === "new-user-form" && "Fill out your details to explore crops"}
                   {step === "success" && "Redirecting to your dashboard..."}
@@ -285,39 +244,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
               {/* Form Body */}
               <div className="p-6">
                 
-                {/* Step 1: Sign-in Options */}
-                {step === "choose" && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-                    <motion.button
-                      whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                      onClick={handleGoogleLogin}
-                      disabled={loading}
-                      className="w-full flex items-center justify-center gap-3 border-2 border-gray-200 hover:border-[#1B5E20] rounded-2xl py-3.5 px-4 font-semibold text-[#424242] transition-all duration-200"
-                    >
-                      {loading ? <Loader2 className="w-5 h-5 animate-spin text-[#1B5E20]" /> : <GoogleIcon />}
-                      Continue with Google
-                    </motion.button>
-
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 h-px bg-gray-200" />
-                      <span className="text-gray-400 text-xs font-semibold uppercase tracking-wider">or</span>
-                      <div className="flex-1 h-px bg-gray-200" />
-                    </div>
-
-                    <motion.button
-                      whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                      onClick={() => setStep("phone")}
-                      className="w-full flex items-center justify-center gap-3 bg-[#1B5E20] hover:bg-[#2E7D32] rounded-2xl py-3.5 px-4 font-semibold text-white transition-all duration-200 shadow-md"
-                    >
-                      <Phone size={18} />
-                      Continue with Phone
-                    </motion.button>
-
-
-                  </motion.div>
-                )}
-
-                {/* Step 2: Phone Input */}
+                {/* Step 1: Phone Input */}
                 {step === "phone" && (
                   <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
                     <div className="flex items-center gap-2 border-2 border-gray-200 focus-within:border-[#1B5E20] rounded-2xl px-4 py-3 transition-colors">
@@ -336,7 +263,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
                     <motion.button
                       whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                       onClick={handlePhoneSubmit}
-                      disabled={phone.length !== 10 || loading}
+                      disabled={!VALID_MOBILE.test(phone) || loading}
                       className="w-full bg-[#1B5E20] hover:bg-[#2E7D32] disabled:bg-gray-100 disabled:text-gray-400 text-white rounded-2xl py-3.5 font-semibold transition-all duration-200 flex items-center justify-center gap-2 shadow-md"
                     >
                       {loading ? (
@@ -345,17 +272,10 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
                         <>Send OTP <ChevronRight size={16} /></>
                       )}
                     </motion.button>
-                    
-                    <button 
-                      onClick={() => setStep("choose")} 
-                      className="w-full text-center text-sm font-bold text-[#2E7D32] hover:underline"
-                    >
-                      ← Back Options
-                    </button>
                   </motion.div>
                 )}
 
-                {/* Step 3: OTP Code */}
+                {/* Step 2: OTP Code */}
                 {step === "otp" && (
                   <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-5">
                     <div className="flex gap-2 justify-center">
@@ -398,7 +318,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
                   </motion.div>
                 )}
 
-                {/* Step 4: Register New User Form */}
+                {/* Step 3: Register New User Form */}
                 {step === "new-user-form" && (
                   <form onSubmit={handleFormSubmit} className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
                     <div className="bg-[#E8F5E9] border border-[#A5D6A7] text-[#2E7D32] text-xs p-3.5 rounded-2xl font-semibold leading-relaxed">
@@ -436,17 +356,14 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
                     </div>
 
                     <div>
-                      <label className="text-xs font-bold text-[#424242] mb-1.5 block">Phone Number</label>
-                      <div className="flex items-center gap-2 border-2 border-gray-200 focus-within:border-[#1B5E20] rounded-xl px-3 py-2.5 transition-colors bg-white">
+                      <label className="text-xs font-bold text-[#424242] mb-1.5 block">Phone Number (verified)</label>
+                      <div className="flex items-center gap-2 border-2 border-gray-200 rounded-xl px-3 py-2.5 bg-gray-50">
                         <Phone className="w-4 h-4 text-gray-400 flex-shrink-0" />
                         <input
-                          required
                           type="tel"
-                          maxLength={10}
-                          placeholder="10-digit mobile number"
-                          value={form.phone}
-                          onChange={e => setForm({ ...form, phone: e.target.value.replace(/\D/g, "") })}
-                          className="flex-1 outline-none text-sm text-[#212121] font-semibold"
+                          readOnly
+                          value={authUser?.phone ?? ""}
+                          className="flex-1 outline-none text-sm text-gray-500 font-semibold bg-transparent"
                         />
                       </div>
                     </div>
@@ -505,7 +422,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
                   </form>
                 )}
 
-                {/* Step 5: Success State */}
+                {/* Step 4: Success State */}
                 {step === "success" && (
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.8 }} 

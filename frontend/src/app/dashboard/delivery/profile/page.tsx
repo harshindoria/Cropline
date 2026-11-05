@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/axios';
 import LocationSelector, { LocationValue } from '@/components/LocationSelector';
+import ChangePhoneNumber from '@/components/ChangePhoneNumber';
 import { reverseGeocode } from '@/lib/location';
 
 export default function DeliveryProfile() {
@@ -384,6 +385,7 @@ export default function DeliveryProfile() {
                   <div>
                     <p className="text-xs font-bold text-gray-400 mb-1">Phone Number</p>
                     <p className="text-sm font-semibold text-[#212121]">{p.phone || 'Not Provided'}</p>
+                    <ChangePhoneNumber />
                   </div>
                 </div>
 

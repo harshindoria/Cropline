@@ -8,6 +8,7 @@ import {
   ArrowLeft, User, MapPin, Save, Loader2, CheckCircle2, Navigation, AlertCircle, Wallet
 } from "lucide-react";
 import LocationSelector, { LocationValue } from "@/components/LocationSelector";
+import ChangePhoneNumber from "@/components/ChangePhoneNumber";
 import { reverseGeocode } from "@/lib/location";
 
 export default function BuyerProfilePage() {
@@ -21,7 +22,6 @@ export default function BuyerProfilePage() {
 
   const [formData, setFormData] = useState({
     name: "",
-    phone: "",
     latitude: "",
     longitude: ""
   });
@@ -38,7 +38,6 @@ export default function BuyerProfilePage() {
     } else if (user) {
       setFormData({
         name: user.name || "",
-        phone: user.phone || "",
         latitude: user.latitude ? String(user.latitude) : "",
         longitude: user.longitude ? String(user.longitude) : ""
       });
@@ -266,12 +265,11 @@ export default function BuyerProfilePage() {
                     <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Phone Number</label>
                     <input 
                       type="tel"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-3 bg-gray-50 border border-transparent focus:border-green-200 focus:bg-white rounded-xl outline-none text-sm font-semibold transition-all"
-                      placeholder="10-digit number"
+                      readOnly
+                      value={user?.phone ?? ""}
+                      className="w-full px-4 py-3 bg-gray-100 border border-transparent rounded-xl outline-none text-sm font-semibold text-gray-500"
                     />
+                    <ChangePhoneNumber />
                   </div>
                 </div>
               </div>

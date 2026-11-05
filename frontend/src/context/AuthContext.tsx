@@ -1,14 +1,14 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, FC, ReactNode } from "react";
-import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  RecaptchaVerifier, 
-  signInWithPhoneNumber, 
-  signOut as firebaseSignOut,  
-  ConfirmationResult 
-} from "firebase/auth"; 
+import {
+  PhoneAuthProvider,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  signOut as firebaseSignOut,
+  updatePhoneNumber,
+  ConfirmationResult
+} from "firebase/auth";
 import { auth } from "../lib/firebase"; 
 import api from "../lib/axios"; 
 
@@ -19,7 +19,7 @@ export interface UserProfile {
   firebaseUid: string;
   name: string | null;
   email: string | null;
-  phone: string | null;
+  phone: string;
   roles: Role[];
   activeRole: Role;
   aadhaarLast4: string | null;
@@ -41,9 +41,10 @@ interface AuthContextType {
   loading: boolean;
   token: string | null;
   isNewUser: boolean;
-  loginWithGoogle: () => Promise<{ isNew: boolean; success?: boolean; cancelled?: boolean }>;
   sendPhoneOtp: (phoneNumber: string) => Promise<ConfirmationResult>;
   verifyPhoneOtp: (confirmationResult: ConfirmationResult, otp: string) => Promise<{ isNew: boolean }>;
+  sendPhoneChangeOtp: (phoneNumber: string) => Promise<string>;
+  confirmPhoneChange: (verificationId: string, otp: string) => Promise<void>;
   completeRegistration: (profileData: Partial<UserProfile>) => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
   onboardNewRole: (role: "FARMER" | "DELIVERY", additionalData?: Record<string, any>) => Promise<void>;
@@ -101,10 +102,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     initAuth();
   }, []);
 
-  const handleBackendLogin = async (idToken: string, isPhone: boolean) => {
-    const endpoint = isPhone ? "/auth/login/phone" : "/auth/login/email";
+  const handleBackendLogin = async (idToken: string) => {
     try {
-      const response = await api.post(endpoint, { idToken });
+      const response = await api.post("/auth/login/phone", { idToken });
       const { success, safeUser, token: backendToken, isNewUser: newUserFlag } = response.data;
       
       if (success) {
@@ -122,25 +122,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const loginWithGoogle = async () => {
-    try {
-      setLoading(true);
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const idToken = await result.user.getIdToken();
-      return await handleBackendLogin(idToken, false);
-    } catch (error: any) {
-      if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
-        return { isNew: false, success: false, cancelled: true };
-      }
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const sendPhoneOtp = async (phoneNumber: string) => {
-    // Check or create Recaptcha verifier
+  const getRecaptchaVerifier = (): RecaptchaVerifier => {
     let verifier = (window as any).recaptchaVerifier;
     if (!verifier) {
       verifier = new RecaptchaVerifier(auth, "recaptcha-container", {
@@ -148,10 +130,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       });
       (window as any).recaptchaVerifier = verifier;
     }
-    
-    // Add country code if not present
-    const formattedPhone = phoneNumber.startsWith("+") ? phoneNumber : `+91${phoneNumber}`;
-    return await signInWithPhoneNumber(auth, formattedPhone, verifier);
+    return verifier;
+  };
+
+  // Add country code if not present
+  const toE164 = (phoneNumber: string) => (phoneNumber.startsWith("+") ? phoneNumber : `+91${phoneNumber}`);
+
+  const sendPhoneOtp = async (phoneNumber: string) => {
+    return await signInWithPhoneNumber(auth, toE164(phoneNumber), getRecaptchaVerifier());
   };
 
   const verifyPhoneOtp = async (confirmationResult: ConfirmationResult, otp: string) => {
@@ -159,9 +145,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setLoading(true);
       const result = await confirmationResult.confirm(otp);
       const idToken = await result.user.getIdToken();
-      return await handleBackendLogin(idToken, true);
+      return await handleBackendLogin(idToken);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const sendPhoneChangeOtp = async (phoneNumber: string) => {
+    if (!auth.currentUser) {
+      throw new Error("For your security, please log out and log in again before changing your number.");
+    }
+    return await new PhoneAuthProvider(auth).verifyPhoneNumber(toE164(phoneNumber), getRecaptchaVerifier());
+  };
+
+  const confirmPhoneChange = async (verificationId: string, otp: string) => {
+    if (!auth.currentUser) {
+      throw new Error("For your security, please log out and log in again before changing your number.");
+    }
+    await updatePhoneNumber(auth.currentUser, PhoneAuthProvider.credential(verificationId, otp));
+    // Force a fresh token, because the current one still holds the old number.
+    const idToken = await auth.currentUser.getIdToken(true);
+    const response = await api.post("/auth/change-phone", { idToken });
+    if (response.data.success) {
+      setUser(response.data.user);
+      localStorage.setItem("cropline_user", JSON.stringify(response.data.user));
     }
   };
 
@@ -240,7 +247,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       firebaseUid: mockUid,
       name: `Demo ${mockRole}`,
       email: `${mockRole.toLowerCase()}@cropline.com`,
-      phone: "9999999999",
+      phone: "+919999999999",
       roles: [mockRole === "ADMIN" ? "ADMIN" : "BUYER", mockRole].filter(Boolean) as Role[],
       activeRole: mockRole,
       aadhaarLast4: "1234",
@@ -288,9 +295,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         loading,
         token,
         isNewUser,
-        loginWithGoogle,
         sendPhoneOtp,
         verifyPhoneOtp,
+        sendPhoneChangeOtp,
+        confirmPhoneChange,
         completeRegistration,
         switchRole,
         onboardNewRole,

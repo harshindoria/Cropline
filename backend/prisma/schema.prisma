@@ -160,8 +160,8 @@ model User {
   id          String  @id @default(cuid())
   firebaseUid String  @unique
   name        String?
-  email       String? @unique
-  phone       String? @unique
+  email       String? // Contact only, unverified. Never use it to find or log in a user.
+  phone       String  @unique // The login identity. Only ever set from a verified source, as +91XXXXXXXXXX.
   roles       Role[]  @default([BUYER])
   activeRole  Role    @default(BUYER)
 
