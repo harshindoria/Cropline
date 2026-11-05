@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
-import { CashDepositStatus, LedgerEntryStatus, LedgerEntryType } from '@prisma/client';
+import { settleCashLiability } from '../services/ledger.service';
 
 export const getTransactionsOverview = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -20,7 +20,7 @@ export const getTransactionsOverview = async (req: Request, res: Response): Prom
       prisma.ledgerEntry.aggregate({
         _sum: { amount: true },
         _count: { id: true },
-        where: { status: 'PENDING' }
+        where: { status: 'PENDING', type: { in: ['FARMER_EARNING', 'DELIVERY_EARNING'] } }
       }),
       prisma.paymentRecord.count({
         where: { status: 'FAILED' }
@@ -187,39 +187,13 @@ export const verifyCashDeposit = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    await prisma.$transaction(async (tx: any) => {
-      // Mark CashLiability as verified
-      await tx.cashLiability.update({
-        where: { id },
-        data: {
-          status: 'VERIFIED',
-          reconciledAt: new Date(),
-          reconciledByAdminId: req.user!.id
-        }
-      });
+    const settled = await prisma.$transaction((tx) => settleCashLiability(tx, id, req.user!.id));
+    if (!settled) {
+      res.status(400).json({ success: false, message: "Already verified" });
+      return;
+    }
 
-      // Find pending ledger entry for the farmer of this order
-      const ledgerEntry = await tx.ledgerEntry.findFirst({
-        where: {
-          orderId: liability.orderId,
-          type: 'FARMER_EARNING',
-          status: 'PENDING'
-        }
-      });
-
-      if (ledgerEntry) {
-        // Release farmer payout to be available
-        await tx.ledgerEntry.update({
-          where: { id: ledgerEntry.id },
-          data: {
-            status: 'AVAILABLE',
-            availableAt: new Date()
-          }
-        });
-      }
-    });
-
-    res.status(200).json({ success: true, message: "Cash deposit verified and farmer funds unlocked" });
+    res.status(200).json({ success: true, message: "Cash deposit verified and earnings released" });
   } catch (error) {
     console.error("Error in verifyCashDeposit:", error);
     res.status(500).json({ success: false, message: "Server error" });

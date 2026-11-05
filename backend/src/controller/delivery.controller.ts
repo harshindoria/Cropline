@@ -8,6 +8,7 @@ import { calculateDeliveryFee } from '../utils/feeUtils';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
 import { uploadToCloudinary } from '../utils/cloudinaryUpload';
+import { recordDeliveredOrder } from '../services/ledger.service';
 
 // ── GET NEARBY JOBS (The Radar) ─────────────────────────────────────────────
 export const getNearbyJobs = async (req: Request, res: Response): Promise<void> => {
@@ -588,6 +589,9 @@ export const markDelivered = async (req: Request, res: Response): Promise<void> 
     }
 
     const now = new Date();
+    // A cash order can be paid online at the door, and then the partner holds no cash for it.
+    const cashStillWithPartner =
+      job.order.paymentType === 'CASH_ON_PICKUP' && job.order.paymentRecord?.status !== 'SUCCESS';
 
     // 5. THE ATOMIC TRANSACTION for final delivery
     await prisma.$transaction(async (tx) => {
@@ -605,7 +609,7 @@ export const markDelivered = async (req: Request, res: Response): Promise<void> 
         data: { status: 'DELIVERED', completedAt: now },
       });
 
-      if (job.order.paymentType === 'CASH_ON_PICKUP') {
+      if (cashStillWithPartner) {
         await tx.paymentRecord.update({
           where: { orderId: job.orderId },
           data: { status: 'SUCCESS', capturedAt: now },
@@ -617,8 +621,7 @@ export const markDelivered = async (req: Request, res: Response): Promise<void> 
         });
       }
 
-      await tx.user.update({ where: { id: job.deliveryPartnerId }, data: { walletBalance: { increment: job.order.deliveryPartnerPayout } } });
-      await tx.user.update({ where: { id: job.order.farmerId }, data: { walletBalance: { increment: job.order.farmerEarnings } } });
+      await recordDeliveredOrder(tx, job.order, job.deliveryPartnerId, { cashStillWithPartner });
 
       // Notify Farmer
       await tx.notification.create({
@@ -626,7 +629,9 @@ export const markDelivered = async (req: Request, res: Response): Promise<void> 
           userId: job.order.farmerId,
           type: 'GENERAL',
           title: 'Order Delivered! 🎉',
-          body: 'Your produce has been successfully delivered to the buyer. Earnings added to wallet.',
+          body: cashStillWithPartner
+            ? 'Your produce has been delivered. Your earnings reach your wallet once the delivery partner deposits the cash.'
+            : 'Your produce has been successfully delivered to the buyer. Earnings added to wallet.',
           data: { orderId: job.orderId, jobId: job.id }
         }
       });
@@ -654,6 +659,12 @@ export const markDelivered = async (req: Request, res: Response): Promise<void> 
     });
 
   } catch (error) {
+    // The ledger's unique keys rejected a second confirmation of the same delivery.
+    if ((error as any)?.code === 'P2002') {
+      res.status(409).json({ success: false, message: 'This delivery has already been confirmed.' });
+      return;
+    }
+
     console.error('[Delivery] Mark Delivered Error:', error);
     res.status(500).json({ 
       success: false, 

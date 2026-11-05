@@ -281,11 +281,6 @@ export const deleteComplaint = async (req: Request<{id : string}>, res: Response
   }
 };
 
-export const processWithdrawalRequest = async (req: Request, res: Response): Promise<void> => {
-  // Mock logic
-  res.json({ success: true, message: "Withdrawal processed" });
-};
-
 export const getVerificationDocuments = async (req: Request, res: Response): Promise<void> => {
   try {
     const users = await prisma.user.findMany({

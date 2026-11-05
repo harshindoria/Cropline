@@ -493,8 +493,8 @@ model PaymentRecord {
 
 model LedgerEntry {
   id             String            @id @default(cuid())
-  order          Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  orderId        String
+  order          Order?            @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderId        String? // Empty only for a PAYOUT, which comes from the wallet rather than one order.
   user           User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
   userId         String?
   type           LedgerEntryType

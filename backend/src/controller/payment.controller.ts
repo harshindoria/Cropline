@@ -6,6 +6,7 @@ import {
   createRazorpayOrder
 } from '../services/payment.service';
 import crypto from 'crypto';
+import { settleCashLiability } from '../services/ledger.service';
 
 // ============================================================================
 // 1. THE MASTER SWITCHBOARD (Webhook Listener)
@@ -79,10 +80,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
             if (liability && liability.deliveryPartnerId === driverId && liability.reconciledAt === null) {
               const requiredAmount = Number(liability.amount);
               if (amountPaidInRupees >= requiredAmount) {
-                await tx.cashLiability.update({
-                  where: { id: specificLiabilityId },
-                  data: { reconciledAt: new Date(), status: 'VERIFIED' }
-                });
+                await settleCashLiability(tx, specificLiabilityId);
               } else {
                 console.warn(`[Webhook] Insufficient amount paid for specific liability. Paid: ${amountPaidInRupees}, Required: ${requiredAmount}`);
               }
@@ -105,11 +103,8 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
               }
             }
 
-            if (liabilitiesToSettle.length > 0) {
-              await tx.cashLiability.updateMany({
-                where: { id: { in: liabilitiesToSettle } },
-                data: { reconciledAt: new Date(), status: 'VERIFIED' }
-              });
+            for (const liabilityId of liabilitiesToSettle) {
+              await settleCashLiability(tx, liabilityId);
             }
           }
         });

@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { getRoleApplications, processRoleApplication, getUsers, deleteReview, deleteComplaint, processWithdrawalRequest, verifyDocument, getVerificationDocuments, getDashboardOverview, getBuyers, getFarmers, getDeliveryPartners, blockBuyer, sendBulkNotification, getNotificationHistory, searchUsers, getComplaints, getComplaintStats, processComplaint } from '../controller/admin.controller';
+import { getRoleApplications, processRoleApplication, getUsers, deleteReview, deleteComplaint, verifyDocument, getVerificationDocuments, getDashboardOverview, getBuyers, getFarmers, getDeliveryPartners, blockBuyer, sendBulkNotification, getNotificationHistory, searchUsers, getComplaints, getComplaintStats, processComplaint } from '../controller/admin.controller';
 import { getTransactionsOverview, getOnlinePayments, getCashCollections, getSettlements, verifyCashDeposit } from '../controller/transaction.controller';
+import { getPendingWithdrawals, processWithdrawalRequest } from '../controller/wallet.controller';
 import { getAdminCatalog, createCatalogItem, updateCatalogItem, deleteCatalogItem } from '../controller/admin.catalog.controller';
 import { protect, requireRole } from '../middleware/auth.middleware';
 import { upload } from '../config/multer';
@@ -22,6 +23,7 @@ router.get('/delivery', getDeliveryPartners);
 router.patch('/buyers/:id/block', blockBuyer);
 router.delete('/reviews/:id', deleteReview);
 router.delete('/complaints/:id', deleteComplaint);
+router.get('/withdrawals', getPendingWithdrawals);
 router.post('/withdrawals/:id/process', processWithdrawalRequest);
 router.get('/documents', getVerificationDocuments);
 router.post('/documents/verify', verifyDocument);
