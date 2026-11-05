@@ -10,7 +10,8 @@ import {
   ConfirmationResult
 } from "firebase/auth";
 import { auth } from "../lib/firebase"; 
-import api from "../lib/axios"; 
+import { isAxiosError } from "axios";
+import api from "../lib/axios";
 
 export type Role = "BUYER" | "FARMER" | "DELIVERY" | "ADMIN"; 
 
@@ -68,10 +69,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const savedUser = localStorage.getItem("cropline_user");
         
         if (savedToken && savedUser) {
-          setToken(savedToken);
           setUser(JSON.parse(savedUser));
-          
-          // Verify/refresh user status with backend
+
+          // Demo sessions have no backend account to check against
+          if (savedToken.startsWith("mock_")) {
+            setToken(savedToken);
+            return;
+          }
+
+          // The token is only published after this check, so the socket never connects with an expired one
           try {
             const res = await api.get("/users/profile");
             if (res.data.success) {
@@ -79,17 +85,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               setUser(updatedUser);
               localStorage.setItem("cropline_user", JSON.stringify(updatedUser));
             }
+            setToken(savedToken);
           } catch (err) {
-            console.error("Failed to verify saved session, logging out.", err);
-            // Session expired or backend down, but keep local for demo fallback unless token is invalid
-            if (savedToken.startsWith("mock_")) {
-              // It's a demo session, don't clear it
-            } else {
-              // Real token invalid
+            const status = isAxiosError(err) ? err.response?.status : undefined;
+            if (status === 401 || status === 403) {
+              // An expired session is normal: return to the logged-out state without raising an error
               localStorage.removeItem("cropline_token");
               localStorage.removeItem("cropline_user");
-              setToken(null);
               setUser(null);
+            } else {
+              // Server unreachable or failing: that says nothing about the session, so keep it
+              console.warn("Could not verify the saved session. Keeping it for now.", err);
+              setToken(savedToken);
             }
           }
         }
