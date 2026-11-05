@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import prisma from '../config/db';
-import { Role, OrderStatus, DeliveryType, PaymentType, Prisma, CropStatus, PaymentStatus, VerificationPurpose, VerificationTokenType, DeliveryOfferStatus, DeliveryJobStatus } from '@prisma/client';
+import { Role, OrderStatus, DeliveryType, PaymentType, Prisma, CropStatus, PaymentStatus, DeliveryOfferStatus, DeliveryJobStatus } from '@prisma/client';
 import { calculateDeliveryFee } from '../utils/feeUtils';
 import { haversineDistance } from '../utils/geoUtils';
 import jwt from 'jsonwebtoken';
