@@ -38,7 +38,10 @@ const makeEarner = (walletBalance = 1000) =>
   });
 
 const withdraw = (user: unknown, amount: unknown) => call(createWithdrawal, { user, body: { amount } });
-const process_ = (id: string, action: string) => call(processWithdrawalRequest, { params: { id }, body: { action } });
+const process_ = async (id: string, action: string) => {
+  const admin = await makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN });
+  return call(processWithdrawalRequest, { user: admin, params: { id }, body: { action } });
+};
 const wallet = async (id: string) => Number((await prisma.user.findUniqueOrThrow({ where: { id } })).walletBalance);
 
 beforeEach(resetDatabase);
@@ -149,6 +152,31 @@ describe('requesting a withdrawal', () => {
 });
 
 describe('admin processing a withdrawal', () => {
+  it('pays the bank account saved with the request, even if the profile changes later', async () => {
+    const user = await makeEarner();
+    await withdraw(user, 100);
+    await prisma.user.update({ where: { id: user.id }, data: { bankAccount: '9999999999', bankIfsc: 'HACK0000001' } });
+
+    const { body } = await call(getPendingWithdrawals, {});
+
+    expect(body.data[0].user.bankAccount).toBe('1234567890');
+    expect(body.data[0].user.bankIfsc).toBe('SBIN0001234');
+    expect(body.data[0].payoutDetail).toBeUndefined();
+  });
+
+  it('records which admin processed a payout, and when', async () => {
+    const user = await makeEarner();
+    await withdraw(user, 100);
+    const payout = await prisma.ledgerEntry.findFirstOrThrow();
+    const admin = await makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN });
+
+    await call(processWithdrawalRequest, { user: admin, params: { id: payout.id }, body: { action: 'PAID' } });
+
+    const detail = await prisma.payoutDetail.findUniqueOrThrow({ where: { ledgerEntryId: payout.id } });
+    expect(detail.processedByAdminId).toBe(admin.id);
+    expect(detail.processedAt).not.toBeNull();
+  });
+
   it('shows pending requests with the bank details needed to pay them', async () => {
     const user = await makeEarner();
     await withdraw(user, 100);
@@ -229,6 +257,55 @@ describe('admin processing a withdrawal', () => {
 });
 
 describe('database rules', () => {
+  const payoutEntry = async () => {
+    const user = await makeEarner();
+    await withdraw(user, 100);
+    return { user, payout: await prisma.ledgerEntry.findFirstOrThrow() };
+  };
+
+  it('rejects changing the amount or owner of an entry', async () => {
+    const { payout } = await payoutEntry();
+    const other = await makeUser();
+
+    await expect(prisma.ledgerEntry.update({ where: { id: payout.id }, data: { amount: 1 } })).rejects.toThrow(
+      'LedgerEntry_protected',
+    );
+    await expect(prisma.ledgerEntry.update({ where: { id: payout.id }, data: { userId: other.id } })).rejects.toThrow(
+      'LedgerEntry_protected',
+    );
+  });
+
+  it('rejects deleting an entry', async () => {
+    const { payout } = await payoutEntry();
+    await expect(prisma.ledgerEntry.delete({ where: { id: payout.id } })).rejects.toThrow('LedgerEntry_protected');
+  });
+
+  it('rejects moving a finished entry back', async () => {
+    const { payout } = await payoutEntry();
+    await process_(payout.id, 'PAID');
+    await expect(
+      prisma.ledgerEntry.update({ where: { id: payout.id }, data: { status: 'PENDING' } }),
+    ).rejects.toThrow('LedgerEntry_protected');
+  });
+
+  it('rejects deleting a user who has ledger entries', async () => {
+    const { user, payout } = await payoutEntry();
+    await expect(prisma.user.delete({ where: { id: user.id } })).rejects.toThrow();
+    expect((await prisma.ledgerEntry.findUniqueOrThrow({ where: { id: payout.id } })).userId).toBe(user.id);
+  });
+
+  it('requires an owner on a payout, and none on a platform fee', async () => {
+    const user = await makeUser();
+    await expect(
+      prisma.ledgerEntry.create({ data: { type: 'PAYOUT', amount: 1, idempotencyKey: 'no-owner' } }),
+    ).rejects.toThrow('LedgerEntry_owner_matches_type_check');
+    await expect(
+      prisma.ledgerEntry.create({
+        data: { userId: user.id, type: 'PLATFORM_CROP_FEE', amount: 1, idempotencyKey: 'owned-fee' },
+      }),
+    ).rejects.toThrow('LedgerEntry_owner_matches_type_check');
+  });
+
   it('rejects a negative wallet', async () => {
     await expect(makeUser({ walletBalance: -1 })).rejects.toThrow('User_wallet_non_negative_check');
   });

@@ -125,6 +125,8 @@ type WithdrawingUser = {
   id: string;
   bankAccount: string | null;
   bankIfsc: string | null;
+  bankName: string | null;
+  accountHolderName: string | null;
 };
 
 /**
@@ -132,7 +134,8 @@ type WithdrawingUser = {
  * The wallet update locks the user's row, so simultaneous requests are handled one at a time.
  */
 export const requestWithdrawal = async (user: WithdrawingUser, amount: Prisma.Decimal) => {
-  if (!user.bankAccount || !user.bankIfsc) {
+  const { bankAccount, bankIfsc, bankName, accountHolderName } = user;
+  if (!bankAccount || !bankIfsc) {
     throw new WalletError(400, 'BANK_DETAILS_REQUIRED', 'Please add your bank account and IFSC in your profile first.');
   }
 
@@ -164,6 +167,7 @@ export const requestWithdrawal = async (user: WithdrawingUser, amount: Prisma.De
         status: LedgerEntryStatus.PENDING,
         amount,
         idempotencyKey: `payout:${randomUUID()}`,
+        payoutDetail: { create: { bankAccount, bankIfsc, bankName, accountHolderName } },
       },
     });
   });
@@ -173,7 +177,7 @@ export const requestWithdrawal = async (user: WithdrawingUser, amount: Prisma.De
  * Completes a pending payout: PAID after admin has sent the bank transfer, or REJECTED, which
  * returns the money to the wallet. A payout can only leave PENDING once.
  */
-export const processWithdrawal = async (payoutId: string, action: 'PAID' | 'REJECTED') =>
+export const processWithdrawal = async (payoutId: string, action: 'PAID' | 'REJECTED', adminId: string) =>
   prisma.$transaction(async (tx) => {
     const paid = action === 'PAID';
     const claimed = await tx.ledgerEntry.updateMany({
@@ -186,6 +190,11 @@ export const processWithdrawal = async (payoutId: string, action: 'PAID' | 'REJE
       if (!existing) throw new WalletError(404, 'WITHDRAWAL_NOT_FOUND', 'Withdrawal request not found.');
       throw new WalletError(409, 'WITHDRAWAL_ALREADY_PROCESSED', 'This withdrawal was already processed.');
     }
+
+    await tx.payoutDetail.updateMany({
+      where: { ledgerEntryId: payoutId },
+      data: { processedByAdminId: adminId, processedAt: new Date() },
+    });
 
     const payout = await tx.ledgerEntry.findUniqueOrThrow({ where: { id: payoutId } });
     if (!payout.userId) return payout;

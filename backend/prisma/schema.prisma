@@ -230,6 +230,7 @@ model User {
   roleBlocksIssued   UserRoleAccess[] @relation("RoleAccessBlockedBy")
   deliveryOffers     DeliveryOffer[]
   ledgerEntries      LedgerEntry[]
+  payoutsProcessed   PayoutDetail[]   @relation("PayoutsProcessed")
   cashLiabilities    CashLiability[]
   complaintsFiled    Complaint[]      @relation("ComplaintsFiled")
   complaintsReceived Complaint[]      @relation("ComplaintsReceived")
@@ -508,12 +509,14 @@ model Refund {
   @@index([paymentRecordId])
 }
 
+// The amount, owner and order of an entry never change, and it can't be deleted. Only its status can
+// move, and only forward. A trigger in the migrations enforces all of this.
 model LedgerEntry {
   id             String            @id @default(cuid())
   order          Order?            @relation(fields: [orderId], references: [id], onDelete: Restrict)
   orderId        String? // Empty only for a PAYOUT, which comes from the wallet rather than one order.
-  user           User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
-  userId         String?
+  user           User?             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  userId         String? // Empty only for the platform's own fees.
   type           LedgerEntryType
   status         LedgerEntryStatus @default(PENDING)
   amount         Decimal           @db.Decimal(10, 2)
@@ -522,8 +525,27 @@ model LedgerEntry {
   settledAt      DateTime?
   createdAt      DateTime          @default(now())
 
+  payoutDetail PayoutDetail?
+
   @@index([userId, status])
   @@index([orderId, type])
+}
+
+// Where a payout's money was sent. Copied at request time, so changing a profile can't change it.
+model PayoutDetail {
+  id                 String      @id @default(cuid())
+  ledgerEntry        LedgerEntry @relation(fields: [ledgerEntryId], references: [id], onDelete: Restrict)
+  ledgerEntryId      String      @unique
+  bankAccount        String
+  bankIfsc           String
+  bankName           String?
+  accountHolderName  String?
+  processedByAdmin   User?       @relation("PayoutsProcessed", fields: [processedByAdminId], references: [id], onDelete: Restrict)
+  processedByAdminId String?
+  processedAt        DateTime?
+  createdAt          DateTime    @default(now())
+
+  @@index([processedByAdminId])
 }
 
 enum CashDepositStatus {

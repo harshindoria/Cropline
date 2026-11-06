@@ -62,20 +62,19 @@ export const getPendingWithdrawals = async (req: Request, res: Response): Promis
         id: true,
         amount: true,
         createdAt: true,
-        user: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-            bankAccount: true,
-            bankIfsc: true,
-            bankName: true,
-            accountHolderName: true,
-          },
+        user: { select: { id: true, name: true, phone: true } },
+        payoutDetail: {
+          select: { bankAccount: true, bankIfsc: true, bankName: true, accountHolderName: true },
         },
       },
     });
-    res.status(200).json({ success: true, data: withdrawals });
+
+    // Admin must pay the account saved with the request, even if the profile has changed since.
+    const data = withdrawals.map(({ user, payoutDetail, ...withdrawal }) => ({
+      ...withdrawal,
+      user: user && { ...user, ...payoutDetail },
+    }));
+    res.status(200).json({ success: true, data });
   } catch (error) {
     sendWalletError(res, error, 'Get Pending Withdrawals');
   }
@@ -89,7 +88,7 @@ export const processWithdrawalRequest = async (req: Request, res: Response): Pro
       return;
     }
 
-    const payout = await processWithdrawal(req.params.id as string, parsed.data.action);
+    const payout = await processWithdrawal(req.params.id as string, parsed.data.action, req.user!.id);
     res.status(200).json({ success: true, data: payout });
   } catch (error) {
     sendWalletError(res, error, 'Process Withdrawal');
