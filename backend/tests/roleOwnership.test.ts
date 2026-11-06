@@ -27,6 +27,8 @@ const call = async (handler: (req: any, res: any) => Promise<void>, req: Record<
   return { status, body };
 };
 
+const makeAdmin = () => makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN });
+
 const rolesOf = async (id: string) => (await attachRoles(await prisma.user.findUniqueOrThrow({ where: { id } }))).roles;
 
 const apply = async (userId: string, role: Role, status: RoleAccessStatus = RoleAccessStatus.PENDING_APPROVAL) =>
@@ -46,7 +48,7 @@ describe('holding a role', () => {
     const user = await makeUser();
     const application = await apply(user.id, Role.FARMER);
 
-    const { status } = await call(processRoleApplication, { params: { id: application.id }, body: { action: 'APPROVE' } });
+    const { status } = await call(processRoleApplication, { user: await makeAdmin(), params: { id: application.id }, body: { action: 'APPROVE' } });
 
     expect(status).toBe(200);
     expect(await rolesOf(user.id)).toEqual([Role.BUYER, Role.FARMER]);
@@ -56,7 +58,7 @@ describe('holding a role', () => {
     const user = await makeUser();
     const application = await apply(user.id, Role.FARMER);
 
-    await call(processRoleApplication, { params: { id: application.id }, body: { action: 'REJECT' } });
+    await call(processRoleApplication, { user: await makeAdmin(), params: { id: application.id }, body: { action: 'REJECT' } });
 
     expect(await rolesOf(user.id)).toEqual([Role.BUYER]);
     const after = await prisma.userRoleAccess.findUniqueOrThrow({ where: { id: application.id } });
@@ -66,9 +68,9 @@ describe('holding a role', () => {
   it('refuses to process an application twice', async () => {
     const user = await makeUser();
     const application = await apply(user.id, Role.FARMER);
-    await call(processRoleApplication, { params: { id: application.id }, body: { action: 'APPROVE' } });
+    await call(processRoleApplication, { user: await makeAdmin(), params: { id: application.id }, body: { action: 'APPROVE' } });
 
-    const { status } = await call(processRoleApplication, { params: { id: application.id }, body: { action: 'REJECT' } });
+    const { status } = await call(processRoleApplication, { user: await makeAdmin(), params: { id: application.id }, body: { action: 'REJECT' } });
 
     expect(status).toBe(409);
     expect(await rolesOf(user.id)).toContain(Role.FARMER);

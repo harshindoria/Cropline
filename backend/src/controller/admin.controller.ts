@@ -44,7 +44,7 @@ export const processRoleApplication = async (req: Request<{id : string}>, res: R
     if (parsed.data.action === 'APPROVE') {
       await prisma.userRoleAccess.update({
         where: { id },
-        data: { status: RoleAccessStatus.ACTIVE }
+        data: { status: RoleAccessStatus.ACTIVE, changedByAdminId: req.user!.id }
       });
       res.json({ success: true, message: "Application approved" });
     } else {
@@ -53,6 +53,7 @@ export const processRoleApplication = async (req: Request<{id : string}>, res: R
         where: { id},
         data: { 
           status: RoleAccessStatus.REJECTED,
+          changedByAdminId: req.user!.id,
           reason: parsed.data.reason || 'Application rejected by Admin' 
         }
       });
@@ -415,7 +416,7 @@ export const verifyDocument = async (req: Request, res: Response): Promise<void>
       const farmerAccess = await prisma.userRoleAccess.findUnique({ where: { userId_role: { userId, role: 'FARMER' } } });
       if (farmerAccess && farmerAccess.status === 'PENDING_APPROVAL') {
         rolesToAdd.push("FARMER" as import("@prisma/client").Role);
-        await prisma.userRoleAccess.update({ where: { id: farmerAccess.id }, data: { status: 'ACTIVE' } });
+        await prisma.userRoleAccess.update({ where: { id: farmerAccess.id }, data: { status: 'ACTIVE', changedByAdminId: req.user!.id } });
       }
     }
 
@@ -424,7 +425,7 @@ export const verifyDocument = async (req: Request, res: Response): Promise<void>
       const deliveryAccess = await prisma.userRoleAccess.findUnique({ where: { userId_role: { userId, role: 'DELIVERY' } } });
       if (deliveryAccess && deliveryAccess.status === 'PENDING_APPROVAL') {
         rolesToAdd.push("DELIVERY" as import("@prisma/client").Role);
-        await prisma.userRoleAccess.update({ where: { id: deliveryAccess.id }, data: { status: 'ACTIVE' } });
+        await prisma.userRoleAccess.update({ where: { id: deliveryAccess.id }, data: { status: 'ACTIVE', changedByAdminId: req.user!.id } });
       }
     }
 
@@ -869,7 +870,11 @@ export const processComplaint = async (req: Request<{id: string}>, res: Response
       // 1. Update Complaint
       await tx.complaint.update({
         where: { id },
-        data: { status: updatedStatus, adminRemark }
+        data: {
+          status: updatedStatus,
+          adminRemark,
+          ...(action === 'REQUEST_MORE_EVIDENCE' ? {} : { resolvedByAdminId: req.user!.id, resolvedAt: new Date() }),
+        }
       });
 
       // 2. Logic based on action
@@ -916,11 +921,15 @@ export const processComplaint = async (req: Request<{id: string}>, res: Response
               userId: complaint.accusedId,
               role: complaint.accusedRole,
               status: 'BLOCKED',
+              blockedAt: new Date(),
+              changedByAdminId: req.user!.id,
               blockedUntil: tomorrow,
               reason: 'Reached 7 strikes'
             },
             update: {
               status: 'BLOCKED',
+              blockedAt: new Date(),
+              changedByAdminId: req.user!.id,
               blockedUntil: tomorrow,
               reason: 'Reached 7 strikes'
             }
@@ -943,12 +952,16 @@ export const processComplaint = async (req: Request<{id: string}>, res: Response
               userId: complaint.accusedId,
               role: complaint.accusedRole,
               status: 'BLOCKED',
+              blockedAt: new Date(),
+              changedByAdminId: req.user!.id,
               reason: 'Reached 10 strikes',
               unbanFeeStatus: 'PENDING',
               unbanFeeAmount: 1000
             },
             update: {
               status: 'BLOCKED',
+              blockedAt: new Date(),
+              changedByAdminId: req.user!.id,
               blockedUntil: null,
               reason: 'Reached 10 strikes',
               unbanFeeStatus: 'PENDING',

@@ -289,7 +289,7 @@ export const onboardRole = async (req: Request, res: Response): Promise<void> =>
 
     return tx.userRoleAccess.upsert({
       where: { userId_role: { userId: req.user!.id, role: parsed.data.role } }, 
-      update: { status: RoleAccessStatus.PENDING_APPROVAL },
+      update: { status: RoleAccessStatus.PENDING_APPROVAL, changedByAdminId: null },
       create: { userId: req.user!.id, role: parsed.data.role, status: RoleAccessStatus.PENDING_APPROVAL },
     });
   });
@@ -325,8 +325,8 @@ export const setRoleBlock = async (req: Request, res: Response): Promise<void> =
     where: { id: existing.id },
     data: parsed.data.blocked ? {
       status: RoleAccessStatus.BLOCKED, reason: parsed.data.reason, blockedAt: new Date(),
-      blockedUntil: parsed.data.blockedUntil, blockedByAdminId: req.user.id,
-    } : { status: RoleAccessStatus.ACTIVE, reason: null, blockedAt: null, blockedUntil: null, blockedByAdminId: null },
+      blockedUntil: parsed.data.blockedUntil, changedByAdminId: req.user.id,
+    } : { status: RoleAccessStatus.ACTIVE, reason: null, blockedAt: null, blockedUntil: null, changedByAdminId: req.user.id },
   });
   res.json({ success: true, access });
 };

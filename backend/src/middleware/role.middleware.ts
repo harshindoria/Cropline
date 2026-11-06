@@ -36,7 +36,7 @@ export const requireRoleOperational = (role: Role) =>
       if (access.blockedUntil && access.blockedUntil <= new Date()) {
         await prisma.userRoleAccess.update({
           where: { id: access.id },
-          data: { status: RoleAccessStatus.ACTIVE, reason: null, blockedAt: null, blockedUntil: null, blockedByAdminId: null },
+          data: { status: RoleAccessStatus.ACTIVE, reason: null, blockedAt: null, blockedUntil: null, changedByAdminId: null },
         });
       } else {
         res.status(403).json({

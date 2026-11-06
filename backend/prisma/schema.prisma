@@ -220,20 +220,23 @@ model User {
 
   // Relations
   crops              Crop[]
-  ordersAsBuyer      Order[]          @relation("BuyerOrders")
-  ordersAsFarmer     Order[]          @relation("FarmerOrders")
+  ordersAsBuyer      Order[]           @relation("BuyerOrders")
+  ordersAsFarmer     Order[]           @relation("FarmerOrders")
   deliveryJobs       DeliveryJob[]
-  reviewsGiven       Review[]         @relation("GivenReviews")
-  reviewsReceived    Review[]         @relation("ReceivedReviews")
+  reviewsGiven       Review[]          @relation("GivenReviews")
+  reviewsReceived    Review[]          @relation("ReceivedReviews")
   notifications      Notification[]
-  roleAccess         UserRoleAccess[] @relation("RoleAccessUser")
-  roleBlocksIssued   UserRoleAccess[] @relation("RoleAccessBlockedBy")
+  roleAccess         UserRoleAccess[]  @relation("RoleAccessUser")
+  roleChangesMade    UserRoleAccess[]  @relation("RoleAccessChangedBy")
+  roleEventsCaused   RoleAccessEvent[] @relation("RoleEventChangedBy")
+  cashReconciled     CashLiability[]   @relation("CashReconciledBy")
+  complaintsResolved Complaint[]       @relation("ComplaintsResolvedBy")
   deliveryOffers     DeliveryOffer[]
   ledgerEntries      LedgerEntry[]
-  payoutsProcessed   PayoutDetail[]   @relation("PayoutsProcessed")
+  payoutsProcessed   PayoutDetail[]    @relation("PayoutsProcessed")
   cashLiabilities    CashLiability[]
-  complaintsFiled    Complaint[]      @relation("ComplaintsFiled")
-  complaintsReceived Complaint[]      @relation("ComplaintsReceived")
+  complaintsFiled    Complaint[]       @relation("ComplaintsFiled")
+  complaintsReceived Complaint[]       @relation("ComplaintsReceived")
 
   @@index([latitude, longitude])
   @@index([activeRole, isOnline])
@@ -248,15 +251,35 @@ model UserRoleAccess {
   reason           String?
   blockedAt        DateTime?
   blockedUntil     DateTime?
-  blockedByAdmin   User?            @relation("RoleAccessBlockedBy", fields: [blockedByAdminId], references: [id], onDelete: SetNull)
-  blockedByAdminId String?
+  changedByAdmin   User?            @relation("RoleAccessChangedBy", fields: [changedByAdminId], references: [id], onDelete: SetNull)
+  changedByAdminId String? // The admin behind the latest status change. Empty for automatic changes.
   unbanFeeStatus   UnbanFeeStatus   @default(NONE)
   unbanFeeAmount   Decimal?         @db.Decimal(10, 2)
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
+  events RoleAccessEvent[]
+
   @@unique([userId, role])
+  @@index([changedByAdminId])
   @@index([role, status, blockedUntil])
+}
+
+// One row for every status change of a role, written by a trigger in the migrations.
+model RoleAccessEvent {
+  id               String            @id @default(cuid())
+  userRoleAccess   UserRoleAccess    @relation(fields: [userRoleAccessId], references: [id], onDelete: Cascade)
+  userRoleAccessId String
+  fromStatus       RoleAccessStatus?
+  toStatus         RoleAccessStatus
+  reason           String?
+  blockedUntil     DateTime?
+  changedByAdmin   User?             @relation("RoleEventChangedBy", fields: [changedByAdminId], references: [id], onDelete: Restrict)
+  changedByAdminId String?
+  createdAt        DateTime          @default(now())
+
+  @@index([userRoleAccessId, createdAt])
+  @@index([changedByAdminId])
 }
 
 // NAYA MODEL: Admin dwara set kiye gaye fasalon ke naam (English/Hindi)
@@ -394,12 +417,25 @@ model Order {
   ledgerEntries  LedgerEntry[]
   cashLiability  CashLiability?
   complaints     Complaint[]
+  statusHistory  OrderStatusHistory[]
 
   @@index([buyerId, status])
   @@index([farmerId, status])
   @@index([createdAt])
   @@index([cropId])
   @@index([status, createdAt])
+}
+
+// One row for every status an order has been in, written by a trigger in the migrations. Permanent.
+model OrderStatusHistory {
+  id         String       @id @default(cuid())
+  order      Order        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderId    String
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  createdAt  DateTime     @default(now())
+
+  @@index([orderId, createdAt])
 }
 
 model DeliveryJob {
@@ -565,10 +601,12 @@ model CashLiability {
   status              CashDepositStatus @default(PENDING_DEPOSIT)
   depositedAt         DateTime?
   reconciledAt        DateTime?
+  reconciledByAdmin   User?             @relation("CashReconciledBy", fields: [reconciledByAdminId], references: [id], onDelete: Restrict)
   reconciledByAdminId String?
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
 
+  @@index([reconciledByAdminId])
   @@index([deliveryPartnerId, status])
 }
 
@@ -632,10 +670,13 @@ model Complaint {
 
   accusedRole Role
 
-  reason      String
-  description String?
-  evidence    String[] @default([])
-  adminRemark String?
+  reason            String
+  description       String?
+  evidence          String[]  @default([])
+  adminRemark       String?
+  resolvedByAdmin   User?     @relation("ComplaintsResolvedBy", fields: [resolvedByAdminId], references: [id], onDelete: Restrict)
+  resolvedByAdminId String?
+  resolvedAt        DateTime?
 
   status ComplaintStatus @default(PENDING)
 
@@ -645,6 +686,7 @@ model Complaint {
   @@index([accusedId, accusedRole])
   @@index([orderId])
   @@index([complainerId])
+  @@index([resolvedByAdminId])
   @@index([status])
 }
 
