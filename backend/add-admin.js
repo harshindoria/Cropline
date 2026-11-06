@@ -5,15 +5,12 @@ async function main() {
   const phone = '+919116015261';
   const u = await prisma.user.findUnique({ where: { phone } });
   if (u) {
-    if (!u.roles.includes('ADMIN')) {
-      await prisma.user.update({
-        where: { phone },
-        data: { roles: [...u.roles, 'ADMIN'] }
-      });
-      console.log('Added ADMIN role to', phone);
-    } else {
-      console.log('User already has ADMIN role');
-    }
+    await prisma.userRoleAccess.upsert({
+      where: { userId_role: { userId: u.id, role: 'ADMIN' } },
+      update: { status: 'ACTIVE' },
+      create: { userId: u.id, role: 'ADMIN' }
+    });
+    console.log('Added ADMIN role to', phone);
   } else {
     console.log('User not found');
   }

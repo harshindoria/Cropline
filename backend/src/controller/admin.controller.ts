@@ -3,6 +3,7 @@ import prisma from '../config/db';
 import { z } from 'zod';
 import { Role, RoleAccessStatus, NotificationType, NotificationAlertLevel, ComplaintStatus, OrderStatus, Prisma } from '@prisma/client';
 import { ACTIVE_JOB, withOrderCurrentJob } from '../utils/deliveryJob';
+import { hasRole, HELD_ROLES, withRoles } from '../utils/roles';
 
 export const getRoleApplications = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -35,21 +36,15 @@ export const processRoleApplication = async (req: Request<{id : string}>, res: R
       return;
     }
 
+    if (accessRecord.status !== RoleAccessStatus.PENDING_APPROVAL) {
+      res.status(409).json({ success: false, message: "This application was already processed" });
+      return;
+    }
+
     if (parsed.data.action === 'APPROVE') {
-      await prisma.$transaction(async tx => {
-        // Update UserRoleAccess
-        await tx.userRoleAccess.update({
-          where: { id },
-          data: { status: RoleAccessStatus.ACTIVE }
-        });
-        // Push role to user
-        const user = await tx.user.findUnique({ where: { id: accessRecord.userId } });
-        if (user && !user.roles.includes(accessRecord.role)) {
-          await tx.user.update({
-            where: { id: accessRecord.userId },
-            data: { roles: { push: accessRecord.role } }
-          });
-        }
+      await prisma.userRoleAccess.update({
+        where: { id },
+        data: { status: RoleAccessStatus.ACTIVE }
       });
       res.json({ success: true, message: "Application approved" });
     } else {
@@ -57,7 +52,7 @@ export const processRoleApplication = async (req: Request<{id : string}>, res: R
       await prisma.userRoleAccess.update({
         where: { id},
         data: { 
-          status: RoleAccessStatus.BLOCKED, 
+          status: RoleAccessStatus.REJECTED,
           reason: parsed.data.reason || 'Application rejected by Admin' 
         }
       });
@@ -72,9 +67,9 @@ export const processRoleApplication = async (req: Request<{id : string}>, res: R
 export const getUsers = async (req: Request, res: Response): Promise<void> => {
   try {
     const { role } = req.query;
-    const filter = role ? { roles: { has: role as Role } } : {};
-    const users = await prisma.user.findMany({ where: filter });
-    res.json({ success: true, users });
+    const filter = role ? hasRole(role as Role) : {};
+    const users = await prisma.user.findMany({ where: filter, include: { roleAccess: HELD_ROLES } });
+    res.json({ success: true, users: users.map(withRoles) });
   } catch (error) {
     res.status(500).json({ success: false, message: "Could not fetch users" });
   }
@@ -86,7 +81,7 @@ const FULFILLED_ORDER_STATUSES: OrderStatus[] = [OrderStatus.DELIVERED, OrderSta
 export const getBuyers = async (req: Request, res: Response): Promise<void> => {
   try {
     const buyers = await prisma.user.findMany({
-      where: { roles: { has: Role.BUYER } },
+      where: hasRole(Role.BUYER),
       include: {
         ordersAsBuyer: {
           select: { totalBuyerPrice: true, createdAt: true, status: true }
@@ -144,7 +139,7 @@ export const getBuyers = async (req: Request, res: Response): Promise<void> => {
 export const getFarmers = async (req: Request, res: Response): Promise<void> => {
   try {
     const farmers = await prisma.user.findMany({
-      where: { roles: { has: 'FARMER' } },
+      where: hasRole('FARMER'),
       include: {
         ordersAsFarmer: { where: { status: { in: FULFILLED_ORDER_STATUSES } } },
         crops: true
@@ -196,7 +191,7 @@ export const getFarmers = async (req: Request, res: Response): Promise<void> => 
 export const getDeliveryPartners = async (req: Request, res: Response): Promise<void> => {
   try {
     const partners = await prisma.user.findMany({
-      where: { roles: { has: 'DELIVERY' } },
+      where: hasRole('DELIVERY'),
       include: {
         deliveryJobs: { where: { status: 'DELIVERED' } }
       }
@@ -416,7 +411,7 @@ export const verifyDocument = async (req: Request, res: Response): Promise<void>
     const rolesToAdd: import("@prisma/client").Role[] = [];
 
     // Farmer requires Aadhaar
-    if (updatedUser.aadhaarVerified && !updatedUser.roles.includes('FARMER')) {
+    if (updatedUser.aadhaarVerified) {
       const farmerAccess = await prisma.userRoleAccess.findUnique({ where: { userId_role: { userId, role: 'FARMER' } } });
       if (farmerAccess && farmerAccess.status === 'PENDING_APPROVAL') {
         rolesToAdd.push("FARMER" as import("@prisma/client").Role);
@@ -425,7 +420,7 @@ export const verifyDocument = async (req: Request, res: Response): Promise<void>
     }
 
     // Delivery requires DL and RC
-    if (updatedUser.dlVerified && updatedUser.rcVerified && !updatedUser.roles.includes('DELIVERY')) {
+    if (updatedUser.dlVerified && updatedUser.rcVerified) {
       const deliveryAccess = await prisma.userRoleAccess.findUnique({ where: { userId_role: { userId, role: 'DELIVERY' } } });
       if (deliveryAccess && deliveryAccess.status === 'PENDING_APPROVAL') {
         rolesToAdd.push("DELIVERY" as import("@prisma/client").Role);
@@ -434,10 +429,6 @@ export const verifyDocument = async (req: Request, res: Response): Promise<void>
     }
 
     if (rolesToAdd.length > 0) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { roles: { push: rolesToAdd } } // Push all newly approved roles
-      });
       // Optionally notify user here
       await prisma.notification.create({
         data: {
@@ -478,11 +469,11 @@ export const getDashboardOverview = async (req: Request, res: Response): Promise
       recentPayouts
     ] = await Promise.all([
       // 1. Total Farmers
-      prisma.user.count({ where: { roles: { has: 'FARMER' } } }),
+      prisma.user.count({ where: hasRole('FARMER') }),
       // 2. Total Buyers
-      prisma.user.count({ where: { roles: { has: 'BUYER' } } }),
+      prisma.user.count({ where: hasRole('BUYER') }),
       // 3. Total Delivery Partners
-      prisma.user.count({ where: { roles: { has: 'DELIVERY' } } }),
+      prisma.user.count({ where: hasRole('DELIVERY') }),
       // 4. Orders Today
       prisma.order.count({ where: { createdAt: { gte: today } } }),
       // 5. Revenue Today
@@ -516,7 +507,7 @@ export const getDashboardOverview = async (req: Request, res: Response): Promise
       prisma.user.findMany({
         take: 2,
         orderBy: { createdAt: 'desc' },
-        select: { id: true, name: true, roles: true, createdAt: true }
+        select: { id: true, name: true, roleAccess: HELD_ROLES, createdAt: true }
       }),
       // 12. Recent Activities: Orders
       prisma.order.findMany({
@@ -542,7 +533,7 @@ export const getDashboardOverview = async (req: Request, res: Response): Promise
         take: 5,
         where: { type: 'PAYOUT', status: 'SETTLED' },
         orderBy: { createdAt: 'desc' },
-        select: { id: true, amount: true, createdAt: true, user: { select: { name: true, roles: true } } }
+        select: { id: true, amount: true, createdAt: true, user: { select: { name: true, roleAccess: HELD_ROLES } } }
       })
     ]);
 
@@ -553,7 +544,7 @@ export const getDashboardOverview = async (req: Request, res: Response): Promise
     recentUsers.forEach(u => activities.push({
       id: u.id,
       type: 'USER_REGISTERED',
-      title: `New ${u.roles[0]} Registered`,
+      title: `New ${u.roleAccess[0]?.role ?? 'user'} Registered`,
       desc: `${u.name} just joined`,
       timestamp: u.createdAt
     }));
@@ -582,7 +573,7 @@ export const getDashboardOverview = async (req: Request, res: Response): Promise
       id: p.id,
       type: 'PAYOUT_SUCCESSFUL',
       title: `Payout successful`,
-      desc: `₹${p.amount} paid to ${p.user?.name || 'User'} (${p.user?.roles?.[0] || 'Unknown'}).`,
+      desc: `₹${p.amount} paid to ${p.user?.name || 'User'} (${p.user?.roleAccess[0]?.role || 'Unknown'}).`,
       timestamp: p.createdAt
     }));
 
@@ -673,7 +664,7 @@ export const sendBulkNotification = async (req: Request, res: Response): Promise
       if (sendTo === 'All Delivery Partners') roleFilter = Role.DELIVERY;
 
       const users = await prisma.user.findMany({
-        where: roleFilter ? { roles: { has: roleFilter } } : {},
+        where: roleFilter ? hasRole(roleFilter) : {},
         select: { id: true }
       });
       targetUserIds = users.map(u => u.id);
@@ -749,12 +740,12 @@ export const searchUsers = async (req: Request, res: Response): Promise<void> =>
         id: true,
         name: true,
         phone: true,
-        roles: true,
+        roleAccess: HELD_ROLES,
       },
       take: 10
     });
 
-    res.status(200).json({ success: true, data: users });
+    res.status(200).json({ success: true, data: users.map(withRoles) });
   } catch (error) {
     console.error("Error searching users:", error);
     res.status(500).json({ success: false, message: "Internal server error" });

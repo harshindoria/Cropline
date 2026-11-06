@@ -8,6 +8,7 @@ import {
 } from '../services/auth.service';
 import { sanitizeUser } from '../utils/helper';
 import { signToken } from '../utils/jwtUtils';
+import { attachRoles } from '../utils/roles';
 
 const isFirebaseTokenError = (error: unknown): error is FirebaseTokenError => {
     return error instanceof FirebaseTokenError || (error as Error)?.name === 'FirebaseTokenError';
@@ -46,8 +47,9 @@ export const loginWithPhone = async (req : Request, res : Response) : Promise<vo
         // Controller sirf request lega aur service ko pass karega
         const proof = await verifyPhoneProof(idToken);
         const {user, isNewUser} = await processPhoneLogin(proof);
-        const safeUser = sanitizeUser(user);
-        const token = signToken(user.id, user.roles, user.activeRole);
+        const userWithRoles = await attachRoles(user);
+        const safeUser = sanitizeUser(userWithRoles);
+        const token = signToken(user.id, userWithRoles.roles, user.activeRole);
         res.status(200).json({
             success : true,
             safeUser,
@@ -71,7 +73,7 @@ export const changePhone = async (req : Request, res : Response) : Promise<void>
 
         const proof = await verifyPhoneProof(idToken);
         const user = await changeVerifiedPhone(req.user!, proof);
-        res.status(200).json({ success : true, user : sanitizeUser(user) });
+        res.status(200).json({ success : true, user : sanitizeUser(await attachRoles(user)) });
     } catch (error) {
         console.error("Change Phone Error:", error);
         sendAuthError(res, error);

@@ -10,11 +10,14 @@ async function main() {
 
   if (user) {
     console.log("User found! Updating roles to include ADMIN...");
-    const roles = Array.from(new Set([...user.roles, Role.ADMIN]));
+    await prisma.userRoleAccess.upsert({
+      where: { userId_role: { userId: user.id, role: Role.ADMIN } },
+      update: { status: 'ACTIVE' },
+      create: { userId: user.id, role: Role.ADMIN },
+    });
     await prisma.user.update({
       where: { id: user.id },
       data: {
-        roles,
         activeRole: Role.ADMIN,
         name: "Harsh Indoria"
       }
@@ -29,8 +32,8 @@ async function main() {
         name: "Harsh Indoria",
         email,
         phone,
-        roles: [Role.BUYER, Role.ADMIN],
-        activeRole: Role.ADMIN
+        activeRole: Role.ADMIN,
+        roleAccess: { create: [{ role: Role.BUYER }, { role: Role.ADMIN }] }
       }
     });
     console.log("✅ New Admin user created successfully.");

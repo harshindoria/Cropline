@@ -110,7 +110,6 @@ export const processPhoneLogin = async ({ uid, phoneNumber: phone }: PhoneProof)
             data: {
                 phone,
                 firebaseUid: uid,
-                roles: [Role.BUYER],
                 activeRole: Role.BUYER,
                 roleAccess: { create: { role: Role.BUYER } },
             },

@@ -144,8 +144,8 @@ describe('email is only contact information', () => {
 
     await call(buyerProfile, { user });
 
-    const updated = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
-    expect(updated.roles).not.toContain(Role.ADMIN);
+    const adminAccess = await prisma.userRoleAccess.count({ where: { userId: user.id, role: Role.ADMIN } });
+    expect(adminAccess).toBe(0);
   });
 });
 

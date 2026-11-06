@@ -10,7 +10,6 @@ vi.mock('../src/services/payment.service', () => ({ issueRazorpayRefund: vi.fn()
 
 const setUpCrop = async (offer?: { minQuantityKg: number; discountPercentage: number }) => {
   const farmer = await makeUser({ roles: [Role.BUYER, Role.FARMER] });
-  await prisma.userRoleAccess.create({ data: { userId: farmer.id, role: Role.FARMER } });
   const catalog = await prisma.cropCatalog.create({
     data: { englishName: 'Potato', hindiName: 'Aloo', category: CropCategory.VEGETABLES },
   });
@@ -151,7 +150,7 @@ describe('database rules still catch bad data', () => {
 
   it('rejects an active role the user does not have', async () => {
     await expect(makeUser({ roles: [Role.BUYER], activeRole: Role.ADMIN })).rejects.toThrow(
-      'User_activeRole_in_roles_check',
+      'User_activeRole_not_held',
     );
   });
 });

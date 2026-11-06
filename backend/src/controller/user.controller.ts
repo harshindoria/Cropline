@@ -4,6 +4,7 @@ import { sanitizeUser } from '../utils/helper';
 import { z } from 'zod';
 import { Role, RoleAccessStatus } from '@prisma/client';
 import { signToken } from '../utils/jwtUtils';
+import { attachRoles, HELD_ROLE_STATUSES, hasRole } from '../utils/roles';
 
 // 💡 Zod Schema (Updated to include bank and aadhaar)
 const updateProfileSchema = z.object({
@@ -42,7 +43,10 @@ const updateProfileSchema = z.object({
   waterSource: z.string().optional(),
 });
 
-const getCurrentUser = (userId: string) => prisma.user.findUnique({ where: { id: userId } });
+const getCurrentUser = async (userId: string) => {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  return user && attachRoles(user);
+};
 
 export const buyerProfile = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -202,7 +206,7 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
     res.status(200).json({
         success: true,
         message: "Profile updated successfully",
-        user: sanitizeUser(updatedUser)
+        user: sanitizeUser(await attachRoles(updatedUser))
     });
     
   } catch (error: any) {
@@ -229,7 +233,8 @@ export const switchRole = async (req: Request, res: Response): Promise<void> => 
     res.status(403).json({ success: false, code: 'ROLE_NOT_ONBOARDED', role: parsed.data.role });
     return;
   }
-  const user = await prisma.user.update({ where: { id: req.user.id }, data: { activeRole: parsed.data.role } });
+  const updated = await prisma.user.update({ where: { id: req.user.id }, data: { activeRole: parsed.data.role } });
+  const user = await attachRoles(updated);
   res.json({ success: true, user: sanitizeUser(user), token: signToken(user.id, user.roles, user.activeRole) });
 };
 
@@ -258,6 +263,12 @@ export const onboardRole = async (req: Request, res: Response): Promise<void> =>
     return;
   }
 
+  // Applying again would take away a role the user already holds, including a blocked one.
+  if (existingAccess && HELD_ROLE_STATUSES.includes(existingAccess.status)) {
+    res.status(409).json({ success: false, message: 'You already have this role.' });
+    return;
+  }
+
   const access = await prisma.$transaction(async tx => {
     // Update user based on role
     const updateData: any = {};
@@ -283,8 +294,8 @@ export const onboardRole = async (req: Request, res: Response): Promise<void> =>
     });
   });
   
-  // We don't update user.roles or activeRole here. Admin will do it.
-  const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
+  // The role is only held once an admin approves the application.
+  const user = await getCurrentUser(req.user!.id);
   res.status(201).json({ 
     success: true, 
     message: "Application submitted for admin approval.",
@@ -302,10 +313,17 @@ export const setRoleBlock = async (req: Request, res: Response): Promise<void> =
   if (!parsed.success || (parsed.data.blocked && !parsed.data.reason)) {
     res.status(400).json({ success: false, code: 'INVALID_ROLE_BLOCK', errors: parsed.success ? undefined : parsed.error.issues }); return;
   }
-  const access = await prisma.userRoleAccess.upsert({
-    where: { userId_role: { userId: parsed.data.userId, role: parsed.data.role } },
-    create: { userId: parsed.data.userId, role: parsed.data.role },
-    update: parsed.data.blocked ? {
+  // Only a role the user already holds can be blocked or unblocked, so this can never grant one.
+  const existing = await prisma.userRoleAccess.findFirst({
+    where: { userId: parsed.data.userId, role: parsed.data.role, status: { in: HELD_ROLE_STATUSES } },
+  });
+  if (!existing) {
+    res.status(404).json({ success: false, code: 'ROLE_NOT_HELD', message: 'This user does not have this role.' });
+    return;
+  }
+  const access = await prisma.userRoleAccess.update({
+    where: { id: existing.id },
+    data: parsed.data.blocked ? {
       status: RoleAccessStatus.BLOCKED, reason: parsed.data.reason, blockedAt: new Date(),
       blockedUntil: parsed.data.blockedUntil, blockedByAdminId: req.user.id,
     } : { status: RoleAccessStatus.ACTIVE, reason: null, blockedAt: null, blockedUntil: null, blockedByAdminId: null },
@@ -318,7 +336,7 @@ export const getFarmerPublicProfile = async (req: Request, res: Response): Promi
     const farmerId = req.params.id as string;
 
     const farmer = await prisma.user.findFirst({
-      where: { id: farmerId, roles: { has: 'FARMER' } },
+      where: { id: farmerId, ...hasRole('FARMER') },
       select: {
         id: true,
         name: true,

@@ -82,7 +82,6 @@ describe('platform fee rates', () => {
   it('keeps a rate like 12.5% exact and charges it on the order', async () => {
     await prisma.platformSettings.create({ data: { cropMarkupRate: 0.125, deliveryMarkupRate: 0.125 } });
     const farmer = await makeUser({ roles: [Role.BUYER, Role.FARMER] });
-    await prisma.userRoleAccess.create({ data: { userId: farmer.id, role: Role.FARMER } });
     const crop = await makeCrop(farmer.id);
     const buyer = await makeUser();
 

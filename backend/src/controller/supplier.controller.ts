@@ -21,9 +21,6 @@ export const getSuppliers = async (req: Request, res: Response): Promise<void> =
 
     // Build the query where clause for users
     const whereClause: any = {
-      roles: {
-        has: Role.FARMER
-      },
       roleAccess: {
         some: {
           role: Role.FARMER,

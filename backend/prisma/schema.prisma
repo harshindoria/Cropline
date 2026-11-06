@@ -37,6 +37,7 @@ enum RoleAccessStatus {
   ACTIVE
   BLOCKED
   PENDING_APPROVAL
+  REJECTED
 }
 
 enum UnbanFeeStatus {
@@ -52,7 +53,6 @@ enum DeliveryOfferStatus {
   ACCEPTED
   LOST
 }
-
 
 enum LedgerEntryType {
   FARMER_EARNING
@@ -144,17 +144,6 @@ enum RefundStatus {
   FAILED
 }
 
-enum SubscriptionFrequency {
-  WEEKLY
-  BIWEEKLY
-}
-
-enum SubscriptionStatus {
-  ACTIVE
-  PAUSED
-  CANCELLED
-}
-
 enum ReviewTargetType {
   FARMER
   BUYER
@@ -169,8 +158,7 @@ model User {
   name        String?
   email       String? // Contact only, unverified. Never use it to find or log in a user.
   phone       String  @unique // The login identity. Only ever set from a verified source, as +91XXXXXXXXXX.
-  roles       Role[]  @default([BUYER])
-  activeRole  Role    @default(BUYER)
+  activeRole  Role    @default(BUYER) // A database trigger keeps this to a role the user holds in UserRoleAccess.
 
   // Identity
   aboutMe         String?
@@ -231,22 +219,20 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relations
-  crops                 Crop[]
-  ordersAsBuyer         Order[]          @relation("BuyerOrders")
-  ordersAsFarmer        Order[]          @relation("FarmerOrders")
-  deliveryJobs          DeliveryJob[]
-  reviewsGiven          Review[]         @relation("GivenReviews")
-  reviewsReceived       Review[]         @relation("ReceivedReviews")
-  subscriptionsAsBuyer  Subscription[]   @relation("BuyerSubscriptions")
-  subscriptionsAsFarmer Subscription[]   @relation("FarmerSubscriptions")
-  notifications         Notification[]
-  roleAccess            UserRoleAccess[] @relation("RoleAccessUser")
-  roleBlocksIssued      UserRoleAccess[] @relation("RoleAccessBlockedBy")
-  deliveryOffers        DeliveryOffer[]
-  ledgerEntries         LedgerEntry[]
-  cashLiabilities       CashLiability[]
-  complaintsFiled       Complaint[]      @relation("ComplaintsFiled")
-  complaintsReceived    Complaint[]      @relation("ComplaintsReceived")
+  crops              Crop[]
+  ordersAsBuyer      Order[]          @relation("BuyerOrders")
+  ordersAsFarmer     Order[]          @relation("FarmerOrders")
+  deliveryJobs       DeliveryJob[]
+  reviewsGiven       Review[]         @relation("GivenReviews")
+  reviewsReceived    Review[]         @relation("ReceivedReviews")
+  notifications      Notification[]
+  roleAccess         UserRoleAccess[] @relation("RoleAccessUser")
+  roleBlocksIssued   UserRoleAccess[] @relation("RoleAccessBlockedBy")
+  deliveryOffers     DeliveryOffer[]
+  ledgerEntries      LedgerEntry[]
+  cashLiabilities    CashLiability[]
+  complaintsFiled    Complaint[]      @relation("ComplaintsFiled")
+  complaintsReceived Complaint[]      @relation("ComplaintsReceived")
 
   @@index([latitude, longitude])
   @@index([activeRole, isOnline])
@@ -263,7 +249,6 @@ model UserRoleAccess {
   blockedUntil     DateTime?
   blockedByAdmin   User?            @relation("RoleAccessBlockedBy", fields: [blockedByAdminId], references: [id], onDelete: SetNull)
   blockedByAdminId String?
-  strikeCount      Int              @default(0)
   unbanFeeStatus   UnbanFeeStatus   @default(NONE)
   unbanFeeAmount   Decimal?         @db.Decimal(10, 2)
   createdAt        DateTime         @default(now())
@@ -332,10 +317,10 @@ model Crop {
   updatedAt DateTime @updatedAt
 
   // relations
-  orders        Order[]
-  subscriptions Subscription[]
-  offer         CropOffer? // Optional Bulk Offer Relation
+  orders Order[]
+  offer  CropOffer? // Optional Bulk Offer Relation
 
+  @@unique([id, farmerId]) // Lets an order prove its farmer really owns the crop.
   @@index([farmerId])
   @@index([status, catalogId]) // Update kiya gaya index
   @@index([harvestDate])
@@ -360,17 +345,13 @@ model CropOffer {
 model Order {
   id String @id @default(cuid())
 
-  crop   Crop   @relation(fields: [cropId], references: [id])
+  crop   Crop   @relation(fields: [cropId, farmerId], references: [id, farmerId])
   cropId String
 
   farmer   User   @relation("FarmerOrders", fields: [farmerId], references: [id])
   farmerId String
   buyer    User   @relation("BuyerOrders", fields: [buyerId], references: [id])
   buyerId  String
-
-  isSubscription Boolean       @default(false)
-  subscriptionId String?
-  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
 
   quantityKg             Decimal @db.Decimal(10, 2)
   basePricePerKg         Decimal @db.Decimal(10, 2)
@@ -392,30 +373,26 @@ model Order {
   deliveryAddress   String?
   deliveryDate      DateTime?
 
-  status        OrderStatus   @default(PENDING)
-  paymentStatus PaymentStatus @default(PENDING)
-  paymentId     String?
-  pickupOtp     String?
-  deliveryOtp   String?
+  status      OrderStatus @default(PENDING)
+  pickupOtp   String?
+  deliveryOtp String?
 
   cancellationReason     String?
   farmerResponseDeadline DateTime?
   farmerAcceptedAt       DateTime?
-  paymentAuthorizedAt    DateTime?
-  paymentCapturedAt      DateTime?
   dispatchStartedAt      DateTime?
   completedAt            DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  deliveryJobs       DeliveryJob[]
-  reviews            Review[]
-  deliveryOffers     DeliveryOffer[]
-  paymentRecord      PaymentRecord?
-  ledgerEntries      LedgerEntry[]
-  cashLiability      CashLiability?
-  complaints         Complaint[]
+  deliveryJobs   DeliveryJob[]
+  reviews        Review[]
+  deliveryOffers DeliveryOffer[]
+  paymentRecord  PaymentRecord?
+  ledgerEntries  LedgerEntry[]
+  cashLiability  CashLiability?
+  complaints     Complaint[]
 
   @@index([buyerId, status])
   @@index([farmerId, status])
@@ -458,9 +435,6 @@ model DeliveryJob {
   cancellationReason  String?
   estimatedDeliveryAt DateTime?
   createdAt           DateTime  @default(now())
-  offeredAt           DateTime  @default(now())
-  acceptanceDeadline  DateTime?
-  notifiedPartners    String[]  @default([])
 
   @@index([orderId])
   @@index([deliveryPartnerId, status])
@@ -484,8 +458,6 @@ model DeliveryOffer {
   @@index([partnerId, status, expiresAt])
   @@index([orderId, wave])
 }
-
-
 
 // The buyer's payment for one order. Its attempts and refunds are kept as separate rows below.
 model PaymentRecord {
@@ -606,45 +578,6 @@ model Review {
   @@index([targetId])
 }
 
-model Subscription {
-  id String @id @default(cuid())
-
-  buyer   User   @relation("BuyerSubscriptions", fields: [buyerId], references: [id])
-  buyerId String
-
-  farmer   User   @relation("FarmerSubscriptions", fields: [farmerId], references: [id])
-  farmerId String
-
-  crop   Crop   @relation(fields: [cropId], references: [id])
-  cropId String
-
-  quantityKgPerDelivery Decimal               @db.Decimal(10, 2)
-  frequency             SubscriptionFrequency
-  deliveryType          DeliveryType
-  deliveryDay           String
-  lockPrice             Boolean               @default(false)
-  lockedPrice           Decimal?              @db.Decimal(10, 2)
-
-  startDate        DateTime
-  endDate          DateTime?
-  nextDeliveryDate DateTime
-
-  deliveryLatitude  Float
-  deliveryLongitude Float
-  deliveryAddress   String
-
-  status SubscriptionStatus @default(ACTIVE)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  orders Order[]
-
-  @@index([buyerId, status])
-  @@index([farmerId, status])
-  @@index([nextDeliveryDate, status])
-}
-
 model Notification {
   id     String @id @default(cuid())
   user   User   @relation(fields: [userId], references: [id])
@@ -702,8 +635,8 @@ enum ComplaintStatus {
 
 // NAYA MODEL: Platform level settings that admin can change
 model PlatformSettings {
-  id                   String   @id @default(cuid())
-  cropMarkupRate       Decimal  @default(0.20) @db.Decimal(5, 4)
-  deliveryMarkupRate   Decimal  @default(0.20) @db.Decimal(5, 4)
-  updatedAt            DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  cropMarkupRate     Decimal  @default(0.20) @db.Decimal(5, 4)
+  deliveryMarkupRate Decimal  @default(0.20) @db.Decimal(5, 4)
+  updatedAt          DateTime @updatedAt
 }

@@ -1,6 +1,7 @@
 import prisma from '../config/db';
 import { VehicleType, Role, DeliveryJobStatus, OrderStatus, DeliveryOfferStatus } from '@prisma/client';
 import { haversineDistance } from '../utils/geoUtils';
+import { hasRole } from '../utils/roles';
 
 const VEHICLE_CAPACITY = {
   [VehicleType.BIKE]: 50,
@@ -27,7 +28,7 @@ export const assignDeliveryJob = async (orderId: string) => {
 
   const candidates = await prisma.user.findMany({
     where: {
-      roles: { has: Role.DELIVERY },
+      ...hasRole(Role.DELIVERY),
       isActive: true,
       isOnline: true,
     },
@@ -161,7 +162,7 @@ export const broadcastDeliveryOffer = async (
   // Fetch all online + active delivery partners
   const allDrivers = await prisma.user.findMany({
     where: {
-      roles: { has: Role.DELIVERY },
+      ...hasRole(Role.DELIVERY),
       isActive: true,
       isOnline: true,
     },
