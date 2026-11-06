@@ -1,138 +1,13 @@
 import prisma from '../config/db';
-import { VehicleType, Role, DeliveryJobStatus, OrderStatus, DeliveryOfferStatus } from '@prisma/client';
+import { VehicleType, Role, DeliveryJobStatus, OrderStatus, DeliveryOfferStatus, RoleAccessStatus } from '@prisma/client';
 import { haversineDistance } from '../utils/geoUtils';
-import { hasRole } from '../utils/roles';
 
-const VEHICLE_CAPACITY = {
+export const VEHICLE_CAPACITY = {
   [VehicleType.BIKE]: 50,
   [VehicleType.AUTO]: 300,
   [VehicleType.TEMPO]: 1000,
   [VehicleType.MINI_TRUCK]: 5000,
 };
-
-export const assignDeliveryJob = async (orderId: string) => {
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-    include: { farmer: true, buyer: true }
-  });
-
-  if (!order || order.deliveryType !== 'DELIVERY') return null;
-
-  const qty = Number(order.quantityKg);
-
-  // Preferred vehicle based on weight
-  let preferredVehicle: VehicleType = VehicleType.MINI_TRUCK;
-  if (qty <= 50) preferredVehicle = VehicleType.BIKE;
-  else if (qty <= 300) preferredVehicle = VehicleType.AUTO;
-  else if (qty <= 1000) preferredVehicle = VehicleType.TEMPO;
-
-  const candidates = await prisma.user.findMany({
-    where: {
-      ...hasRole(Role.DELIVERY),
-      isActive: true,
-      deliveryProfile: { isOnline: true },
-    },
-    include: {
-      deliveryProfile: true,
-      deliveryJobs: {
-        where: {
-          status: { in: [DeliveryJobStatus.ASSIGNED, DeliveryJobStatus.PICKED_UP, DeliveryJobStatus.IN_DELIVERY] }
-        }
-      }
-    }
-  });
-
-  // 1. Strict Capacity Filter: Eliminate vehicles that cannot carry the crop
-  let capableCandidates = candidates.filter(c => {
-    const vehicleType = c.deliveryProfile?.vehicleType;
-    if (!vehicleType) return false;
-    return VEHICLE_CAPACITY[vehicleType] >= qty;
-  });
-
-  // 2. Distance Filter: Delivery guy must be within their coverage radius (default 20km)
-  const candidatesWithDistance = capableCandidates.map(c => {
-    const distance = haversineDistance(
-      order.farmer.latitude || 0, order.farmer.longitude || 0,
-      c.latitude || 0, c.longitude || 0
-    );
-    return { ...c, distanceToPickup: distance };
-  });
-
-  const validDistanceCandidates = candidatesWithDistance.filter(c => {
-    const maxRadius = c.deliveryProfile?.coverageRadiusKm || 20;
-    return c.distanceToPickup <= maxRadius;
-  });
-
-  // Filter those without active jobs first
-  let availableCandidates = validDistanceCandidates.filter(c => c.deliveryJobs.length === 0);
-
-  if (availableCandidates.length === 0) {
-    availableCandidates = validDistanceCandidates;
-  }
-
-  if (availableCandidates.length === 0) return null;
-
-  // Sort by Priority:
-  // 1. Preferred Vehicle (True > False)
-  // 2. Distance (Closest > Furthest)
-  // 3. Rating (Highest > Lowest)
-  availableCandidates.sort((a, b) => {
-    const aIsPreferred = a.deliveryProfile?.vehicleType === preferredVehicle ? 1 : 0;
-    const bIsPreferred = b.deliveryProfile?.vehicleType === preferredVehicle ? 1 : 0;
-    
-    if (aIsPreferred !== bIsPreferred) return bIsPreferred - aIsPreferred; // Preferred first
-    if (a.distanceToPickup !== b.distanceToPickup) return a.distanceToPickup - b.distanceToPickup; // Closest first
-    return (b.rating || 0) - (a.rating || 0); // Highest rated first
-  });
-
-  const selectedPartner = availableCandidates[0];
-
-  if (selectedPartner) {
-    // 24-hour deadline as requested
-    const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000); 
-
-    const jobDistance = haversineDistance(
-      order.farmer.latitude || 0, order.farmer.longitude || 0,
-      order.deliveryLatitude || 0, order.deliveryLongitude || 0
-    );
-
-    const job = await prisma.deliveryJob.create({
-      data: {
-        orderId: order.id,
-        deliveryPartnerId: selectedPartner.id,
-        pickupLatitude: order.farmer.latitude || 0,
-        pickupLongitude: order.farmer.longitude || 0,
-        dropLatitude: order.deliveryLatitude || 0,
-        dropLongitude: order.deliveryLongitude || 0,
-        distanceKm: jobDistance,
-        cropWeightKg: order.quantityKg,
-        status: DeliveryJobStatus.ASSIGNED,
-        estimatedDeliveryAt: deadline
-      }
-    });
-
-    // Notify partner
-    await prisma.notification.create({
-      data: {
-        userId: selectedPartner.id,
-        title: 'New Delivery Job Assigned! 🚚',
-        body: `You have been assigned a pickup at ${order.farmer.village}, ${order.farmer.district}. Deadline: ${deadline.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
-        type: 'OFFER',
-        data: { jobId: job.id, orderId: order.id }
-      }
-    });
-
-    // Update order status to ASSIGNED
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { status: OrderStatus.ASSIGNED }
-    });
-
-    return selectedPartner;
-  }
-
-  return null;
-}
 
 // ============================================================================
 // BROADCAST DELIVERY OFFER (Pull/Radar Model)
@@ -147,7 +22,7 @@ export const broadcastDeliveryOffer = async (
 ): Promise<number> => {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { farmer: true }
+    include: { crop: { select: { farmLatitude: true, farmLongitude: true, farmVillage: true, farmDistrict: true } } }
   });
 
   if (
@@ -164,7 +39,8 @@ export const broadcastDeliveryOffer = async (
   // Fetch all online + active delivery partners
   const allDrivers = await prisma.user.findMany({
     where: {
-      ...hasRole(Role.DELIVERY),
+      // A blocked partner can finish current work, but gets no new offers.
+      roleAccess: { some: { role: Role.DELIVERY, status: RoleAccessStatus.ACTIVE } },
       isActive: true,
       deliveryProfile: { isOnline: true },
     },
@@ -180,18 +56,24 @@ export const broadcastDeliveryOffer = async (
     }
   });
 
-  // Filter by: free (no active job) + vehicle capacity + within radius
+  // A partner who gave up this order is not offered it again.
+  const released = await prisma.deliveryJob.findMany({
+    where: { orderId, status: DeliveryJobStatus.CANCELLED },
+    select: { deliveryPartnerId: true },
+  });
+  const releasedPartners = new Set(released.map((job) => job.deliveryPartnerId));
+
+  const { farmLatitude, farmLongitude } = order.crop;
+
+  // Filter by: free (no active job) + vehicle capacity + within radius of the farm
   const eligibleDrivers = allDrivers.filter(driver => {
-    if (driver.deliveryJobs.length > 0) return false;
+    if (driver.deliveryJobs.length > 0 || releasedPartners.has(driver.id)) return false;
+    if (driver.latitude === null || driver.longitude === null) return false;
     const vehicleType = driver.deliveryProfile?.vehicleType;
     if (!vehicleType) return false;
     if (VEHICLE_CAPACITY[vehicleType] < qty) return false;
 
-    const distance = haversineDistance(
-      order.farmer.latitude || 0, order.farmer.longitude || 0,
-      driver.latitude || 0, driver.longitude || 0
-    );
-    return distance <= radiusKm;
+    return haversineDistance(farmLatitude, farmLongitude, driver.latitude, driver.longitude) <= radiusKm;
   });
 
   if (eligibleDrivers.length === 0) {
@@ -214,10 +96,7 @@ export const broadcastDeliveryOffer = async (
   // Create a DeliveryOffer + Notification for each eligible driver in parallel
   await Promise.all(
     eligibleDrivers.map(driver => {
-      const distanceToPickup = haversineDistance(
-        order.farmer.latitude || 0, order.farmer.longitude || 0,
-        driver.latitude || 0, driver.longitude || 0
-      );
+      const distanceToPickup = haversineDistance(farmLatitude, farmLongitude, driver.latitude!, driver.longitude!);
 
       return prisma.$transaction([
         prisma.deliveryOffer.create({
@@ -234,7 +113,7 @@ export const broadcastDeliveryOffer = async (
           data: {
             userId: driver.id,
             title: '🚚 New Delivery Job Available!',
-            body: `Pickup: ${order.farmer.village}, ${order.farmer.district} | Weight: ${qty}kg | Distance to pickup: ~${distanceToPickup.toFixed(1)}km | Earning: ₹${Number(order.deliveryPartnerPayout).toFixed(0)}`,
+            body: `Pickup: ${order.crop.farmVillage}, ${order.crop.farmDistrict} | Weight: ${qty}kg | Distance to pickup: ~${distanceToPickup.toFixed(1)}km | Earning: ₹${Number(order.deliveryPartnerPayout).toFixed(0)}`,
             type: 'OFFER',
             data: {
               orderId,
@@ -276,4 +155,54 @@ export const retryBroadcastWithExpandedRadius = async (orderId: string): Promise
   // No takers within 2 hours — expand radius to 20km and re-broadcast
   console.log(`[BROADCAST] No takers for order ${orderId}. Expanding radius to 20km...`);
   await broadcastDeliveryOffer(orderId, 20);
+};
+
+// ============================================================================
+// EXPIRE OFFERS (Called by Cron)
+// ============================================================================
+// An offer past its time can no longer be accepted, so it must not count as "someone is still deciding".
+export const expireStaleOffers = () =>
+  prisma.deliveryOffer.updateMany({
+    where: { status: DeliveryOfferStatus.OFFERED, expiresAt: { lt: new Date() } },
+    data: { status: DeliveryOfferStatus.EXPIRED },
+  });
+
+// ============================================================================
+// RELEASE A JOB (Partner gives up, or Cron finds no pickup)
+// ============================================================================
+/**
+ * Puts an order back to finding a partner. Only allowed before pickup, because after that the goods
+ * are with the partner. Returns false if the job has already moved on, so this is safe to repeat.
+ */
+export const releaseDeliveryJob = async (jobId: string, reason: string): Promise<boolean> => {
+  const now = new Date();
+
+  const order = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.deliveryJob.updateMany({
+      where: { id: jobId, status: DeliveryJobStatus.ASSIGNED },
+      data: { status: DeliveryJobStatus.CANCELLED, cancelledAt: now, cancellationReason: reason },
+    });
+    if (claimed.count !== 1) return null;
+
+    const { orderId } = await tx.deliveryJob.findUniqueOrThrow({ where: { id: jobId }, select: { orderId: true } });
+    const updated = await tx.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatus.DELIVERY_SEARCHING, dispatchStartedAt: now },
+    });
+
+    const body = 'Your delivery partner could not continue, so we are finding a new one.';
+    await tx.notification.createMany({
+      data: [updated.farmerId, updated.buyerId].map((userId) => ({
+        userId,
+        title: 'Finding a new delivery partner 🚚',
+        body,
+        data: { orderId },
+      })),
+    });
+    return updated;
+  });
+
+  if (!order) return false;
+  await broadcastDeliveryOffer(order.id);
+  return true;
 };

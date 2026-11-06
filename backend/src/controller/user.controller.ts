@@ -446,11 +446,24 @@ export const getFarmerPublicProfile = async (req: Request, res: Response): Promi
 export const toggleOnlineStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
-    const { isOnline } = req.body; // Expect boolean
+    const { isOnline, latitude, longitude } = req.body; // Expect boolean
     
     if (typeof isOnline !== 'boolean') {
       res.status(400).json({ success: false, message: 'isOnline must be a boolean' });
       return;
+    }
+
+    const hasNewLocation =
+      typeof latitude === 'number' && Math.abs(latitude) <= 90 && typeof longitude === 'number' && Math.abs(longitude) <= 180;
+
+    // Offers go out by distance, so a partner with no location could never receive one.
+    if (isOnline && !hasNewLocation && (req.user!.latitude === null || req.user!.longitude === null)) {
+      res.status(400).json({ success: false, code: 'LOCATION_REQUIRED', message: 'Please allow location access to go online.' });
+      return;
+    }
+
+    if (hasNewLocation) {
+      await prisma.user.update({ where: { id: userId }, data: { latitude, longitude } });
     }
 
     const profile = await prisma.deliveryProfile.upsert({

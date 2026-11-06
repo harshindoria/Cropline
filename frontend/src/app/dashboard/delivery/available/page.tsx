@@ -6,7 +6,7 @@ import { Search, MapPin, List, Clock, IndianRupee, LayoutGrid, CheckCircle2, Ale
 import Image from 'next/image';
 import api from '@/lib/axios';
 import dynamic from 'next/dynamic';
-import { getCurrentLocation } from '@/lib/location';
+import { getGpsOrSavedLocation } from '@/lib/location';
 
 // Dynamically import Leaflet Map to avoid SSR issues
 const DeliveryMap = dynamic(() => import('@/components/DeliveryMap'), { ssr: false });
@@ -41,10 +41,7 @@ export default function AvailableDeliveries() {
     setError('');
     
     try {
-      const coords = await getCurrentLocation(
-        user?.latitude ? Number(user.latitude) : 28.6139,
-        user?.longitude ? Number(user.longitude) : 77.2090
-      );
+      const coords = await getGpsOrSavedLocation(user);
       setUserLoc(coords);
 
       const res = await api.get(`/delivery/nearby?lat=${coords.lat}&lng=${coords.lng}&radius=20`);
@@ -55,7 +52,7 @@ export default function AvailableDeliveries() {
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.response?.data?.message || 'Something went wrong while fetching jobs.');
+      setError(err.response?.data?.message || err.message || 'Something went wrong while fetching jobs.');
     } finally {
       setFetching(false);
     }

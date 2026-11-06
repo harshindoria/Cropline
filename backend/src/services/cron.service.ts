@@ -1,17 +1,35 @@
 import prisma from '../config/db';
-import { OrderStatus, PaymentStatus } from '@prisma/client';
-import { retryBroadcastWithExpandedRadius } from './deliveryAssignment.service';
+import { DeliveryJobStatus, OrderStatus, PaymentStatus } from '@prisma/client';
+import { expireStaleOffers, releaseDeliveryJob, retryBroadcastWithExpandedRadius } from './deliveryAssignment.service';
+
+// A partner who accepts a job must reach the farm within this time, or the job goes to someone else.
+const PICKUP_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
 export async function processRetryDeliveryAssignments() {
   console.log('[CRON] Running Delivery Assignment Retry...');
   
-  // Find orders that have been waiting for > 2 hours in DELIVERY_SEARCHING state
+  await expireStaleOffers();
+
+  const staleJobs = await prisma.deliveryJob.findMany({
+    where: { status: DeliveryJobStatus.ASSIGNED, acceptedAt: { lte: new Date(Date.now() - PICKUP_TIMEOUT_MS) } },
+    select: { id: true },
+  });
+  for (const job of staleJobs) {
+    try {
+      await releaseDeliveryJob(job.id, 'Not picked up in time');
+    } catch (error) {
+      console.error(`[CRON] Error releasing job ${job.id}:`, error);
+    }
+  }
+
+  // Orders searching for 2 to 4 hours get a wider search. After 4 hours they are cancelled below.
   const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+  const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
 
   const waitingOrders = await prisma.order.findMany({
     where: {
       status: OrderStatus.DELIVERY_SEARCHING,
-      updatedAt: { lte: twoHoursAgo }
+      dispatchStartedAt: { lte: twoHoursAgo, gt: fourHoursAgo }
     },
     include: { paymentRecord: true }
   });
@@ -26,11 +44,10 @@ export async function processRetryDeliveryAssignments() {
   }
 
   // Ultimate Failure: Orders in DELIVERY_SEARCHING for > 4 hours with zero active offers
-  const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
   const abandonedOrders = await prisma.order.findMany({
     where: {
       status: OrderStatus.DELIVERY_SEARCHING,
-      updatedAt: { lte: fourHoursAgo },
+      dispatchStartedAt: { lte: fourHoursAgo },
       deliveryOffers: { none: { status: 'OFFERED' } } // Zero active offers left
     },
     include: { paymentRecord: true }

@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
+import { isAxiosError } from "axios";
+import { getGpsOrSavedLocation } from "@/lib/location";
 
 export default function DeliverySidebar() {
   const pathname = usePathname();
@@ -20,11 +22,18 @@ export default function DeliverySidebar() {
   const toggleOnline = async () => {
     try {
       const newStatus = !isOnline;
+      // Offers go out by distance from the farm, so going online needs the partner's location.
+      const position = newStatus ? await getGpsOrSavedLocation(user) : null;
       setIsOnline(newStatus);
-      await api.patch('/users/online-status', { isOnline: newStatus });
+      await api.patch('/users/online-status', {
+        isOnline: newStatus,
+        ...(position && { latitude: position.lat, longitude: position.lng }),
+      });
     } catch (error) {
       console.error(error);
-      setIsOnline(!isOnline); // revert on error
+      setIsOnline(isOnline); // revert on error
+      const message = isAxiosError(error) ? error.response?.data?.message : (error as Error).message;
+      alert(message || 'Could not change your online status.');
     }
   };
 

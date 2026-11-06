@@ -383,9 +383,12 @@ export const markReady = async (req: Request<{ id: string }>, res: Response): Pr
       return;
     }
 
-    let updatedOrder = await prisma.order.update({
+    // A delivery order goes straight to finding a partner. READY_FOR_PICKUP is for the buyer collecting it.
+    const updatedOrder = await prisma.order.update({
       where: { id },
-      data: { status: OrderStatus.READY_FOR_PICKUP },
+      data: order.deliveryType === DeliveryType.DELIVERY
+        ? { status: OrderStatus.DELIVERY_SEARCHING, dispatchStartedAt: new Date() }
+        : { status: OrderStatus.READY_FOR_PICKUP },
     });
 
     let notifiedCount = 0;
@@ -393,12 +396,6 @@ export const markReady = async (req: Request<{ id: string }>, res: Response): Pr
       notifiedCount = await broadcastDeliveryOffer(id);
 
       if (notifiedCount === 0) {
-        // No drivers found nearby — update state to DELIVERY_SEARCHING for cron retry
-        updatedOrder = await prisma.order.update({
-          where: { id },
-          data: { status: OrderStatus.DELIVERY_SEARCHING }
-        });
-
         // Notify Farmer
          await prisma.notification.create({
            data: {

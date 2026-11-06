@@ -16,7 +16,7 @@ import RoleSwitcher from "@/components/RoleSwitcher";
 import NotificationDropdown from "@/components/NotificationDropdown";
 import CropCard from "./components/CropCard";
 import LocationSelector, { LocationValue } from "@/components/LocationSelector";
-import { getCurrentLocation, reverseGeocode } from "@/lib/location";
+import { getGpsOrSavedLocation, reverseGeocode } from "@/lib/location";
 
 // Mock Categories
 const categories = [
@@ -240,10 +240,7 @@ function BuyerDashboardContent() {
         const crop = crops.find(c => c.id === cropId);
         if (!crop) continue;
 
-        const coords = await getCurrentLocation(
-          user?.latitude ? Number(user.latitude) : 26.9124,
-          user?.longitude ? Number(user.longitude) : 75.7873
-        );
+        const coords = await getGpsOrSavedLocation(user);
 
         const orderRes = await api.post("/orders", {
           cropId: crop.id,

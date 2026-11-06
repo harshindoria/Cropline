@@ -12,6 +12,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   PENDING: { label: 'Pending', color: 'text-amber-700', bg: 'bg-amber-100' },
   CONFIRMED: { label: 'Confirmed', color: 'text-blue-700', bg: 'bg-blue-100' },
   READY_FOR_PICKUP: { label: 'Ready', color: 'text-indigo-700', bg: 'bg-indigo-100' },
+  DELIVERY_SEARCHING: { label: 'Finding Partner', color: 'text-indigo-700', bg: 'bg-indigo-100' },
   ASSIGNED: { label: 'Assigned', color: 'text-purple-700', bg: 'bg-purple-100' },
   PICKED_UP: { label: 'Picked Up', color: 'text-violet-700', bg: 'bg-violet-100' },
   IN_DELIVERY: { label: 'On the Way', color: 'text-cyan-700', bg: 'bg-cyan-100' },
@@ -83,7 +84,7 @@ export default function BuyerOrdersPage() {
   const filteredOrders = orders.filter(order => {
     if (activeTab === "All") return true;
     if (activeTab === "Pending") return order.status === "PENDING";
-    if (activeTab === "Confirmed") return order.status === "CONFIRMED" || order.status === "READY_FOR_PICKUP" || order.status === "ASSIGNED" || order.status === "PICKED_UP";
+    if (activeTab === "Confirmed") return order.status === "CONFIRMED" || order.status === "READY_FOR_PICKUP" || order.status === "DELIVERY_SEARCHING" || order.status === "ASSIGNED" || order.status === "PICKED_UP";
     if (activeTab === "In Delivery") return order.status === "IN_DELIVERY";
     if (activeTab === "Delivered") return order.status === "DELIVERED";
     if (activeTab === "Completed") return order.status === "COMPLETED";

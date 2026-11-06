@@ -7,12 +7,13 @@ import api from "@/lib/axios";
 import { ArrowLeft, Package, Truck, CreditCard, Banknote, Star, ShieldCheck, MapPin, Phone, CheckCircle2, XCircle, AlertCircle, RefreshCw } from "lucide-react";
 import Image from "next/image";
 
-const STATUS_ORDER = ['PENDING', 'CONFIRMED', 'READY_FOR_PICKUP', 'ASSIGNED', 'PICKED_UP', 'IN_DELIVERY', 'DELIVERED', 'COMPLETED'];
+const STATUS_ORDER = ['PENDING', 'CONFIRMED', 'READY_FOR_PICKUP', 'DELIVERY_SEARCHING', 'ASSIGNED', 'PICKED_UP', 'IN_DELIVERY', 'DELIVERED', 'COMPLETED'];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   PENDING: { label: 'Pending', color: 'text-amber-700', bg: 'bg-amber-100' },
   CONFIRMED: { label: 'Confirmed', color: 'text-blue-700', bg: 'bg-blue-100' },
   READY_FOR_PICKUP: { label: 'Ready for Pickup', color: 'text-indigo-700', bg: 'bg-indigo-100' },
+  DELIVERY_SEARCHING: { label: 'Finding Partner', color: 'text-indigo-700', bg: 'bg-indigo-100' },
   ASSIGNED: { label: 'Delivery Assigned', color: 'text-purple-700', bg: 'bg-purple-100' },
   PICKED_UP: { label: 'Picked Up', color: 'text-violet-700', bg: 'bg-violet-100' },
   IN_DELIVERY: { label: 'On the Way', color: 'text-cyan-700', bg: 'bg-cyan-100' },

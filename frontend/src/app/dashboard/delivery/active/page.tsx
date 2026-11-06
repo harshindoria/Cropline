@@ -99,6 +99,20 @@ export default function ActiveDeliveries() {
     }
   };
 
+  const handleCancelJob = async (jobId: string) => {
+    if (!window.confirm('Cancel this job? It will be offered to another partner, and you cannot take it again.')) return;
+
+    setProcessingId(jobId);
+    try {
+      await api.patch(`/delivery/jobs/${jobId}/cancel`);
+      await fetchData();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to cancel the job');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -348,6 +362,16 @@ export default function ActiveDeliveries() {
                             className="w-full bg-[#1B5E20] hover:bg-[#144718] text-white py-2.5 rounded-xl font-bold text-sm transition-colors shadow-md flex items-center justify-center gap-2"
                           >
                             <Navigation size={16} /> Navigate
+                          </button>
+                        )}
+
+                        {job.status === 'ASSIGNED' && (
+                          <button
+                            onClick={() => handleCancelJob(job.jobId)}
+                            disabled={processingId !== null}
+                            className="w-full border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 py-2.5 rounded-xl font-bold text-sm transition-colors"
+                          >
+                            Cancel Job
                           </button>
                         )}
 

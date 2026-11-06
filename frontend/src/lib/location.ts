@@ -11,25 +11,50 @@ export interface GeocodeResult {
   formattedAddress?: string;
 }
 
-export const getCurrentLocation = async (
-  fallbackLat: number = 26.9124, 
-  fallbackLng: number = 75.7873
-): Promise<Coordinates> => {
-  return new Promise<Coordinates>((resolve) => {
+export interface GpsPosition extends Coordinates {
+  accuracyMeters: number;
+}
+
+// This never falls back to a default place: anything that depends on the answer, like a
+// delivery, has to know when the real location is unknown.
+export const getGpsPosition = (): Promise<GpsPosition> =>
+  new Promise((resolve, reject) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      resolve({ lat: fallbackLat, lng: fallbackLng });
+      reject(new Error("This browser does not support location."));
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (pos) =>
+        resolve({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracyMeters: pos.coords.accuracy,
+        }),
       (err) => {
-        console.warn("Geolocation failed:", err);
-        resolve({ lat: fallbackLat, lng: fallbackLng });
+        const messages: Record<number, string> = {
+          [err.PERMISSION_DENIED]: "Location access is blocked. Allow it in your browser settings.",
+          [err.POSITION_UNAVAILABLE]: "Your location is not available right now.",
+          [err.TIMEOUT]: "Finding your location took too long.",
+        };
+        reject(new Error(messages[err.code] ?? "Could not get your location."));
       },
-      { timeout: 10000, enableHighAccuracy: true }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
     );
   });
+
+// The device's location, or the one saved on the user's profile if GPS is not available.
+export const getGpsOrSavedLocation = async (
+  saved?: { latitude?: unknown; longitude?: unknown } | null
+): Promise<Coordinates> => {
+  try {
+    return await getGpsPosition();
+  } catch (error) {
+    if (saved?.latitude && saved?.longitude) {
+      return { lat: Number(saved.latitude), lng: Number(saved.longitude) };
+    }
+    throw error;
+  }
 };
 
 import api from '@/lib/axios';

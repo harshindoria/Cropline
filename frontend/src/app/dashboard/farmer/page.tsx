@@ -4,7 +4,7 @@ import WithdrawFunds from "@/components/WithdrawFunds";
 import ApplicationModal from "@/components/ApplicationModal";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import NotificationDropdown from "@/components/NotificationDropdown";
-import { getCurrentLocation, reverseGeocode } from "@/lib/location";
+import { getGpsOrSavedLocation, reverseGeocode } from "@/lib/location";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef, Suspense } from "react";
@@ -188,10 +188,7 @@ function FarmerDashboardContent() {
     if (!selectedCatalog) return;
     setSubmitting(true);
     try {
-      const coords = await getCurrentLocation(
-        user.latitude ? Number(user.latitude) : 26.9124,
-        user.longitude ? Number(user.longitude) : 75.7873
-      );
+      const coords = await getGpsOrSavedLocation(user);
       
       const geoData = await reverseGeocode(coords.lat, coords.lng);
 
@@ -225,7 +222,7 @@ function FarmerDashboardContent() {
         setPhotoPreviews([]); setOfferForm({ offerMinQuantityKg: "", offerDiscountPercentage: "" }); 
         router.push("/dashboard/farmer?tab=mycrops");
       }, 2000);
-    } catch (e: any) { alert(e.response?.data?.message || "Failed to add crop"); }
+    } catch (e: any) { alert(e.response?.data?.message || e.message || "Failed to add crop"); }
     finally { setSubmitting(false); }
   };
 

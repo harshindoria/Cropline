@@ -9,7 +9,7 @@ import { Role } from '@prisma/client';
 import { 
   getNearbyJobs,
   getActiveJobs, 
-  acceptJob, 
+  acceptJob, cancelJob, 
   updateLocation, 
   markPickedUp, 
   markDelivered 
@@ -31,6 +31,7 @@ router.patch('/stats/goal', restrictTo(Role.DELIVERY), updateDailyGoal);
 router.get('/nearby', restrictTo(Role.DELIVERY), requireRoleOperational(Role.DELIVERY),checkDeliveryLiabilityLimit, getNearbyJobs);
 router.get('/jobs/active', restrictTo(Role.DELIVERY), requireRoleOperational(Role.DELIVERY), getActiveJobs);
 router.post('/jobs/:orderId/accept', restrictTo(Role.DELIVERY), requireRoleOperational(Role.DELIVERY),checkDeliveryLiabilityLimit, acceptJob);
+router.patch('/jobs/:jobId/cancel', restrictTo(Role.DELIVERY), cancelJob);
 router.patch('/location', restrictTo(Role.DELIVERY), updateLocation);
 
 // (Aapka naya QR wala pickup logic)

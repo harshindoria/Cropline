@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import { uploadToCloudinary } from '../utils/cloudinaryUpload';
 import { recordDeliveredOrder } from '../services/ledger.service';
 import { ACTIVE_JOB } from '../utils/deliveryJob';
+import { releaseDeliveryJob, VEHICLE_CAPACITY } from '../services/deliveryAssignment.service';
 import { checkOrderOtp, otpErrorMessage } from '../services/orderOtp.service';
 import { OtpKind } from '@prisma/client';
 
@@ -52,9 +53,11 @@ export const getNearbyJobs = async (req: Request, res: Response): Promise<void> 
     // 1. Prisma Query with Bounding Box optimization
     const availableOrders = await prisma.order.findMany({
       where: {
-        status: OrderStatus.READY_FOR_PICKUP,
+        status: OrderStatus.DELIVERY_SEARCHING,
         deliveryType: DeliveryType.DELIVERY,
         deliveryJobs: { none: ACTIVE_JOB }, // Ensure job is not already accepted
+        // Only jobs this partner was offered, because those are the only ones they can accept.
+        deliveryOffers: { some: { partnerId: req.user!.id, status: 'OFFERED', expiresAt: { gte: new Date() } } },
         crop: {
           farmLatitude: { gte: minLat, lte: maxLat },
           farmLongitude: { gte: minLng, lte: maxLng },
@@ -146,6 +149,27 @@ export const getNearbyJobs = async (req: Request, res: Response): Promise<void> 
   }
 };
 
+export const cancelJob = async (req: Request<{ jobId: string }>, res: Response): Promise<void> => {
+  try {
+    const job = await prisma.deliveryJob.findUnique({ where: { id: req.params.jobId } });
+
+    if (!job || job.deliveryPartnerId !== req.user!.id) {
+      res.status(404).json({ success: false, message: 'Job not found' });
+      return;
+    }
+
+    if (!(await releaseDeliveryJob(job.id, 'Cancelled by delivery partner'))) {
+      res.status(409).json({ success: false, message: 'A job can only be cancelled before pickup.' });
+      return;
+    }
+
+    res.status(200).json({ success: true, message: 'Job cancelled. We will find another partner.' });
+  } catch (error) {
+    console.error('[Delivery] Cancel Job Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to cancel job' });
+  }
+};
+
 export const acceptJob = async (req: Request<{orderId : string}>, res: Response): Promise<void> => {
   try {
     const { orderId } = req.params;
@@ -180,7 +204,7 @@ export const acceptJob = async (req: Request<{orderId : string}>, res: Response)
     }
 
     // 2. The Gatekeeper: State Locks
-    if (order.status !== OrderStatus.READY_FOR_PICKUP) {
+    if (order.status !== OrderStatus.DELIVERY_SEARCHING) {
       res.status(400).json({ success: false, message: 'This job is no longer available for pickup' });
       return;
     }
@@ -209,8 +233,7 @@ export const acceptJob = async (req: Request<{orderId : string}>, res: Response)
       res.status(403).json({ success: false, code: 'SELF_DEALING', message: 'You cannot deliver your own purchase or sale.' }); return;
     }
 
-    const vehicleLimits: Record<string, number> = { BIKE: 20, AUTO: 100, TEMPO: 500, MINI_TRUCK: 2000 };
-    const capacity = req.user!.vehicleType ? vehicleLimits[req.user!.vehicleType] : 0;
+    const capacity = req.user!.vehicleType ? VEHICLE_CAPACITY[req.user!.vehicleType] : 0;
     if (Number(order.quantityKg) > capacity) {
       res.status(403).json({ success: false, code: 'VEHICLE_CAPACITY_EXCEEDED', message: `Your vehicle supports up to ${capacity} kg.` }); return;
     }
