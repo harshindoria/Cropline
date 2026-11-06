@@ -18,7 +18,11 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     globalSetup: 'tests/globalSetup.ts',
-    env: { DATABASE_URL: testDatabaseUrl, NODE_ENV: 'test' },
+    env: {
+      DATABASE_URL: testDatabaseUrl,
+      NODE_ENV: 'test',
+      FIELD_ENCRYPTION_KEY: Buffer.alloc(32, 'test').toString('base64'),
+    },
     fileParallelism: false,
     testTimeout: 20000,
     hookTimeout: 60000,

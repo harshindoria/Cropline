@@ -130,6 +130,11 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum OtpKind {
+  PICKUP
+  DELIVERY
+}
+
 enum DeliveryJobStatus {
   ASSIGNED
   PICKED_UP
@@ -161,48 +166,21 @@ model User {
   activeRole  Role    @default(BUYER) // A database trigger keeps this to a role the user holds in UserRoleAccess.
 
   // Identity
-  aboutMe         String?
-  aadhaarLast4    String?
-  dob             DateTime?
-  gender          String?
-  languagePref    String?
-  aadhaarVerified Boolean   @default(false)
-  aadhaarUrl      String?
-  dlVerified      Boolean   @default(false)
-  dlUrl           String?
-  rcVerified      Boolean   @default(false)
-  rcUrl           String?
+  aboutMe      String?
+  dob          DateTime?
+  gender       String?
+  languagePref String?
 
   // Location
-  latitude     Float?
-  longitude    Float?
-  village      String?
-  district     String?
-  state        String?
-  pincode      String?
-  farmArea     Float?
-  primaryCrops String?
-  farmingType  String?
-  soilType     String?
-  waterSource  String?
-
-  // Delivery partner specific
-  vehicleType        VehicleType?
-  vehicleNumber      String?
-  vehicleColor       String?
-  coverageRadiusKm   Int?
-  isOnline           Boolean      @default(false)
-  onlineStartedAt    DateTime?
-  todayOnlineMinutes Int          @default(0)
-  lastOnlineResetAt  DateTime?
+  latitude  Float?
+  longitude Float?
+  village   String?
+  district  String?
+  state     String?
+  pincode   String?
 
   // Financial
-  bankAccount       String?
-  bankIfsc          String?
-  bankName          String?
-  accountHolderName String?
-  walletBalance     Decimal @default(0) @db.Decimal(10, 2)
-  dailyEarningsGoal Decimal @default(2000) @db.Decimal(10, 2)
+  walletBalance Decimal @default(0) @db.Decimal(10, 2)
 
   // Trust & Penalties
   rating      Float   @default(0)
@@ -211,14 +189,15 @@ model User {
   isActive    Boolean @default(true)
   strikeCount Int     @default(0) // Yeh complaints track karega (5, 7, 10 rules ke liye)
 
-  // Push notifications
-  fcmToken String?
-
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
+  farmerProfile      FarmerProfile?
+  deliveryProfile    DeliveryProfile?
+  bankDetails        BankDetails?
+  kycDocuments       KycDocuments?
   crops              Crop[]
   ordersAsBuyer      Order[]           @relation("BuyerOrders")
   ordersAsFarmer     Order[]           @relation("FarmerOrders")
@@ -239,7 +218,58 @@ model User {
   complaintsReceived Complaint[]       @relation("ComplaintsReceived")
 
   @@index([latitude, longitude])
-  @@index([activeRole, isOnline])
+}
+
+model FarmerProfile {
+  userId       String   @id
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  farmArea     Float?
+  primaryCrops String?
+  farmingType  String?
+  soilType     String?
+  waterSource  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model DeliveryProfile {
+  userId            String       @id
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicleType       VehicleType?
+  vehicleNumber     String?
+  vehicleColor      String?
+  coverageRadiusKm  Int?
+  isOnline          Boolean      @default(false)
+  dailyEarningsGoal Decimal      @default(2000) @db.Decimal(10, 2)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([isOnline])
+}
+
+model BankDetails {
+  userId            String   @id
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankAccount       String? // Encrypted by the application.
+  bankIfsc          String?
+  bankName          String?
+  accountHolderName String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model KycDocuments {
+  userId          String   @id
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aadhaarLast4    String?
+  aadhaarUrl      String? // The three document fields are encrypted by the application.
+  aadhaarVerified Boolean  @default(false)
+  dlUrl           String?
+  dlVerified      Boolean  @default(false)
+  rcUrl           String?
+  rcVerified      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model UserRoleAccess {
@@ -397,9 +427,7 @@ model Order {
   deliveryAddress   String?
   deliveryDate      DateTime?
 
-  status      OrderStatus @default(PENDING)
-  pickupOtp   String?
-  deliveryOtp String?
+  status OrderStatus @default(PENDING)
 
   cancellationReason     String?
   farmerResponseDeadline DateTime?
@@ -418,12 +446,28 @@ model Order {
   cashLiability  CashLiability?
   complaints     Complaint[]
   statusHistory  OrderStatusHistory[]
+  otps           OrderOtp[]
 
   @@index([buyerId, status])
   @@index([farmerId, status])
   @@index([createdAt])
   @@index([cropId])
   @@index([status, createdAt])
+}
+
+// Kept apart from Order so that loading an order can never expose these codes by accident.
+model OrderOtp {
+  id            String    @id @default(cuid())
+  order         Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderId       String
+  kind          OtpKind
+  code          String
+  wrongAttempts Int       @default(0)
+  lockedUntil   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([orderId, kind])
 }
 
 // One row for every status an order has been in, written by a trigger in the migrations. Permanent.

@@ -77,7 +77,7 @@ const setUp = async (paymentType: PaymentType, paymentStatus: 'PENDING' | 'SUCCE
       deliveryType: DeliveryType.DELIVERY,
       paymentType,
       status: 'IN_DELIVERY',
-      deliveryOtp: '1234',
+      otps: { create: { kind: 'DELIVERY', code: '1234' } },
       paymentRecord: { create: { provider: 'RAZORPAY', amount: 1010, status: paymentStatus } },
     },
   });

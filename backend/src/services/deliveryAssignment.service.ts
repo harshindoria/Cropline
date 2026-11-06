@@ -30,9 +30,10 @@ export const assignDeliveryJob = async (orderId: string) => {
     where: {
       ...hasRole(Role.DELIVERY),
       isActive: true,
-      isOnline: true,
+      deliveryProfile: { isOnline: true },
     },
     include: {
+      deliveryProfile: true,
       deliveryJobs: {
         where: {
           status: { in: [DeliveryJobStatus.ASSIGNED, DeliveryJobStatus.PICKED_UP, DeliveryJobStatus.IN_DELIVERY] }
@@ -43,8 +44,9 @@ export const assignDeliveryJob = async (orderId: string) => {
 
   // 1. Strict Capacity Filter: Eliminate vehicles that cannot carry the crop
   let capableCandidates = candidates.filter(c => {
-    if (!c.vehicleType) return false;
-    return VEHICLE_CAPACITY[c.vehicleType] >= qty;
+    const vehicleType = c.deliveryProfile?.vehicleType;
+    if (!vehicleType) return false;
+    return VEHICLE_CAPACITY[vehicleType] >= qty;
   });
 
   // 2. Distance Filter: Delivery guy must be within their coverage radius (default 20km)
@@ -57,7 +59,7 @@ export const assignDeliveryJob = async (orderId: string) => {
   });
 
   const validDistanceCandidates = candidatesWithDistance.filter(c => {
-    const maxRadius = c.coverageRadiusKm || 20;
+    const maxRadius = c.deliveryProfile?.coverageRadiusKm || 20;
     return c.distanceToPickup <= maxRadius;
   });
 
@@ -75,8 +77,8 @@ export const assignDeliveryJob = async (orderId: string) => {
   // 2. Distance (Closest > Furthest)
   // 3. Rating (Highest > Lowest)
   availableCandidates.sort((a, b) => {
-    const aIsPreferred = a.vehicleType === preferredVehicle ? 1 : 0;
-    const bIsPreferred = b.vehicleType === preferredVehicle ? 1 : 0;
+    const aIsPreferred = a.deliveryProfile?.vehicleType === preferredVehicle ? 1 : 0;
+    const bIsPreferred = b.deliveryProfile?.vehicleType === preferredVehicle ? 1 : 0;
     
     if (aIsPreferred !== bIsPreferred) return bIsPreferred - aIsPreferred; // Preferred first
     if (a.distanceToPickup !== b.distanceToPickup) return a.distanceToPickup - b.distanceToPickup; // Closest first
@@ -164,9 +166,10 @@ export const broadcastDeliveryOffer = async (
     where: {
       ...hasRole(Role.DELIVERY),
       isActive: true,
-      isOnline: true,
+      deliveryProfile: { isOnline: true },
     },
     include: {
+      deliveryProfile: true,
       deliveryJobs: {
         where: {
           status: {
@@ -180,8 +183,9 @@ export const broadcastDeliveryOffer = async (
   // Filter by: free (no active job) + vehicle capacity + within radius
   const eligibleDrivers = allDrivers.filter(driver => {
     if (driver.deliveryJobs.length > 0) return false;
-    if (!driver.vehicleType) return false;
-    if (VEHICLE_CAPACITY[driver.vehicleType] < qty) return false;
+    const vehicleType = driver.deliveryProfile?.vehicleType;
+    if (!vehicleType) return false;
+    if (VEHICLE_CAPACITY[vehicleType] < qty) return false;
 
     const distance = haversineDistance(
       order.farmer.latitude || 0, order.farmer.longitude || 0,

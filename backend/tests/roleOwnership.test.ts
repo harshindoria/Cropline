@@ -3,7 +3,7 @@ import { CropCategory, DeliveryType, PaymentType, Role, RoleAccessStatus } from 
 import prisma from '../src/config/db';
 import { processRoleApplication } from '../src/controller/admin.controller';
 import { onboardRole, setRoleBlock, switchRole } from '../src/controller/user.controller';
-import { attachRoles } from '../src/utils/roles';
+import { loadAccount } from '../src/utils/roles';
 import { makeUser, resetDatabase } from './helpers';
 
 vi.mock('../src/sockets/socket.handler', () => ({ disconnectUser: vi.fn(), getIO: vi.fn() }));
@@ -29,7 +29,7 @@ const call = async (handler: (req: any, res: any) => Promise<void>, req: Record<
 
 const makeAdmin = () => makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN });
 
-const rolesOf = async (id: string) => (await attachRoles(await prisma.user.findUniqueOrThrow({ where: { id } }))).roles;
+const rolesOf = async (id: string) => (await loadAccount(await prisma.user.findUniqueOrThrow({ where: { id } }))).roles;
 
 const apply = async (userId: string, role: Role, status: RoleAccessStatus = RoleAccessStatus.PENDING_APPROVAL) =>
   prisma.userRoleAccess.create({ data: { userId, role, status } });

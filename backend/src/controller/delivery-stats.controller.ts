@@ -102,9 +102,10 @@ export const updateDailyGoal = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    await prisma.user.update({
-      where: { id: req.user!.id },
-      data: { dailyEarningsGoal: Number(goal) }
+    await prisma.deliveryProfile.upsert({
+      where: { userId: req.user!.id },
+      create: { userId: req.user!.id, dailyEarningsGoal: Number(goal) },
+      update: { dailyEarningsGoal: Number(goal) }
     });
 
     res.status(200).json({ success: true, message: 'Goal updated successfully', data: { goal: Number(goal) } });

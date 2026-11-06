@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { Role, RoleAccessStatus, NotificationType, NotificationAlertLevel, ComplaintStatus, OrderStatus, Prisma } from '@prisma/client';
 import { ACTIVE_JOB, withOrderCurrentJob } from '../utils/deliveryJob';
 import { hasRole, HELD_ROLES, withRoles } from '../utils/roles';
+import { decryptField } from '../utils/fieldEncryption';
 
 export const getRoleApplications = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -143,7 +144,8 @@ export const getFarmers = async (req: Request, res: Response): Promise<void> => 
       where: hasRole('FARMER'),
       include: {
         ordersAsFarmer: { where: { status: { in: FULFILLED_ORDER_STATUSES } } },
-        crops: true
+        crops: true,
+        farmerProfile: { select: { primaryCrops: true } }
       }
     });
 
@@ -166,7 +168,7 @@ export const getFarmers = async (req: Request, res: Response): Promise<void> => 
         location: city && state ? `${city}, ${state}` : city || state || "Unknown",
         city,
         state,
-        primaryCrops: farmer.primaryCrops || "",
+        primaryCrops: farmer.farmerProfile?.primaryCrops || "",
         listings: farmer.crops.length,
         totalOrders,
         earnings,
@@ -194,7 +196,8 @@ export const getDeliveryPartners = async (req: Request, res: Response): Promise<
     const partners = await prisma.user.findMany({
       where: hasRole('DELIVERY'),
       include: {
-        deliveryJobs: { where: { status: 'DELIVERED' } }
+        deliveryJobs: { where: { status: 'DELIVERED' } },
+        deliveryProfile: { select: { vehicleType: true, vehicleNumber: true } }
       }
     });
 
@@ -219,8 +222,8 @@ export const getDeliveryPartners = async (req: Request, res: Response): Promise<
         location: city && state ? `${city}, ${state}` : city || state || "Unknown",
         city,
         state,
-        vehicleType: partner.vehicleType || "UNKNOWN",
-        vehicleNumber: partner.vehicleNumber || "N/A",
+        vehicleType: partner.deliveryProfile?.vehicleType || "UNKNOWN",
+        vehicleNumber: partner.deliveryProfile?.vehicleNumber || "N/A",
         totalOrders,
         earnings,
         status,
@@ -280,13 +283,15 @@ export const deleteComplaint = async (req: Request<{id : string}>, res: Response
 
 export const getVerificationDocuments = async (req: Request, res: Response): Promise<void> => {
   try {
-    const users = await prisma.user.findMany({
+    const applicants = await prisma.user.findMany({
       where: {
-        OR: [
-          { aadhaarUrl: { not: null } },
-          { dlUrl: { not: null } },
-          { rcUrl: { not: null } }
-        ]
+        kycDocuments: {
+          OR: [
+            { aadhaarUrl: { not: null } },
+            { dlUrl: { not: null } },
+            { rcUrl: { not: null } }
+          ]
+        }
       },
       select: {
         id: true,
@@ -294,15 +299,22 @@ export const getVerificationDocuments = async (req: Request, res: Response): Pro
         phone: true,
         email: true,
         activeRole: true,
-        aadhaarUrl: true,
-        aadhaarVerified: true,
-        dlUrl: true,
-        dlVerified: true,
-        rcUrl: true,
-        rcVerified: true,
-        updatedAt: true
+        updatedAt: true,
+        kycDocuments: {
+          select: { aadhaarUrl: true, aadhaarVerified: true, dlUrl: true, dlVerified: true, rcUrl: true, rcVerified: true }
+        }
       }
     });
+
+    const users = applicants.map(({ kycDocuments, ...user }) => ({
+      ...user,
+      aadhaarVerified: kycDocuments?.aadhaarVerified ?? false,
+      dlVerified: kycDocuments?.dlVerified ?? false,
+      rcVerified: kycDocuments?.rcVerified ?? false,
+      aadhaarUrl: kycDocuments?.aadhaarUrl ? decryptField(kycDocuments.aadhaarUrl) : null,
+      dlUrl: kycDocuments?.dlUrl ? decryptField(kycDocuments.dlUrl) : null,
+      rcUrl: kycDocuments?.rcUrl ? decryptField(kycDocuments.rcUrl) : null,
+    }));
 
     const documents: any[] = [];
     let pendingAadhaar = 0;
@@ -398,21 +410,21 @@ export const verifyDocument = async (req: Request, res: Response): Promise<void>
     const { userId, docType, status } = parsed.data;
     
     // Also update global isVerified if aadhaar is verified (or based on business logic)
-    const updateData: any = { [`${docType}Verified`]: status };
-    if (docType === 'aadhaar' && status === true) {
-      updateData.isVerified = true;
-    }
+    const verification = { [`${docType}Verified`]: status };
 
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: updateData
+    const updatedKyc = await prisma.kycDocuments.update({
+      where: { userId },
+      data: verification
     });
+    if (docType === 'aadhaar' && status === true) {
+      await prisma.user.update({ where: { id: userId }, data: { isVerified: true } });
+    }
 
     // Auto-Approve Roles if requirements are met
     const rolesToAdd: import("@prisma/client").Role[] = [];
 
     // Farmer requires Aadhaar
-    if (updatedUser.aadhaarVerified) {
+    if (updatedKyc.aadhaarVerified) {
       const farmerAccess = await prisma.userRoleAccess.findUnique({ where: { userId_role: { userId, role: 'FARMER' } } });
       if (farmerAccess && farmerAccess.status === 'PENDING_APPROVAL') {
         rolesToAdd.push("FARMER" as import("@prisma/client").Role);
@@ -421,7 +433,7 @@ export const verifyDocument = async (req: Request, res: Response): Promise<void>
     }
 
     // Delivery requires DL and RC
-    if (updatedUser.dlVerified && updatedUser.rcVerified) {
+    if (updatedKyc.dlVerified && updatedKyc.rcVerified) {
       const deliveryAccess = await prisma.userRoleAccess.findUnique({ where: { userId_role: { userId, role: 'DELIVERY' } } });
       if (deliveryAccess && deliveryAccess.status === 'PENDING_APPROVAL') {
         rolesToAdd.push("DELIVERY" as import("@prisma/client").Role);

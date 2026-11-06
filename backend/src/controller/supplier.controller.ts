@@ -69,7 +69,7 @@ export const getSuppliers = async (req: Request, res: Response): Promise<void> =
         ratingCount: true,
         isVerified: true,
         createdAt: true,
-        farmArea: true,
+        farmerProfile: { select: { farmArea: true } },
         _count: {
           select: {
             crops: {
@@ -121,6 +121,7 @@ export const getSuppliers = async (req: Request, res: Response): Promise<void> =
 
       return {
         ...farmer,
+        farmArea: farmer.farmerProfile?.farmArea ?? null,
         distanceKm,
         categories: Array.from(categories)
       };

@@ -7,6 +7,7 @@ import { haversineDistance } from '../utils/geoUtils';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
 import { broadcastDeliveryOffer } from '../services/deliveryAssignment.service';
+import { newOrderOtps, withVisibleOtp } from '../services/orderOtp.service';
 import { refundFullPayment } from '../services/paymentRecord.service';
 import { ACTIVE_JOB, withCurrentJob } from '../utils/deliveryJob';
 
@@ -157,9 +158,6 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
       if (reserved.count !== 1) throw new Error('INSUFFICIENT_STOCK');
 
-      const pickupOtp = Math.floor(1000 + Math.random() * 9000).toString();
-      const deliveryOtp = Math.floor(1000 + Math.random() * 9000).toString();
-
       return tx.order.create({
         data: {
           cropId,
@@ -175,8 +173,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
           deliveryAddress,
           status: OrderStatus.PENDING,
           farmerResponseDeadline,
-          pickupOtp,
-          deliveryOtp,
+          otps: { create: newOrderOtps() },
 
           // 💡 FIX 2: Provider will be 'RAZORPAY' or 'CASH_COD'. Status defaults to PENDING.
           paymentRecord: {
@@ -504,11 +501,12 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
         farmer: { select: { id: true, name: true, village: true, district: true, rating: true, ratingCount: true, isVerified: true } },
         buyer: { select: { id: true, name: true, village: true, district: true } },
         paymentRecord: true,
+        otps: true,
         deliveryJobs: { where: ACTIVE_JOB, take: 1, include: { deliveryPartner: { select: { id: true, name: true, phone: true } } } }
       },
       orderBy: { createdAt: 'desc' }
     });
-    res.json({ success: true, orders: orders.map(withCurrentJob) });
+    res.json({ success: true, orders: orders.map((order) => withVisibleOtp(withCurrentJob(order), req.user!.id)) });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch orders' });
   }
@@ -524,7 +522,8 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
         buyer: { select: { id: true, name: true, email: true, phone: true, village: true, district: true, state: true, pincode: true } },
         farmer: { select: { id: true, name: true, email: true, phone: true, village: true, district: true, state: true, rating: true, ratingCount: true, isVerified: true } },
         paymentRecord: true,
-        deliveryJobs: { where: ACTIVE_JOB, take: 1, include: { deliveryPartner: { select: { id: true, name: true, phone: true, vehicleType: true } } } }
+        otps: true,
+        deliveryJobs: { where: ACTIVE_JOB, take: 1, include: { deliveryPartner: { select: { id: true, name: true, phone: true, deliveryProfile: { select: { vehicleType: true } } } } } }
       }
     });
     if (!order) {
@@ -536,7 +535,18 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
       res.status(403).json({ success: false, message: 'Unauthorized' });
       return;
     }
-    res.json({ success: true, order: withCurrentJob(order) });
+    const { deliveryJob, ...details } = withVisibleOtp(withCurrentJob(order), req.user!.id);
+    const partner = deliveryJob?.deliveryPartner;
+    res.json({
+      success: true,
+      order: {
+        ...details,
+        deliveryJob: deliveryJob && {
+          ...deliveryJob,
+          deliveryPartner: partner && { ...partner, vehicleType: partner.deliveryProfile?.vehicleType ?? null },
+        },
+      },
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch order' });
   }

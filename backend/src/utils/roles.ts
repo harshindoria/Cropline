@@ -20,9 +20,43 @@ export const withRoles = <T extends { roleAccess: { role: Role }[] }>(user: T) =
   return { ...rest, roles: roleAccess.map((access) => access.role) };
 };
 
-export const attachRoles = async <T extends User>(user: T) => {
-  const roleAccess = await prisma.userRoleAccess.findMany({ ...HELD_ROLES, where: { ...HELD_ROLES.where, userId: user.id } });
-  return withRoles({ ...user, roleAccess });
+// The API and the screens see one flat user, wherever each field is stored. Encrypted fields stay out.
+export const loadAccount = async <T extends User>(user: T) => {
+  const { roleAccess, farmerProfile, deliveryProfile, bankDetails, kycDocuments } = await prisma.user.findUniqueOrThrow({
+    where: { id: user.id },
+    select: {
+      roleAccess: HELD_ROLES,
+      farmerProfile: true,
+      deliveryProfile: true,
+      bankDetails: { select: { bankIfsc: true, bankName: true, accountHolderName: true } },
+      kycDocuments: {
+        select: { aadhaarLast4: true, aadhaarVerified: true, dlVerified: true, rcVerified: true },
+      },
+    },
+  });
+
+  return {
+    ...user,
+    roles: roleAccess.map((access) => access.role),
+    farmArea: farmerProfile?.farmArea ?? null,
+    primaryCrops: farmerProfile?.primaryCrops ?? null,
+    farmingType: farmerProfile?.farmingType ?? null,
+    soilType: farmerProfile?.soilType ?? null,
+    waterSource: farmerProfile?.waterSource ?? null,
+    vehicleType: deliveryProfile?.vehicleType ?? null,
+    vehicleNumber: deliveryProfile?.vehicleNumber ?? null,
+    vehicleColor: deliveryProfile?.vehicleColor ?? null,
+    coverageRadiusKm: deliveryProfile?.coverageRadiusKm ?? null,
+    isOnline: deliveryProfile?.isOnline ?? false,
+    dailyEarningsGoal: deliveryProfile?.dailyEarningsGoal ?? new Prisma.Decimal(2000),
+    bankIfsc: bankDetails?.bankIfsc ?? null,
+    bankName: bankDetails?.bankName ?? null,
+    accountHolderName: bankDetails?.accountHolderName ?? null,
+    aadhaarLast4: kycDocuments?.aadhaarLast4 ?? null,
+    aadhaarVerified: kycDocuments?.aadhaarVerified ?? false,
+    dlVerified: kycDocuments?.dlVerified ?? false,
+    rcVerified: kycDocuments?.rcVerified ?? false,
+  };
 };
 
-export type UserWithRoles = User & { roles: Role[] };
+export type AccountUser = Awaited<ReturnType<typeof loadAccount<User>>>;

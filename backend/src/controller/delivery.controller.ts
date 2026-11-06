@@ -10,6 +10,8 @@ import { randomUUID } from 'crypto';
 import { uploadToCloudinary } from '../utils/cloudinaryUpload';
 import { recordDeliveredOrder } from '../services/ledger.service';
 import { ACTIVE_JOB } from '../utils/deliveryJob';
+import { checkOrderOtp, otpErrorMessage } from '../services/orderOtp.service';
+import { OtpKind } from '@prisma/client';
 
 // ── GET NEARBY JOBS (The Radar) ─────────────────────────────────────────────
 export const getNearbyJobs = async (req: Request, res: Response): Promise<void> => {
@@ -356,8 +358,9 @@ export const markPickedUp = async (req: Request, res: Response): Promise<void> =
       res.status(400).json({ success: false, message: `Package already processed. Status: ${job.status}` });
       return;
     }
-    if (job.order.pickupOtp !== token) {
-      res.status(400).json({ success: false, message: 'Invalid pickup OTP.' });
+    const pickupCheck = await checkOrderOtp(job.orderId, OtpKind.PICKUP, token);
+    if (pickupCheck !== 'OK') {
+      res.status(pickupCheck === 'LOCKED' ? 429 : 400).json({ success: false, message: otpErrorMessage(pickupCheck, 'pickup') });
       return;
     }
 
@@ -569,8 +572,9 @@ export const markDelivered = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    if (job.order.deliveryOtp !== token) {
-      res.status(400).json({ success: false, message: 'Invalid delivery OTP.' });
+    const deliveryCheck = await checkOrderOtp(job.orderId, OtpKind.DELIVERY, token);
+    if (deliveryCheck !== 'OK') {
+      res.status(deliveryCheck === 'LOCKED' ? 429 : 400).json({ success: false, message: otpErrorMessage(deliveryCheck, 'delivery') });
       return;
     }
 

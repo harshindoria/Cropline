@@ -3,6 +3,7 @@ import { LedgerEntryStatus, LedgerEntryType, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import prisma from '../config/db';
 import { processWithdrawal, requestWithdrawal, WalletError } from '../services/ledger.service';
+import { decryptField } from '../utils/fieldEncryption';
 
 const withdrawalSchema = z.object({
   amount: z
@@ -72,7 +73,7 @@ export const getPendingWithdrawals = async (req: Request, res: Response): Promis
     // Admin must pay the account saved with the request, even if the profile has changed since.
     const data = withdrawals.map(({ user, payoutDetail, ...withdrawal }) => ({
       ...withdrawal,
-      user: user && { ...user, ...payoutDetail },
+      user: user && { ...user, ...payoutDetail, bankAccount: payoutDetail && decryptField(payoutDetail.bankAccount) },
     }));
     res.status(200).json({ success: true, data });
   } catch (error) {

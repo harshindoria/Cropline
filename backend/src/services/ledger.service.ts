@@ -121,20 +121,14 @@ export const settleCashLiability = async (tx: Tx, liabilityId: string, adminId?:
   return true;
 };
 
-type WithdrawingUser = {
-  id: string;
-  bankAccount: string | null;
-  bankIfsc: string | null;
-  bankName: string | null;
-  accountHolderName: string | null;
-};
-
 /**
  * Takes the money out of the wallet straight away and creates a PENDING payout for admin to pay.
  * The wallet update locks the user's row, so simultaneous requests are handled one at a time.
  */
-export const requestWithdrawal = async (user: WithdrawingUser, amount: Prisma.Decimal) => {
-  const { bankAccount, bankIfsc, bankName, accountHolderName } = user;
+export const requestWithdrawal = async (user: { id: string }, amount: Prisma.Decimal) => {
+  const bank = await prisma.bankDetails.findUnique({ where: { userId: user.id } });
+  const bankAccount = bank?.bankAccount; // Stays encrypted: it is only copied here, never read.
+  const bankIfsc = bank?.bankIfsc;
   if (!bankAccount || !bankIfsc) {
     throw new WalletError(400, 'BANK_DETAILS_REQUIRED', 'Please add your bank account and IFSC in your profile first.');
   }
@@ -167,7 +161,7 @@ export const requestWithdrawal = async (user: WithdrawingUser, amount: Prisma.De
         status: LedgerEntryStatus.PENDING,
         amount,
         idempotencyKey: `payout:${randomUUID()}`,
-        payoutDetail: { create: { bankAccount, bankIfsc, bankName, accountHolderName } },
+        payoutDetail: { create: { bankAccount, bankIfsc, bankName: bank?.bankName, accountHolderName: bank?.accountHolderName } },
       },
     });
   });

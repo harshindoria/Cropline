@@ -4,7 +4,8 @@ import { sanitizeUser } from '../utils/helper';
 import { z } from 'zod';
 import { Role, RoleAccessStatus } from '@prisma/client';
 import { signToken } from '../utils/jwtUtils';
-import { attachRoles, HELD_ROLE_STATUSES, hasRole } from '../utils/roles';
+import { HELD_ROLE_STATUSES, hasRole, loadAccount } from '../utils/roles';
+import { encryptField } from '../utils/fieldEncryption';
 
 // 💡 Zod Schema (Updated to include bank and aadhaar)
 const updateProfileSchema = z.object({
@@ -45,7 +46,7 @@ const updateProfileSchema = z.object({
 
 const getCurrentUser = async (userId: string) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  return user && attachRoles(user);
+  return user && loadAccount(user);
 };
 
 export const buyerProfile = async (req: Request, res: Response): Promise<void> => {
@@ -171,6 +172,19 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
+const pick = <K extends string>(data: Record<string, unknown>, keys: readonly K[]) =>
+  Object.fromEntries(keys.filter((key) => data[key] !== undefined).map((key) => [key, data[key]])) as Partial<Record<K, any>>;
+
+const FARMER_FIELDS = ['farmArea', 'primaryCrops', 'farmingType', 'soilType', 'waterSource'] as const;
+const DELIVERY_FIELDS = ['vehicleType', 'vehicleNumber', 'vehicleColor', 'coverageRadiusKm'] as const;
+const BANK_FIELDS = ['bankIfsc', 'bankName', 'accountHolderName'] as const;
+const KYC_FIELDS = ['aadhaarLast4'] as const;
+const KYC_DOCUMENTS = ['aadhaarUrl', 'dlUrl', 'rcUrl'] as const;
+const ACCOUNT_FIELDS: readonly string[] = [...FARMER_FIELDS, ...DELIVERY_FIELDS, ...BANK_FIELDS, ...KYC_FIELDS, ...KYC_DOCUMENTS, 'bankAccount'];
+
+// An empty value means the user removed the document.
+const encryptedOrNull = (value: string) => (value ? encryptField(value) : null);
+
 // 2. Apna Profile Update karne ka function
 export const updateProfile = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -197,16 +211,42 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
     const safeUpdateData = validation.data;
     
     // Database mein update karein
-    const updatedUser = await prisma.user.update({
-        where: { id: userId },
-        data: safeUpdateData // Seedha verified object pass kar diya
+    const farmer = pick(safeUpdateData, FARMER_FIELDS);
+    const delivery = pick(safeUpdateData, DELIVERY_FIELDS);
+    const bank = {
+        ...pick(safeUpdateData, BANK_FIELDS),
+        ...(safeUpdateData.bankAccount !== undefined && { bankAccount: encryptField(safeUpdateData.bankAccount) }),
+    };
+    const kyc = {
+        ...pick(safeUpdateData, KYC_FIELDS),
+        ...Object.fromEntries(
+            KYC_DOCUMENTS.filter((key) => safeUpdateData[key] !== undefined).map((key) => [key, encryptedOrNull(safeUpdateData[key]!)]),
+        ),
+    };
+    const userFields = Object.fromEntries(Object.entries(safeUpdateData).filter(([key]) => !ACCOUNT_FIELDS.includes(key)));
+
+    const updatedUser = await prisma.$transaction(async (tx) => {
+        const updated = await tx.user.update({ where: { id: userId }, data: userFields });
+        if (Object.keys(farmer).length) {
+            await tx.farmerProfile.upsert({ where: { userId }, create: { userId, ...farmer }, update: farmer });
+        }
+        if (Object.keys(delivery).length) {
+            await tx.deliveryProfile.upsert({ where: { userId }, create: { userId, ...delivery }, update: delivery });
+        }
+        if (Object.keys(bank).length) {
+            await tx.bankDetails.upsert({ where: { userId }, create: { userId, ...bank }, update: bank });
+        }
+        if (Object.keys(kyc).length) {
+            await tx.kycDocuments.upsert({ where: { userId }, create: { userId, ...kyc }, update: kyc });
+        }
+        return updated;
     });
     
     // Naya data wapas bhejein, par sanitize karke!
     res.status(200).json({
         success: true,
         message: "Profile updated successfully",
-        user: sanitizeUser(await attachRoles(updatedUser))
+        user: sanitizeUser(await loadAccount(updatedUser))
     });
     
   } catch (error: any) {
@@ -234,7 +274,7 @@ export const switchRole = async (req: Request, res: Response): Promise<void> => 
     return;
   }
   const updated = await prisma.user.update({ where: { id: req.user.id }, data: { activeRole: parsed.data.role } });
-  const user = await attachRoles(updated);
+  const user = await loadAccount(updated);
   res.json({ success: true, user: sanitizeUser(user), token: signToken(user.id, user.roles, user.activeRole) });
 };
 
@@ -270,21 +310,20 @@ export const onboardRole = async (req: Request, res: Response): Promise<void> =>
   }
 
   const access = await prisma.$transaction(async tx => {
-    // Update user based on role
-    const updateData: any = {};
-    if (parsed.data.vehicleType) updateData.vehicleType = parsed.data.vehicleType;
-    if (parsed.data.role === Role.FARMER) {
-      if (parsed.data.primaryCrops) updateData.primaryCrops = parsed.data.primaryCrops;
-      if (parsed.data.farmingType) updateData.farmingType = parsed.data.farmingType;
-      if (parsed.data.soilType) updateData.soilType = parsed.data.soilType;
-      if (parsed.data.waterSource) updateData.waterSource = parsed.data.waterSource;
+    const userId = req.user!.id;
+    if (parsed.data.vehicleType) {
+      const delivery = { vehicleType: parsed.data.vehicleType };
+      await tx.deliveryProfile.upsert({ where: { userId }, create: { userId, ...delivery }, update: delivery });
     }
-    
-    if (Object.keys(updateData).length > 0) {
-      await tx.user.update({
-        where: { id: req.user!.id },
-        data: updateData,
-      });
+    if (parsed.data.role === Role.FARMER) {
+      const { primaryCrops, farmingType, soilType, waterSource } = parsed.data;
+      const farmer = {
+        ...(primaryCrops && { primaryCrops }),
+        ...(farmingType && { farmingType }),
+        ...(soilType && { soilType }),
+        ...(waterSource && { waterSource }),
+      };
+      await tx.farmerProfile.upsert({ where: { userId }, create: { userId, ...farmer }, update: farmer });
     }
 
     return tx.userRoleAccess.upsert({
@@ -335,7 +374,7 @@ export const getFarmerPublicProfile = async (req: Request, res: Response): Promi
   try {
     const farmerId = req.params.id as string;
 
-    const farmer = await prisma.user.findFirst({
+    const farmerRow = await prisma.user.findFirst({
       where: { id: farmerId, ...hasRole('FARMER') },
       select: {
         id: true,
@@ -343,25 +382,24 @@ export const getFarmerPublicProfile = async (req: Request, res: Response): Promi
         village: true,
         district: true,
         state: true,
-        farmArea: true,
         rating: true,
         ratingCount: true,
         aboutMe: true,
         createdAt: true,
         isVerified: true,
-        primaryCrops: true,
-        farmingType: true,
-        soilType: true,
-        waterSource: true,
         phone: true,
         email: true,
+        farmerProfile: { select: { farmArea: true, primaryCrops: true, farmingType: true, soilType: true, waterSource: true } },
       }
     });
 
-    if (!farmer) {
+    if (!farmerRow) {
       res.status(404).json({ success: false, message: 'Farmer not found' });
       return;
     }
+
+    const { farmerProfile, ...farmerDetails } = farmerRow;
+    const farmer = { ...farmerDetails, ...farmerProfile };
 
     const activeCrops = await prisma.crop.findMany({
       where: { farmerId, status: 'ACTIVE' },
@@ -415,15 +453,16 @@ export const toggleOnlineStatus = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: { isOnline }
+    const profile = await prisma.deliveryProfile.upsert({
+      where: { userId },
+      create: { userId, isOnline },
+      update: { isOnline },
     });
 
     res.status(200).json({
       success: true,
       message: `You are now ${isOnline ? 'online' : 'offline'}`,
-      data: { isOnline: updatedUser.isOnline }
+      data: { isOnline: profile.isOnline }
     });
   } catch (error) {
     console.error('Toggle Online Status Error:', error);

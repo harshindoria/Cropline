@@ -7,6 +7,7 @@ import {
   getPendingWithdrawals,
   processWithdrawalRequest,
 } from '../src/controller/wallet.controller';
+import { encryptField } from '../src/utils/fieldEncryption';
 import { makeUser, resetDatabase } from './helpers';
 
 const call = async (handler: (req: any, res: any) => Promise<void>, req: Record<string, unknown>) => {
@@ -155,7 +156,10 @@ describe('admin processing a withdrawal', () => {
   it('pays the bank account saved with the request, even if the profile changes later', async () => {
     const user = await makeEarner();
     await withdraw(user, 100);
-    await prisma.user.update({ where: { id: user.id }, data: { bankAccount: '9999999999', bankIfsc: 'HACK0000001' } });
+    await prisma.bankDetails.update({
+      where: { userId: user.id },
+      data: { bankAccount: encryptField('9999999999'), bankIfsc: 'HACK0000001' },
+    });
 
     const { body } = await call(getPendingWithdrawals, {});
 

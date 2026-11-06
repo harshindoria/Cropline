@@ -2,13 +2,13 @@ import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from '../utils/jwtUtils';
 import prisma from '../config/db';
 import { Role } from '@prisma/client';
-import { attachRoles, UserWithRoles } from '../utils/roles';
+import { AccountUser, loadAccount } from '../utils/roles';
 
 // Extending Express Request to attach the authenticated user object
 declare global {
   namespace Express {
     interface Request {
-      user?: UserWithRoles; 
+      user?: AccountUser; 
     }
   }
 }
@@ -55,7 +55,7 @@ export const protect = async (req: Request, res: Response, next: NextFunction): 
     }
 
     // 5. Grant access and attach user details to the request object
-    req.user = await attachRoles(currentUser);
+    req.user = await loadAccount(currentUser);
     next();
 
   } catch (error) {
