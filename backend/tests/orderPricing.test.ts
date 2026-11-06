@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CropCategory, DeliveryType, PaymentType, Role } from '@prisma/client';
 import prisma from '../src/config/db';
 import { createOrder } from '../src/controller/order.controller';
-import { makeUser, resetDatabase } from './helpers';
+import { makeCatalog, makeUser, resetDatabase } from './helpers';
 
 vi.mock('../src/sockets/socket.handler', () => ({ disconnectUser: vi.fn(), getIO: vi.fn() }));
 vi.mock('../src/services/deliveryAssignment.service', () => ({ broadcastDeliveryOffer: vi.fn() }));
@@ -10,9 +10,7 @@ vi.mock('../src/services/payment.service', () => ({ issueRazorpayRefund: vi.fn()
 
 const setUpCrop = async (offer?: { minQuantityKg: number; discountPercentage: number }) => {
   const farmer = await makeUser({ roles: [Role.BUYER, Role.FARMER] });
-  const catalog = await prisma.cropCatalog.create({
-    data: { englishName: 'Potato', hindiName: 'Aloo', category: CropCategory.VEGETABLES },
-  });
+  const catalog = await makeCatalog();
   return prisma.crop.create({
     data: {
       farmerId: farmer.id,
@@ -126,6 +124,8 @@ describe('database rules still catch bad data', () => {
       discountAmount: 200,
       totalBuyerPrice: 1010,
       deliveryType: DeliveryType.DELIVERY,
+      deliveryLatitude: 27,
+      deliveryLongitude: 75.9,
       paymentType: PaymentType.ONLINE,
     };
   };

@@ -5,7 +5,7 @@ import { getDashboardOverview } from '../src/controller/admin.controller';
 import { markDelivered } from '../src/controller/delivery.controller';
 import { razorpayWebhook } from '../src/controller/payment.controller';
 import { getTransactionsOverview, verifyCashDeposit } from '../src/controller/transaction.controller';
-import { makeUser, resetDatabase } from './helpers';
+import { makeCatalog, makeUser, resetDatabase } from './helpers';
 
 vi.mock('../src/sockets/socket.handler', () => ({
   disconnectUser: vi.fn(),
@@ -41,7 +41,7 @@ const setUp = async (paymentType: PaymentType, paymentStatus: 'PENDING' | 'SUCCE
   const buyer = await makeUser();
   const farmer = await makeUser({ roles: [Role.BUYER, Role.FARMER] });
   const partner = await makeUser({ roles: [Role.BUYER, Role.DELIVERY] });
-  const catalog = await prisma.cropCatalog.create({ data: { englishName: 'Potato', hindiName: 'Aloo', category: 'VEGETABLES' } });
+  const catalog = await makeCatalog();
   const crop = await prisma.crop.create({
     data: {
       farmerId: farmer.id,
@@ -75,6 +75,8 @@ const setUp = async (paymentType: PaymentType, paymentStatus: 'PENDING' | 'SUCCE
       deliveryPartnerPayout: 40,
       totalBuyerPrice: 1010,
       deliveryType: DeliveryType.DELIVERY,
+      deliveryLatitude: 27,
+      deliveryLongitude: 75.9,
       paymentType,
       status: 'IN_DELIVERY',
       otps: { create: { kind: 'DELIVERY', code: '1234' } },
@@ -167,7 +169,7 @@ describe('online order delivered', () => {
 
 describe('cash order delivered', () => {
   it('holds all earnings and fees until the cash is deposited', async () => {
-    const { job, order, farmer, partner } = await setUp(PaymentType.CASH_ON_PICKUP, 'PENDING');
+    const { job, order, farmer, partner } = await setUp(PaymentType.CASH, 'PENDING');
 
     const result = await deliver(job.id, partner);
 
@@ -181,7 +183,7 @@ describe('cash order delivered', () => {
   });
 
   it('counts only earnings as pending settlements for admin', async () => {
-    const { job, partner } = await setUp(PaymentType.CASH_ON_PICKUP, 'PENDING');
+    const { job, partner } = await setUp(PaymentType.CASH, 'PENDING');
     await deliver(job.id, partner);
 
     const result = await call(getTransactionsOverview, {});
@@ -191,7 +193,7 @@ describe('cash order delivered', () => {
   });
 
   it('releases everything when admin verifies the deposit, and only once', async () => {
-    const { job, order, farmer, partner } = await setUp(PaymentType.CASH_ON_PICKUP, 'PENDING');
+    const { job, order, farmer, partner } = await setUp(PaymentType.CASH, 'PENDING');
     await deliver(job.id, partner);
     const liability = await prisma.cashLiability.findUniqueOrThrow({ where: { orderId: order.id } });
     const admin = await makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN });
@@ -213,7 +215,7 @@ describe('cash order delivered', () => {
   });
 
   it('releases only once when two admins verify at the same moment', async () => {
-    const { job, order, farmer, partner } = await setUp(PaymentType.CASH_ON_PICKUP, 'PENDING');
+    const { job, order, farmer, partner } = await setUp(PaymentType.CASH, 'PENDING');
     await deliver(job.id, partner);
     const liability = await prisma.cashLiability.findUniqueOrThrow({ where: { orderId: order.id } });
     const admin = await makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN });
@@ -228,7 +230,7 @@ describe('cash order delivered', () => {
   });
 
   it('releases everything when the partner pays through a payment link, even if the webhook repeats', async () => {
-    const { job, order, farmer, partner } = await setUp(PaymentType.CASH_ON_PICKUP, 'PENDING');
+    const { job, order, farmer, partner } = await setUp(PaymentType.CASH, 'PENDING');
     await deliver(job.id, partner);
     const liability = await prisma.cashLiability.findUniqueOrThrow({ where: { orderId: order.id } });
 
@@ -241,7 +243,7 @@ describe('cash order delivered', () => {
   });
 
   it('releases everything when the partner settles all their dues at once', async () => {
-    const { job, partner, farmer } = await setUp(PaymentType.CASH_ON_PICKUP, 'PENDING');
+    const { job, partner, farmer } = await setUp(PaymentType.CASH, 'PENDING');
     await deliver(job.id, partner);
 
     await webhook('ALL', partner.id, 101000);
@@ -251,7 +253,7 @@ describe('cash order delivered', () => {
   });
 
   it('keeps holding when the payment link was underpaid', async () => {
-    const { job, order, farmer, partner } = await setUp(PaymentType.CASH_ON_PICKUP, 'PENDING');
+    const { job, order, farmer, partner } = await setUp(PaymentType.CASH, 'PENDING');
     await deliver(job.id, partner);
     const liability = await prisma.cashLiability.findUniqueOrThrow({ where: { orderId: order.id } });
 
@@ -264,7 +266,7 @@ describe('cash order delivered', () => {
 
 describe('cash order the buyer already paid online at the door', () => {
   it('asks the partner for no cash and credits wallets at once', async () => {
-    const { job, farmer, partner } = await setUp(PaymentType.CASH_ON_PICKUP, 'SUCCESS');
+    const { job, farmer, partner } = await setUp(PaymentType.CASH, 'SUCCESS');
 
     const result = await deliver(job.id, partner);
 

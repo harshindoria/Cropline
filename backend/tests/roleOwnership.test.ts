@@ -4,7 +4,7 @@ import prisma from '../src/config/db';
 import { processRoleApplication } from '../src/controller/admin.controller';
 import { onboardRole, setRoleBlock, switchRole } from '../src/controller/user.controller';
 import { loadAccount } from '../src/utils/roles';
-import { makeUser, resetDatabase } from './helpers';
+import { makeCatalog, makeUser, resetDatabase } from './helpers';
 
 vi.mock('../src/sockets/socket.handler', () => ({ disconnectUser: vi.fn(), getIO: vi.fn() }));
 vi.mock('../src/services/deliveryAssignment.service', () => ({ broadcastDeliveryOffer: vi.fn() }));
@@ -111,7 +111,7 @@ describe('active role', () => {
     const user = await makeUser({ roles: [Role.BUYER, Role.FARMER] });
     const { body } = await call(switchRole, { user, body: { role: Role.FARMER } });
     expect(body.user.activeRole).toBe(Role.FARMER);
-    expect(body.user.roles).toEqual([Role.BUYER, Role.FARMER]);
+    expect([...body.user.roles].sort()).toEqual([Role.BUYER, Role.FARMER]);
   });
 
   it('rejects removing or un-approving the role the user is working in', async () => {
@@ -155,9 +155,7 @@ describe('blocking a role', () => {
 
 describe('order and crop ownership', () => {
   const makeCrop = async (farmerId: string) => {
-    const catalog = await prisma.cropCatalog.create({
-      data: { englishName: 'Potato', hindiName: 'Aloo', category: CropCategory.VEGETABLES },
-    });
+    const catalog = await makeCatalog();
     return prisma.crop.create({
       data: {
         farmerId,

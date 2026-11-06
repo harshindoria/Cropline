@@ -596,7 +596,7 @@ export const markDelivered = async (req: Request, res: Response): Promise<void> 
     const now = new Date();
     // A cash order can be paid online at the door, and then the partner holds no cash for it.
     const cashStillWithPartner =
-      job.order.paymentType === 'CASH_ON_PICKUP' && job.order.paymentRecord?.status !== 'SUCCESS';
+      job.order.paymentType === 'CASH' && job.order.paymentRecord?.status !== 'SUCCESS';
 
     // 5. THE ATOMIC TRANSACTION for final delivery
     await prisma.$transaction(async (tx) => {

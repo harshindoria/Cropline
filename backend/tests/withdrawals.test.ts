@@ -8,7 +8,7 @@ import {
   processWithdrawalRequest,
 } from '../src/controller/wallet.controller';
 import { encryptField } from '../src/utils/fieldEncryption';
-import { makeUser, resetDatabase } from './helpers';
+import { makeCatalog, makeUser, resetDatabase } from './helpers';
 
 const call = async (handler: (req: any, res: any) => Promise<void>, req: Record<string, unknown>) => {
   let status = 200;
@@ -118,7 +118,7 @@ describe('requesting a withdrawal', () => {
     const partner = await makeEarner();
     const buyer = await makeUser();
     const farmer = await makeUser();
-    const catalog = await prisma.cropCatalog.create({ data: { englishName: 'P', hindiName: 'A', category: 'OTHER' } });
+    const catalog = await makeCatalog();
     const crop = await prisma.crop.create({
       data: {
         farmerId: farmer.id, catalogId: catalog.id, quantityKg: 10, quantityRemainingKg: 10, basePricePerKg: 10,
@@ -128,7 +128,7 @@ describe('requesting a withdrawal', () => {
     const order = await prisma.order.create({
       data: {
         cropId: crop.id, buyerId: buyer.id, farmerId: farmer.id, quantityKg: 10, basePricePerKg: 10, farmerEarnings: 100,
-        cropMarkupRate: 0.2, platformFee: 20, totalBuyerPrice: 120, deliveryType: 'DELIVERY', paymentType: 'CASH_ON_PICKUP',
+        cropMarkupRate: 0.2, platformFee: 20, totalBuyerPrice: 120, deliveryType: 'DELIVERY', deliveryLatitude: 27, deliveryLongitude: 75.9, paymentType: 'CASH',
       },
     });
     await prisma.cashLiability.create({ data: { orderId: order.id, deliveryPartnerId: partner.id, amount: 120 } });

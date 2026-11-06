@@ -3,7 +3,7 @@ import { CropCategory, DeliveryType, OrderStatus, PaymentType, Prisma, Role } fr
 import prisma from '../src/config/db';
 import { getBuyers, getFarmers } from '../src/controller/admin.controller';
 import { createOrder } from '../src/controller/order.controller';
-import { makeUser, resetDatabase } from './helpers';
+import { makeCatalog, makeUser, resetDatabase } from './helpers';
 
 vi.mock('../src/sockets/socket.handler', () => ({ disconnectUser: vi.fn(), getIO: vi.fn() }));
 vi.mock('../src/services/deliveryAssignment.service', () => ({ broadcastDeliveryOffer: vi.fn() }));
@@ -27,9 +27,7 @@ const call = async (handler: (req: any, res: any) => Promise<void>, req: Record<
 };
 
 const makeCrop = async (farmerId: string) => {
-  const catalog = await prisma.cropCatalog.create({
-    data: { englishName: 'Potato', hindiName: 'Aloo', category: CropCategory.VEGETABLES },
-  });
+  const catalog = await makeCatalog();
   return prisma.crop.create({
     data: {
       farmerId,

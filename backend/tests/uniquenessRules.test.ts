@@ -18,7 +18,7 @@ import {
   markPaymentSucceeded,
   refundFullPayment,
 } from '../src/services/paymentRecord.service';
-import { makeUser, resetDatabase } from './helpers';
+import { makeCatalog, makeUser, resetDatabase } from './helpers';
 
 vi.mock('../src/services/payment.service', () => ({ issueRazorpayRefund: vi.fn() }));
 vi.mock('../src/sockets/socket.handler', () => ({ disconnectUser: vi.fn(), getIO: vi.fn() }));
@@ -42,9 +42,7 @@ const call = async (req: Record<string, unknown>, handler: (req: any, res: any) 
 };
 
 const makeOrder = async (farmerId: string, buyerId: string, status: OrderStatus = OrderStatus.DELIVERED) => {
-  const catalog = await prisma.cropCatalog.create({
-    data: { englishName: 'Potato', hindiName: 'Aloo', category: CropCategory.VEGETABLES },
-  });
+  const catalog = await makeCatalog();
   const crop = await prisma.crop.create({
     data: {
       farmerId,
@@ -74,6 +72,8 @@ const makeOrder = async (farmerId: string, buyerId: string, status: OrderStatus 
       platformFee: 20,
       totalBuyerPrice: 120,
       deliveryType: DeliveryType.DELIVERY,
+      deliveryLatitude: 27,
+      deliveryLongitude: 75.9,
       paymentType: PaymentType.ONLINE,
     },
   });

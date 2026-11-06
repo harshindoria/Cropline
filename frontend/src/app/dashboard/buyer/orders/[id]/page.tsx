@@ -377,7 +377,7 @@ export default function OrderDetailPage() {
                 <div className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold uppercase tracking-wider bg-gray-100 text-gray-700">
                   {order.paymentRecord?.status || "PENDING"}
                 </div>
-                {order.paymentType === 'CASH_ON_PICKUP' && order.paymentRecord?.status !== 'RELEASED' && (
+                {order.paymentType === 'CASH' && order.paymentRecord?.status !== 'RELEASED' && (
                   <p className="text-[10px] font-semibold text-gray-400 mt-2 flex items-start gap-1">
                     <AlertCircle size={12} className="mt-0.5 shrink-0" />
                     Please pay the delivery partner upon arrival.

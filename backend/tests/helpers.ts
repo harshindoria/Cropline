@@ -1,4 +1,4 @@
-import { Prisma, Role } from '@prisma/client';
+import { CropCategory, Prisma, Role } from '@prisma/client';
 import prisma from '../src/config/db';
 import { encryptField } from '../src/utils/fieldEncryption';
 import { loadAccount } from '../src/utils/roles';
@@ -38,3 +38,10 @@ export const makeUser = async ({
   });
   return loadAccount(user);
 };
+
+export const makeCatalog = () =>
+  prisma.cropCatalog.upsert({
+    where: { englishName: 'Potato' },
+    update: {},
+    create: { englishName: 'Potato', hindiName: 'Aloo', category: CropCategory.VEGETABLES },
+  });

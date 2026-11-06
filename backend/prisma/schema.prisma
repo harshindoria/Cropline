@@ -28,8 +28,6 @@ enum VehicleType {
 enum CropStatus {
   ACTIVE
   PAUSED
-  BOOKED
-  HARVESTED
   CLOSED
 }
 
@@ -59,8 +57,6 @@ enum LedgerEntryType {
   DELIVERY_EARNING
   PLATFORM_CROP_FEE
   PLATFORM_DELIVERY_FEE
-  CASH_LIABILITY
-  REFUND
   PAYOUT
 }
 
@@ -69,7 +65,6 @@ enum LedgerEntryStatus {
   AVAILABLE
   SETTLED
   FAILED
-  VOIDED
 }
 
 enum CropCategory {
@@ -103,7 +98,6 @@ enum OrderStatus {
   CONFIRMED
   READY_FOR_PICKUP
   DELIVERY_SEARCHING
-  DELIVERY_UNAVAILABLE
   ASSIGNED
   PICKED_UP
   IN_DELIVERY
@@ -120,7 +114,7 @@ enum DeliveryType {
 
 enum PaymentType {
   ONLINE
-  CASH_ON_PICKUP
+  CASH
 }
 
 enum PaymentStatus {
@@ -167,7 +161,7 @@ model User {
 
   // Identity
   aboutMe      String?
-  dob          DateTime?
+  dob          DateTime? @db.Date
   gender       String?
   languagePref String?
 
@@ -190,8 +184,8 @@ model User {
   strikeCount Int     @default(0) // Yeh complaints track karega (5, 7, 10 rules ke liye)
 
   // Timestamps
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   // Relations
   farmerProfile      FarmerProfile?
@@ -216,8 +210,6 @@ model User {
   cashLiabilities    CashLiability[]
   complaintsFiled    Complaint[]       @relation("ComplaintsFiled")
   complaintsReceived Complaint[]       @relation("ComplaintsReceived")
-
-  @@index([latitude, longitude])
 }
 
 model FarmerProfile {
@@ -228,8 +220,8 @@ model FarmerProfile {
   farmingType  String?
   soilType     String?
   waterSource  String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
 }
 
 model DeliveryProfile {
@@ -241,8 +233,8 @@ model DeliveryProfile {
   coverageRadiusKm  Int?
   isOnline          Boolean      @default(false)
   dailyEarningsGoal Decimal      @default(2000) @db.Decimal(10, 2)
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
 
   @@index([isOnline])
 }
@@ -254,8 +246,8 @@ model BankDetails {
   bankIfsc          String?
   bankName          String?
   accountHolderName String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
 }
 
 model KycDocuments {
@@ -268,8 +260,8 @@ model KycDocuments {
   dlVerified      Boolean  @default(false)
   rcUrl           String?
   rcVerified      Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
 }
 
 model UserRoleAccess {
@@ -279,14 +271,14 @@ model UserRoleAccess {
   role             Role
   status           RoleAccessStatus @default(ACTIVE)
   reason           String?
-  blockedAt        DateTime?
-  blockedUntil     DateTime?
+  blockedAt        DateTime?        @db.Timestamptz(3)
+  blockedUntil     DateTime?        @db.Timestamptz(3)
   changedByAdmin   User?            @relation("RoleAccessChangedBy", fields: [changedByAdminId], references: [id], onDelete: SetNull)
   changedByAdminId String? // The admin behind the latest status change. Empty for automatic changes.
   unbanFeeStatus   UnbanFeeStatus   @default(NONE)
   unbanFeeAmount   Decimal?         @db.Decimal(10, 2)
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
 
   events RoleAccessEvent[]
 
@@ -303,10 +295,10 @@ model RoleAccessEvent {
   fromStatus       RoleAccessStatus?
   toStatus         RoleAccessStatus
   reason           String?
-  blockedUntil     DateTime?
+  blockedUntil     DateTime?         @db.Timestamptz(3)
   changedByAdmin   User?             @relation("RoleEventChangedBy", fields: [changedByAdminId], references: [id], onDelete: Restrict)
   changedByAdminId String?
-  createdAt        DateTime          @default(now())
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
 
   @@index([userRoleAccessId, createdAt])
   @@index([changedByAdminId])
@@ -315,12 +307,12 @@ model RoleAccessEvent {
 // NAYA MODEL: Admin dwara set kiye gaye fasalon ke naam (English/Hindi)
 model CropCatalog {
   id            String       @id @default(cuid())
-  englishName   String // e.g., "Potato"
+  englishName   String       @unique // e.g., "Potato"
   hindiName     String // e.g., "Aloo (आलू)"
   category      CropCategory // Fruits, Vegetables etc.
   imageTemplate String? // Default image URL agar farmer apni photo na daale
   isActive      Boolean      @default(true) // Admin chahe toh kisi fasal ko temporarily band kar de
-  createdAt     DateTime     @default(now())
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
 
   crops Crop[] // Ek catalog item se hazaron kisaan fasal bech sakte hain
 
@@ -347,7 +339,7 @@ model Crop {
   minOrderKg          Decimal @db.Decimal(10, 2)
 
   // Dates & Media
-  harvestDate DateTime
+  harvestDate DateTime @db.Date
   photos      String[]
 
   // Farm Location
@@ -360,15 +352,15 @@ model Crop {
   // Toggles & Constraints
   selfPickupEnabled  Boolean   @default(false)
   isPreHarvest       Boolean   @default(false)
-  preHarvestDeadline DateTime?
+  preHarvestDeadline DateTime? @db.Timestamptz(3)
 
   // Status & Analytics
   status     CropStatus @default(ACTIVE)
   viewsCount Int        @default(0)
 
   // Timestamps
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   // relations
   orders Order[]
@@ -376,6 +368,7 @@ model Crop {
 
   @@unique([id, farmerId]) // Lets an order prove its farmer really owns the crop.
   @@index([farmerId])
+  @@index([catalogId])
   @@index([status, catalogId]) // Update kiya gaya index
   @@index([harvestDate])
   @@index([farmLatitude, farmLongitude])
@@ -392,8 +385,8 @@ model CropOffer {
   minQuantityKg      Decimal @db.Decimal(10, 2) // Discount tab milega jab order kam se kam itna ho
   discountPercentage Decimal @db.Decimal(5, 2) // Kitne % chhoot deni hai
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 }
 
 model Order {
@@ -425,18 +418,18 @@ model Order {
   deliveryLatitude  Float?
   deliveryLongitude Float?
   deliveryAddress   String?
-  deliveryDate      DateTime?
+  deliveryDate      DateTime? @db.Timestamptz(3)
 
   status OrderStatus @default(PENDING)
 
   cancellationReason     String?
-  farmerResponseDeadline DateTime?
-  farmerAcceptedAt       DateTime?
-  dispatchStartedAt      DateTime?
-  completedAt            DateTime?
+  farmerResponseDeadline DateTime? @db.Timestamptz(3)
+  farmerAcceptedAt       DateTime? @db.Timestamptz(3)
+  dispatchStartedAt      DateTime? @db.Timestamptz(3)
+  completedAt            DateTime? @db.Timestamptz(3)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   deliveryJobs   DeliveryJob[]
   reviews        Review[]
@@ -463,9 +456,9 @@ model OrderOtp {
   kind          OtpKind
   code          String
   wrongAttempts Int       @default(0)
-  lockedUntil   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  lockedUntil   DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
 
   @@unique([orderId, kind])
 }
@@ -477,7 +470,7 @@ model OrderStatusHistory {
   orderId    String
   fromStatus OrderStatus?
   toStatus   OrderStatus
-  createdAt  DateTime     @default(now())
+  createdAt  DateTime     @default(now()) @db.Timestamptz(3)
 
   @@index([orderId, createdAt])
 }
@@ -504,22 +497,21 @@ model DeliveryJob {
 
   liveLatitude          Float?
   liveLongitude         Float?
-  liveLocationUpdatedAt DateTime?
+  liveLocationUpdatedAt DateTime? @db.Timestamptz(3)
 
   pickupPhoto   String?
   deliveryPhoto String?
 
-  acceptedAt          DateTime  @default(now())
-  pickedUpAt          DateTime?
-  deliveredAt         DateTime?
-  cancelledAt         DateTime?
+  acceptedAt          DateTime  @default(now()) @db.Timestamptz(3)
+  pickedUpAt          DateTime? @db.Timestamptz(3)
+  deliveredAt         DateTime? @db.Timestamptz(3)
+  cancelledAt         DateTime? @db.Timestamptz(3)
   cancellationReason  String?
-  estimatedDeliveryAt DateTime?
-  createdAt           DateTime  @default(now())
+  estimatedDeliveryAt DateTime? @db.Timestamptz(3)
+  createdAt           DateTime  @default(now()) @db.Timestamptz(3)
 
   @@index([orderId])
   @@index([deliveryPartnerId, status])
-  @@index([pickupLatitude, pickupLongitude])
 }
 
 model DeliveryOffer {
@@ -531,9 +523,9 @@ model DeliveryOffer {
   wave        Int
   radiusKm    Int
   status      DeliveryOfferStatus @default(OFFERED)
-  offeredAt   DateTime            @default(now())
-  expiresAt   DateTime
-  respondedAt DateTime?
+  offeredAt   DateTime            @default(now()) @db.Timestamptz(3)
+  expiresAt   DateTime            @db.Timestamptz(3)
+  respondedAt DateTime?           @db.Timestamptz(3)
 
   @@unique([orderId, partnerId, wave]) // Each retry is a new wave, so a partner can be offered again.
   @@index([partnerId, status, expiresAt])
@@ -550,11 +542,11 @@ model PaymentRecord {
   providerPaymentId String?       @unique
   status            PaymentStatus @default(PENDING)
   amount            Decimal       @db.Decimal(10, 2)
-  authorizedAt      DateTime?
-  capturedAt        DateTime?
-  refundedAt        DateTime? // Set only once the full amount has been refunded.
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  authorizedAt      DateTime?     @db.Timestamptz(3)
+  capturedAt        DateTime?     @db.Timestamptz(3)
+  refundedAt        DateTime?     @db.Timestamptz(3) // Set only once the full amount has been refunded.
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
 
   attempts PaymentAttempt[]
   refunds  Refund[]
@@ -568,8 +560,8 @@ model PaymentAttempt {
   status            PaymentStatus
   amount            Decimal       @db.Decimal(10, 2)
   failureReason     String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
 
   @@index([paymentRecordId])
 }
@@ -582,9 +574,9 @@ model Refund {
   amount           Decimal       @db.Decimal(10, 2)
   status           RefundStatus  @default(PENDING)
   reason           String?
-  processedAt      DateTime?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  processedAt      DateTime?     @db.Timestamptz(3)
+  createdAt        DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime      @updatedAt @db.Timestamptz(3)
 
   @@index([paymentRecordId])
 }
@@ -601,13 +593,14 @@ model LedgerEntry {
   status         LedgerEntryStatus @default(PENDING)
   amount         Decimal           @db.Decimal(10, 2)
   idempotencyKey String            @unique
-  availableAt    DateTime?
-  settledAt      DateTime?
-  createdAt      DateTime          @default(now())
+  availableAt    DateTime?         @db.Timestamptz(3)
+  settledAt      DateTime?         @db.Timestamptz(3)
+  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
 
   payoutDetail PayoutDetail?
 
   @@index([userId, status])
+  @@index([type, status])
   @@index([orderId, type])
 }
 
@@ -622,8 +615,8 @@ model PayoutDetail {
   accountHolderName  String?
   processedByAdmin   User?       @relation("PayoutsProcessed", fields: [processedByAdminId], references: [id], onDelete: Restrict)
   processedByAdminId String?
-  processedAt        DateTime?
-  createdAt          DateTime    @default(now())
+  processedAt        DateTime?   @db.Timestamptz(3)
+  createdAt          DateTime    @default(now()) @db.Timestamptz(3)
 
   @@index([processedByAdminId])
 }
@@ -643,12 +636,12 @@ model CashLiability {
   deliveryPartnerId   String
   amount              Decimal           @db.Decimal(10, 2)
   status              CashDepositStatus @default(PENDING_DEPOSIT)
-  depositedAt         DateTime?
-  reconciledAt        DateTime?
+  depositedAt         DateTime?         @db.Timestamptz(3)
+  reconciledAt        DateTime?         @db.Timestamptz(3)
   reconciledByAdmin   User?             @relation("CashReconciledBy", fields: [reconciledByAdminId], references: [id], onDelete: Restrict)
   reconciledByAdminId String?
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  createdAt           DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime          @updatedAt @db.Timestamptz(3)
 
   @@index([reconciledByAdminId])
   @@index([deliveryPartnerId, status])
@@ -674,8 +667,8 @@ model Review {
   isFlagged Boolean @default(false)
   flagCount Int     @default(0)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([orderId, reviewerId, targetId])
   @@index([reviewerId])
@@ -695,9 +688,10 @@ model Notification {
   data   Json?
   isRead Boolean @default(false)
 
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([userId, isRead])
+  @@index([userId, createdAt])
   @@index([createdAt])
 }
 
@@ -720,12 +714,12 @@ model Complaint {
   adminRemark       String?
   resolvedByAdmin   User?     @relation("ComplaintsResolvedBy", fields: [resolvedByAdminId], references: [id], onDelete: Restrict)
   resolvedByAdminId String?
-  resolvedAt        DateTime?
+  resolvedAt        DateTime? @db.Timestamptz(3)
 
   status ComplaintStatus @default(PENDING)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([accusedId, accusedRole])
   @@index([orderId])
@@ -746,5 +740,5 @@ model PlatformSettings {
   id                 String   @id @default(cuid())
   cropMarkupRate     Decimal  @default(0.20) @db.Decimal(5, 4)
   deliveryMarkupRate Decimal  @default(0.20) @db.Decimal(5, 4)
-  updatedAt          DateTime @updatedAt
+  updatedAt          DateTime @updatedAt @db.Timestamptz(3)
 }

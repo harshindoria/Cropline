@@ -81,6 +81,10 @@ export const createCatalogItem = async (req: Request, res: Response): Promise<vo
 
     res.json({ success: true, item: newItem });
   } catch (error) {
+    if ((error as { code?: string })?.code === 'P2002') {
+      res.status(409).json({ success: false, message: 'A crop with this name already exists.' });
+      return;
+    }
     console.error('Error creating catalog item:', error);
     res.status(500).json({ success: false, message: 'Failed to create catalog item.' });
   }
@@ -111,6 +115,10 @@ export const updateCatalogItem = async (req: Request, res: Response): Promise<vo
 
     res.json({ success: true, item: updatedItem });
   } catch (error) {
+    if ((error as { code?: string })?.code === 'P2002') {
+      res.status(409).json({ success: false, message: 'A crop with this name already exists.' });
+      return;
+    }
     console.error('Error updating catalog item:', error);
     res.status(500).json({ success: false, message: 'Failed to update catalog item.' });
   }

@@ -9,7 +9,7 @@ import { broadcastDeliveryOffer } from '../src/services/deliveryAssignment.servi
 import { requestWithdrawal } from '../src/services/ledger.service';
 import { decryptField, encryptField } from '../src/utils/fieldEncryption';
 import { Prisma } from '@prisma/client';
-import { makeUser, resetDatabase } from './helpers';
+import { makeCatalog, makeUser, resetDatabase } from './helpers';
 
 vi.mock('../src/sockets/socket.handler', () => ({ disconnectUser: vi.fn(), getIO: vi.fn() }));
 vi.mock('../src/services/payment.service', () => ({ issueRazorpayRefund: vi.fn() }));
@@ -32,9 +32,7 @@ const call = async (handler: (req: any, res: any) => Promise<void>, req: Record<
 };
 
 const makeOrder = async (farmer: { id: string }, buyer: { id: string }, status: OrderStatus = OrderStatus.PENDING) => {
-  const catalog = await prisma.cropCatalog.create({
-    data: { englishName: 'Potato', hindiName: 'Aloo', category: CropCategory.VEGETABLES },
-  });
+  const catalog = await makeCatalog();
   const crop = await prisma.crop.create({
     data: {
       farmerId: farmer.id,
@@ -64,6 +62,8 @@ const makeOrder = async (farmer: { id: string }, buyer: { id: string }, status: 
       platformFee: 20,
       totalBuyerPrice: 120,
       deliveryType: DeliveryType.DELIVERY,
+      deliveryLatitude: 27,
+      deliveryLongitude: 75.9,
       paymentType: PaymentType.ONLINE,
       otps: { create: newOrderOtps() },
     },

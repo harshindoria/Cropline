@@ -473,7 +473,7 @@ export const updateCrop = async (req: Request<{id: string}>, res: Response): Pro
       return;
     }
 
-    if (['BOOKED', 'HARVESTED', 'CLOSED'].includes(crop.status)) {
+    if (crop.status === 'CLOSED') {
       res.status(400).json({ success: false, message: `Cannot edit a crop with status: ${crop.status}` });
       return;
     }

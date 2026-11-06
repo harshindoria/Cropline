@@ -4,7 +4,7 @@ import prisma from '../src/config/db';
 import { processComplaint, processRoleApplication } from '../src/controller/admin.controller';
 import { setRoleBlock } from '../src/controller/user.controller';
 import { requireRoleOperational } from '../src/middleware/role.middleware';
-import { makeUser, resetDatabase } from './helpers';
+import { makeCatalog, makeUser, resetDatabase } from './helpers';
 
 vi.mock('../src/sockets/socket.handler', () => ({ disconnectUser: vi.fn(), getIO: vi.fn() }));
 vi.mock('../src/services/deliveryAssignment.service', () => ({ broadcastDeliveryOffer: vi.fn() }));
@@ -29,9 +29,7 @@ const makeAdmin = () => makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN }
 
 const makeOrder = async () => {
   const farmer = await makeUser();
-  const catalog = await prisma.cropCatalog.create({
-    data: { englishName: 'Potato', hindiName: 'Aloo', category: CropCategory.VEGETABLES },
-  });
+  const catalog = await makeCatalog();
   const crop = await prisma.crop.create({
     data: {
       farmerId: farmer.id,

@@ -249,7 +249,7 @@ function BuyerDashboardContent() {
           cropId: crop.id,
           quantityKg,
           deliveryType: "DELIVERY",
-          paymentType: paymentMethod === "ONLINE" ? "ONLINE" : "CASH_ON_PICKUP",
+          paymentType: paymentMethod === "ONLINE" ? "ONLINE" : "CASH",
           deliveryLatitude: coords.lat,
           deliveryLongitude: coords.lng,
           deliveryAddress: user?.district ? `${user.district}, ${user.state}` : "Unknown Address"

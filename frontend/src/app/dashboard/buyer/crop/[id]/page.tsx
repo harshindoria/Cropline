@@ -123,7 +123,7 @@ export default function CropDetailPage() {
         cropId: crop.id,
         quantityKg,
         deliveryType: "DELIVERY",
-        paymentType: paymentMethod === "ONLINE" ? "ONLINE" : "CASH_ON_PICKUP", // COD acts as CASH_ON_PICKUP
+        paymentType: paymentMethod === "ONLINE" ? "ONLINE" : "CASH", // COD acts as CASH
         deliveryLatitude: buyerLat,
         deliveryLongitude: buyerLng,
         deliveryAddress

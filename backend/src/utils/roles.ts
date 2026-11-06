@@ -10,7 +10,7 @@ export const hasRole = (role: Role) =>
 
 export const HELD_ROLES = {
   where: { status: { in: HELD_ROLE_STATUSES } },
-  orderBy: { createdAt: 'asc' },
+  orderBy: [{ createdAt: 'asc' }, { role: 'asc' }],
   select: { role: true },
 } satisfies Prisma.UserRoleAccessFindManyArgs;
 
