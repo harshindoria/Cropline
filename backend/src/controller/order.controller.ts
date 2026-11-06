@@ -590,7 +590,3 @@ export const cancelOrder = async (req: Request<{ id: string }>, res: Response): 
   }
 };
 
-export const unbanPayment = async (req: Request, res: Response): Promise<void> => {
-  // Logic to generate razorpay link for 1000 INR
-  res.json({ success: true, paymentLink: "https://razorpay.me/.../mocklink" });
-};

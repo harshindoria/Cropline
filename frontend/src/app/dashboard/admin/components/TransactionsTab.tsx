@@ -184,6 +184,7 @@ export default function TransactionsTab() {
       }
     } catch (error) {
       console.error("Failed to verify deposit:", error);
+      alert("Could not verify this deposit. Please try again.");
     } finally {
       setProcessing(false);
     }
@@ -783,11 +784,11 @@ export default function TransactionsTab() {
                 </section>
 
                 {/* Admin Actions (Verify Cash) */}
-                {selectedTx.type === 'CASH' && selectedTx.data.status === 'DEPOSITED' && (
+                {selectedTx.type === 'CASH' && selectedTx.data.status !== 'VERIFIED' && (
                   <section className="bg-gray-50 -mx-6 px-6 py-6 border-t border-gray-100">
                     <h3 className="text-sm font-black text-gray-900 mb-2 uppercase tracking-wider">Admin Verification</h3>
                     <p className="text-xs font-semibold text-gray-500 mb-4">
-                      The delivery partner claims to have deposited the cash to the platform's bank account. Please check the bank statement before verifying. Verifying this will instantly unlock the Farmer's settlement.
+                      Confirm only after you have received this cash from the delivery partner. This releases the farmer and partner earnings and cannot be undone.
                     </p>
                     <button 
                       onClick={() => handleVerifyDeposit(selectedTx.data.id)}

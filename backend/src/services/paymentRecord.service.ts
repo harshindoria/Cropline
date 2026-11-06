@@ -1,4 +1,4 @@
-import { PaymentStatus, Prisma, RefundStatus } from '@prisma/client';
+import { OrderStatus, PaymentStatus, Prisma, RefundStatus, Role, RoleAccessStatus } from '@prisma/client';
 import prisma from '../config/db';
 import { issueRazorpayRefund } from './payment.service';
 
@@ -77,6 +77,27 @@ export const refundFullPayment = async (
   });
 };
 
+// The farmer and partner were already paid for a delivered order. Taking that back is a business
+// decision, so this only tells the admins and leaves every wallet as it is.
+const alertAdminsIfDelivered = async (tx: Tx, orderId: string, amount: Prisma.Decimal) => {
+  const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { status: true } });
+  if (order.status !== OrderStatus.DELIVERED && order.status !== OrderStatus.COMPLETED) return;
+
+  const admins = await tx.userRoleAccess.findMany({
+    where: { role: Role.ADMIN, status: RoleAccessStatus.ACTIVE },
+    select: { userId: true },
+  });
+  await tx.notification.createMany({
+    data: admins.map(({ userId }) => ({
+      userId,
+      alertLevel: 'WARNING' as const,
+      title: 'Refund on a delivered order',
+      body: `₹${amount} was refunded on delivered order ${orderId}. The farmer and partner earnings were not changed, so please review it.`,
+      data: { orderId },
+    })),
+  });
+};
+
 /** Records a refund Razorpay has completed. The payment only becomes REFUNDED once all of it has been returned. */
 export const applyProcessedRefund = (entity: { id: string; payment_id: string; amount: number }) =>
   prisma.$transaction(async (tx) => {
@@ -84,6 +105,7 @@ export const applyProcessedRefund = (entity: { id: string; payment_id: string; a
     if (!record) return;
 
     const now = new Date();
+    const alreadyRecorded = await tx.refund.findUnique({ where: { providerRefundId: entity.id }, select: { id: true } });
     await tx.refund.upsert({
       where: { providerRefundId: entity.id },
       create: {
@@ -106,4 +128,6 @@ export const applyProcessedRefund = (entity: { id: string; payment_id: string; a
         data: { status: PaymentStatus.REFUNDED, refundedAt: now },
       });
     }
+
+    if (!alreadyRecorded) await alertAdminsIfDelivered(tx, record.orderId, paiseToRupees(entity.amount));
   });

@@ -7,6 +7,8 @@ import api from "@/lib/axios";
 import { ArrowLeft, Package, Truck, CreditCard, Banknote, Star, ShieldCheck, MapPin, Phone, CheckCircle2, XCircle, AlertCircle, RefreshCw } from "lucide-react";
 import Image from "next/image";
 
+const COMPLAINT_REASONS = ['Late Delivery', 'Damaged Goods', 'Wrong Product', 'Misbehavior', 'Fraud', 'Payment Issue', 'Other'];
+
 const STATUS_ORDER = ['PENDING', 'CONFIRMED', 'READY_FOR_PICKUP', 'DELIVERY_SEARCHING', 'ASSIGNED', 'PICKED_UP', 'IN_DELIVERY', 'DELIVERED', 'COMPLETED'];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -40,6 +42,11 @@ export default function OrderDetailPage() {
   const [ratingValue, setRatingValue] = useState(5);
   const [ratingComment, setRatingComment] = useState("");
   const [submittingRating, setSubmittingRating] = useState(false);
+  const [showComplaintModal, setShowComplaintModal] = useState(false);
+  const [complaintTargetId, setComplaintTargetId] = useState("");
+  const [complaintReason, setComplaintReason] = useState(COMPLAINT_REASONS[0]);
+  const [complaintDetails, setComplaintDetails] = useState("");
+  const [submittingComplaint, setSubmittingComplaint] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem("cropline_crop_lang");
@@ -105,6 +112,26 @@ export default function OrderDetailPage() {
       console.error("Failed to cancel order", err);
       alert(err.response?.data?.message || "Failed to cancel order");
       setProcessing(false);
+    }
+  };
+
+  const handleSubmitComplaint = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmittingComplaint(true);
+    try {
+      await api.post('/complaints', {
+        orderId: order.id,
+        accusedId: complaintTargetId,
+        reason: complaintReason,
+        description: complaintDetails.trim() || undefined,
+      });
+      alert("Your complaint has been sent. Our team will review it.");
+      setShowComplaintModal(false);
+      setComplaintDetails("");
+    } catch (err: any) {
+      alert(err.response?.data?.message || "Failed to submit complaint");
+    } finally {
+      setSubmittingComplaint(false);
     }
   };
 
@@ -416,7 +443,7 @@ export default function OrderDetailPage() {
             </div>
           )}
 
-          {order.status !== 'PENDING' && (
+          {(order.status === 'DELIVERED' || order.status === 'COMPLETED') && (
             <div className="flex flex-col gap-3 mt-4">
               <button
                 onClick={() => {
@@ -443,8 +470,84 @@ export default function OrderDetailPage() {
             </div>
           )}
 
+          {order.status !== 'PENDING' && order.status !== 'CANCELLED' && (
+            <button
+              onClick={() => {
+                setComplaintTargetId(order.farmerId);
+                setShowComplaintModal(true);
+              }}
+              className="w-full mt-3 py-3 text-sm font-bold text-red-600 hover:bg-red-50 rounded-xl transition-colors flex items-center justify-center gap-2"
+            >
+              <AlertCircle size={16} /> Report a Problem
+            </button>
+          )}
+
         </div>
       </main>
+
+      {/* Complaint Modal */}
+      {showComplaintModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <form onSubmit={handleSubmitComplaint} className="bg-white rounded-3xl p-6 w-full max-w-md space-y-4">
+            <h3 className="text-xl font-black text-[#212121]">Report a Problem</h3>
+
+            {order.deliveryJob?.deliveryPartnerId && (
+              <div>
+                <label htmlFor="complaint-target" className="block text-sm font-bold text-gray-700 mb-2">Who is this about?</label>
+                <select
+                  id="complaint-target"
+                  value={complaintTargetId}
+                  onChange={(e) => setComplaintTargetId(e.target.value)}
+                  className="w-full border-2 border-gray-100 rounded-xl p-3 text-sm"
+                >
+                  <option value={order.farmerId}>Farmer</option>
+                  <option value={order.deliveryJob.deliveryPartnerId}>Delivery Partner</option>
+                </select>
+              </div>
+            )}
+
+            <div>
+              <label htmlFor="complaint-reason" className="block text-sm font-bold text-gray-700 mb-2">What went wrong?</label>
+              <select
+                id="complaint-reason"
+                value={complaintReason}
+                onChange={(e) => setComplaintReason(e.target.value)}
+                className="w-full border-2 border-gray-100 rounded-xl p-3 text-sm"
+              >
+                {COMPLAINT_REASONS.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="complaint-details" className="block text-sm font-bold text-gray-700 mb-2">Details (Optional)</label>
+              <textarea
+                id="complaint-details"
+                value={complaintDetails}
+                onChange={(e) => setComplaintDetails(e.target.value)}
+                maxLength={2000}
+                className="w-full border-2 border-gray-100 rounded-xl p-3 text-sm"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowComplaintModal(false)}
+                className="flex-1 py-3 border-2 border-gray-100 rounded-xl font-bold text-gray-700"
+              >
+                Close
+              </button>
+              <button
+                type="submit"
+                disabled={submittingComplaint}
+                className="flex-1 py-3 bg-[#1B5E20] text-white rounded-xl font-bold disabled:opacity-50"
+              >
+                Submit
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Rating Modal */}
       {showRatingModal && (

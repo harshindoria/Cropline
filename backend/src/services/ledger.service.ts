@@ -109,7 +109,7 @@ const releaseHeldEntries = async (tx: Tx, orderId: string): Promise<void> => {
 export const settleCashLiability = async (tx: Tx, liabilityId: string, adminId?: string): Promise<boolean> => {
   const claimed = await tx.cashLiability.updateMany({
     where: { id: liabilityId, reconciledAt: null },
-    data: { status: 'VERIFIED', reconciledAt: new Date(), reconciledByAdminId: adminId ?? null },
+    data: { status: 'VERIFIED', depositedAt: new Date(), reconciledAt: new Date(), reconciledByAdminId: adminId ?? null },
   });
   if (claimed.count !== 1) return false;
 

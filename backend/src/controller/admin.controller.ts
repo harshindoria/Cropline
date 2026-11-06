@@ -872,31 +872,35 @@ export const processComplaint = async (req: Request<{id: string}>, res: Response
       return;
     }
 
+    if (complaint.status === 'APPROVED' || complaint.status === 'DISMISSED') {
+      res.status(409).json({ success: false, message: "This complaint was already resolved" });
+      return;
+    }
+
     let updatedStatus: ComplaintStatus = 'PENDING';
     if (action === 'APPROVE') updatedStatus = 'APPROVED';
     if (action === 'DISMISS') updatedStatus = 'DISMISSED';
     if (action === 'REQUEST_MORE_EVIDENCE') updatedStatus = 'UNDER_REVIEW';
 
     // Transaction for atomic updates
-    await prisma.$transaction(async (tx) => {
-      // 1. Update Complaint
-      await tx.complaint.update({
-        where: { id },
+    const processed = await prisma.$transaction(async (tx) => {
+      // 1. Update Complaint. Two admins acting at once must not both add a strike.
+      const claimed = await tx.complaint.updateMany({
+        where: { id, status: { in: ['PENDING', 'UNDER_REVIEW'] } },
         data: {
           status: updatedStatus,
           adminRemark,
           ...(action === 'REQUEST_MORE_EVIDENCE' ? {} : { resolvedByAdminId: req.user!.id, resolvedAt: new Date() }),
         }
       });
+      if (claimed.count !== 1) return false;
 
       // 2. Logic based on action
       if (action === 'APPROVE') {
-        const newStrikeCount = complaint.accused.strikeCount + 1;
-        
         // Increment global strike count on user
-        await tx.user.update({
+        const { strikeCount: newStrikeCount } = await tx.user.update({
           where: { id: complaint.accusedId },
-          data: { strikeCount: newStrikeCount }
+          data: { strikeCount: { increment: 1 } }
         });
 
         // Notify Complainer
@@ -987,7 +991,7 @@ export const processComplaint = async (req: Request<{id: string}>, res: Response
               type: 'WARNING',
               alertLevel: 'CRITICAL',
               title: 'Role Blocked',
-              body: `Your ${complaint.accusedRole} role has been permanently blocked due to 10 strikes. An unban fee of ₹1000 is required.`
+              body: `Your ${complaint.accusedRole} role has been permanently blocked due to 10 strikes. An unban fee of ₹1000 is required. Please contact support to pay it and appeal.`
             }
           });
         } else {
@@ -1025,7 +1029,13 @@ export const processComplaint = async (req: Request<{id: string}>, res: Response
           }
         });
       }
+      return true;
     });
+
+    if (!processed) {
+      res.status(409).json({ success: false, message: "This complaint was already resolved" });
+      return;
+    }
 
     res.json({ success: true, message: `Complaint processed successfully: ${action}` });
   } catch (error) {

@@ -17,6 +17,7 @@ import walletRoutes from './routes/wallet.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import supplierRoutes from './routes/supplier.routes';
 import reviewRoutes from './routes/review.routes';
+import complaintRoutes from './routes/complaint.routes';
 import notificationRoutes from './routes/notification.routes';
 import locationRoutes from './routes/location.routes';
 
@@ -57,6 +58,7 @@ app.use('/api/v1/wallet', walletRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/suppliers', supplierRoutes);
 app.use('/api/v1/reviews', reviewRoutes);
+app.use('/api/v1/complaints', complaintRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/location', locationRoutes);
 

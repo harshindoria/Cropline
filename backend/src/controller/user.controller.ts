@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../config/db';
 import { sanitizeUser } from '../utils/helper';
 import { z } from 'zod';
-import { Role, RoleAccessStatus } from '@prisma/client';
+import { Role, RoleAccessStatus, UnbanFeeStatus } from '@prisma/client';
 import { signToken } from '../utils/jwtUtils';
 import { HELD_ROLE_STATUSES, hasRole, loadAccount } from '../utils/roles';
 import { encryptField } from '../utils/fieldEncryption';
@@ -220,10 +220,17 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
     const kyc = {
         ...pick(safeUpdateData, KYC_FIELDS),
         ...Object.fromEntries(
-            KYC_DOCUMENTS.filter((key) => safeUpdateData[key] !== undefined).map((key) => [key, encryptedOrNull(safeUpdateData[key]!)]),
+            KYC_DOCUMENTS.filter((key) => safeUpdateData[key] !== undefined).flatMap((key) => [
+                [key, encryptedOrNull(safeUpdateData[key]!)],
+                // Nobody has checked a new document, so an earlier approval no longer applies.
+                [key.replace('Url', 'Verified'), false],
+            ]),
         ),
     };
-    const userFields = Object.fromEntries(Object.entries(safeUpdateData).filter(([key]) => !ACCOUNT_FIELDS.includes(key)));
+    const userFields = {
+        ...Object.fromEntries(Object.entries(safeUpdateData).filter(([key]) => !ACCOUNT_FIELDS.includes(key))),
+        ...(safeUpdateData.aadhaarUrl !== undefined && { isVerified: false }),
+    };
 
     const updatedUser = await prisma.$transaction(async (tx) => {
         const updated = await tx.user.update({ where: { id: userId }, data: userFields });
@@ -365,7 +372,7 @@ export const setRoleBlock = async (req: Request, res: Response): Promise<void> =
     data: parsed.data.blocked ? {
       status: RoleAccessStatus.BLOCKED, reason: parsed.data.reason, blockedAt: new Date(),
       blockedUntil: parsed.data.blockedUntil, changedByAdminId: req.user.id,
-    } : { status: RoleAccessStatus.ACTIVE, reason: null, blockedAt: null, blockedUntil: null, changedByAdminId: req.user.id },
+    } : { status: RoleAccessStatus.ACTIVE, reason: null, blockedAt: null, blockedUntil: null, changedByAdminId: req.user.id, unbanFeeStatus: UnbanFeeStatus.NONE, unbanFeeAmount: null },
   });
   res.json({ success: true, access });
 };
