@@ -181,7 +181,7 @@ describe('indexes', () => {
   it.each([
     'Order_cropId_idx',
     'Order_status_createdAt_idx',
-    'Review_orderId_idx',
+    'Review_reviewerId_idx',
     'Complaint_orderId_idx',
     'Complaint_complainerId_idx',
     'Complaint_status_idx',

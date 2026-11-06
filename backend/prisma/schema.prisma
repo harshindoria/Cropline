@@ -135,6 +135,13 @@ enum DeliveryJobStatus {
   PICKED_UP
   IN_DELIVERY
   DELIVERED
+  CANCELLED
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSED
+  FAILED
 }
 
 enum SubscriptionFrequency {
@@ -402,7 +409,7 @@ model Order {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  deliveryJob        DeliveryJob?
+  deliveryJobs       DeliveryJob[]
   reviews            Review[]
   deliveryOffers     DeliveryOffer[]
   paymentRecord      PaymentRecord?
@@ -420,8 +427,10 @@ model Order {
 model DeliveryJob {
   id String @id @default(cuid())
 
+  // An order can have many jobs over time, but only one that is not CANCELLED. A partial unique
+  // index in the migrations enforces that, because Prisma cannot describe one here.
   order   Order  @relation(fields: [orderId], references: [id])
-  orderId String @unique
+  orderId String
 
   deliveryPartner   User   @relation(fields: [deliveryPartnerId], references: [id])
   deliveryPartnerId String
@@ -445,12 +454,15 @@ model DeliveryJob {
   acceptedAt          DateTime  @default(now())
   pickedUpAt          DateTime?
   deliveredAt         DateTime?
+  cancelledAt         DateTime?
+  cancellationReason  String?
   estimatedDeliveryAt DateTime?
   createdAt           DateTime  @default(now())
   offeredAt           DateTime  @default(now())
   acceptanceDeadline  DateTime?
   notifiedPartners    String[]  @default([])
 
+  @@index([orderId])
   @@index([deliveryPartnerId, status])
   @@index([pickupLatitude, pickupLongitude])
 }
@@ -468,13 +480,14 @@ model DeliveryOffer {
   expiresAt   DateTime
   respondedAt DateTime?
 
-  @@unique([orderId, partnerId])
+  @@unique([orderId, partnerId, wave]) // Each retry is a new wave, so a partner can be offered again.
   @@index([partnerId, status, expiresAt])
   @@index([orderId, wave])
 }
 
 
 
+// The buyer's payment for one order. Its attempts and refunds are kept as separate rows below.
 model PaymentRecord {
   id                String        @id @default(cuid())
   order             Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
@@ -486,9 +499,41 @@ model PaymentRecord {
   amount            Decimal       @db.Decimal(10, 2)
   authorizedAt      DateTime?
   capturedAt        DateTime?
-  refundedAt        DateTime?
+  refundedAt        DateTime? // Set only once the full amount has been refunded.
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
+
+  attempts PaymentAttempt[]
+  refunds  Refund[]
+}
+
+model PaymentAttempt {
+  id                String        @id @default(cuid())
+  paymentRecord     PaymentRecord @relation(fields: [paymentRecordId], references: [id], onDelete: Restrict)
+  paymentRecordId   String
+  providerPaymentId String        @unique
+  status            PaymentStatus
+  amount            Decimal       @db.Decimal(10, 2)
+  failureReason     String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([paymentRecordId])
+}
+
+model Refund {
+  id               String        @id @default(cuid())
+  paymentRecord    PaymentRecord @relation(fields: [paymentRecordId], references: [id], onDelete: Restrict)
+  paymentRecordId  String
+  providerRefundId String        @unique
+  amount           Decimal       @db.Decimal(10, 2)
+  status           RefundStatus  @default(PENDING)
+  reason           String?
+  processedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([paymentRecordId])
 }
 
 model LedgerEntry {
@@ -536,8 +581,8 @@ model CashLiability {
 model Review {
   id String @id @default(cuid())
 
-  order   Order?  @relation(fields: [orderId], references: [id])
-  orderId String?
+  order   Order  @relation(fields: [orderId], references: [id])
+  orderId String
 
   reviewer   User   @relation("GivenReviews", fields: [reviewerId], references: [id])
   reviewerId String
@@ -556,9 +601,9 @@ model Review {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([reviewerId, targetId])
+  @@unique([orderId, reviewerId, targetId])
+  @@index([reviewerId])
   @@index([targetId])
-  @@index([orderId])
 }
 
 model Subscription {

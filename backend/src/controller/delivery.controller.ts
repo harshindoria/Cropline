@@ -9,6 +9,7 @@ import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
 import { uploadToCloudinary } from '../utils/cloudinaryUpload';
 import { recordDeliveredOrder } from '../services/ledger.service';
+import { ACTIVE_JOB } from '../utils/deliveryJob';
 
 // ── GET NEARBY JOBS (The Radar) ─────────────────────────────────────────────
 export const getNearbyJobs = async (req: Request, res: Response): Promise<void> => {
@@ -51,7 +52,7 @@ export const getNearbyJobs = async (req: Request, res: Response): Promise<void> 
       where: {
         status: OrderStatus.READY_FOR_PICKUP,
         deliveryType: DeliveryType.DELIVERY,
-        deliveryJob: null, // Ensure job is not already accepted
+        deliveryJobs: { none: ACTIVE_JOB }, // Ensure job is not already accepted
         crop: {
           farmLatitude: { gte: minLat, lte: maxLat },
           farmLongitude: { gte: minLng, lte: maxLng },
@@ -159,7 +160,7 @@ export const acceptJob = async (req: Request<{orderId : string}>, res: Response)
             farmDistrict: true,
           },
         },
-        deliveryJob: true, // Checking if someone else already took it
+        deliveryJobs: { where: ACTIVE_JOB }, // Checking if someone else already took it
         deliveryOffers: {
           where: {
             partnerId: req.user!.id,
@@ -188,7 +189,7 @@ export const acceptJob = async (req: Request<{orderId : string}>, res: Response)
     }
 
     // Pre-check for race condition (Though DB constraint is the ultimate guard)
-    if (order.deliveryJob) {
+    if (order.deliveryJobs.length > 0) {
       res.status(409).json({ success: false, message: 'Another delivery partner has already accepted this job' });
       return;
     }
@@ -225,7 +226,7 @@ export const acceptJob = async (req: Request<{orderId : string}>, res: Response)
     // 5. THE ATOMIC TRANSACTION (The Ultimate Race Guard)
     const [deliveryJob] = await prisma.$transaction([
       
-      // Query 1: Create the Job (Throws P2002 if orderId already exists)
+      // Query 1: Create the Job (Throws P2002 if this order already has a live job)
       prisma.deliveryJob.create({
         data: {
           orderId,

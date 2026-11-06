@@ -202,6 +202,10 @@ export const broadcastDeliveryOffer = async (
 
   const offerExpiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours
 
+  // Every broadcast is a new wave, so a partner from an earlier wave can be offered this order again.
+  const { _max } = await prisma.deliveryOffer.aggregate({ where: { orderId }, _max: { wave: true } });
+  const wave = (_max.wave ?? 0) + 1;
+
   // Create a DeliveryOffer + Notification for each eligible driver in parallel
   await Promise.all(
     eligibleDrivers.map(driver => {
@@ -216,7 +220,7 @@ export const broadcastDeliveryOffer = async (
             orderId,
             partnerId: driver.id,
             status: DeliveryOfferStatus.OFFERED,
-            wave: 1,
+            wave,
             radiusKm,
             expiresAt: offerExpiresAt,
           }

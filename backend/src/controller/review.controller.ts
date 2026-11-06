@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../config/db';
-import { ReviewTargetType } from '@prisma/client';
+import { DeliveryJobStatus, OrderStatus, ReviewTargetType } from '@prisma/client';
 
 export const getMyReviews = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -54,7 +54,7 @@ export const submitReview = async (req: Request, res: Response): Promise<void> =
     const { orderId, targetId, targetType, rating, comment } = req.body;
     const reviewerId = req.user!.id;
 
-    if (!targetId || !targetType || !rating) {
+    if (!orderId || !targetId || !targetType || !rating) {
       res.status(400).json({ success: false, message: 'Missing required fields' });
       return;
     }
@@ -64,35 +64,43 @@ export const submitReview = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // Verify order exists and belongs to the reviewer (if orderId is provided)
-    if (orderId) {
-      const order = await prisma.order.findUnique({
-        where: { id: orderId }
-      });
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { deliveryJobs: { where: { status: DeliveryJobStatus.DELIVERED }, take: 1 } }
+    });
 
-      if (!order) {
-        res.status(404).json({ success: false, message: 'Order not found' });
-        return;
-      }
-
-      if (order.buyerId !== reviewerId) {
-        res.status(403).json({ success: false, message: 'You are not authorized to review this order' });
-        return;
-      }
+    if (!order) {
+      res.status(404).json({ success: false, message: 'Order not found' });
+      return;
     }
 
-    // Check if review already exists for this target
+    if (order.buyerId !== reviewerId) {
+      res.status(403).json({ success: false, message: 'You are not authorized to review this order' });
+      return;
+    }
+
+    if (order.status !== OrderStatus.DELIVERED && order.status !== OrderStatus.COMPLETED) {
+      res.status(400).json({ success: false, message: 'You can review an order only after it is delivered' });
+      return;
+    }
+
+    const validTarget =
+      (targetType === ReviewTargetType.FARMER && targetId === order.farmerId) ||
+      (targetType === ReviewTargetType.DELIVERY && targetId === order.deliveryJobs[0]?.deliveryPartnerId);
+    if (!validTarget) {
+      res.status(400).json({ success: false, message: 'This person is not part of this order' });
+      return;
+    }
+
+    // Check if review already exists for this target on this order
     const existing = await prisma.review.findUnique({
       where: {
-        reviewerId_targetId: {
-          reviewerId,
-          targetId
-        }
+        orderId_reviewerId_targetId: { orderId, reviewerId, targetId }
       }
     });
 
     if (existing) {
-      res.status(400).json({ success: false, message: 'You have already reviewed this user' });
+      res.status(400).json({ success: false, message: 'You have already reviewed this person for this order' });
       return;
     }
 

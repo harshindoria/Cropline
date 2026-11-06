@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 import { settleCashLiability } from '../services/ledger.service';
+import { ACTIVE_JOB, withOrderCurrentJob } from '../utils/deliveryJob';
 
 export const getTransactionsOverview = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -61,7 +62,9 @@ export const getOnlinePayments = async (req: Request, res: Response): Promise<vo
             completedAt: true,
             buyer: { select: { name: true, phone: true } },
             farmer: { select: { name: true, phone: true } },
-            deliveryJob: {
+            deliveryJobs: {
+              where: ACTIVE_JOB,
+              take: 1,
               select: {
                 deliveryPartner: { select: { name: true, phone: true } },
                 deliveredAt: true
@@ -74,7 +77,7 @@ export const getOnlinePayments = async (req: Request, res: Response): Promise<vo
 
     res.status(200).json({
       success: true,
-      data: payments
+      data: payments.map(withOrderCurrentJob)
     });
   } catch (error) {
     console.error("Error in getOnlinePayments:", error);
@@ -100,7 +103,9 @@ export const getCashCollections = async (req: Request, res: Response): Promise<v
             completedAt: true,
             buyer: { select: { name: true, phone: true } },
             farmer: { select: { name: true, phone: true } },
-            deliveryJob: {
+            deliveryJobs: {
+              where: ACTIVE_JOB,
+              take: 1,
               select: {
                 deliveredAt: true
               }
@@ -112,7 +117,7 @@ export const getCashCollections = async (req: Request, res: Response): Promise<v
 
     res.status(200).json({
       success: true,
-      data: collections
+      data: collections.map(withOrderCurrentJob)
     });
   } catch (error) {
     console.error("Error in getCashCollections:", error);
@@ -141,7 +146,9 @@ export const getSettlements = async (req: Request, res: Response): Promise<void>
             completedAt: true,
             buyer: { select: { name: true, phone: true } },
             farmer: { select: { name: true, phone: true } },
-            deliveryJob: {
+            deliveryJobs: {
+              where: ACTIVE_JOB,
+              take: 1,
               select: {
                 deliveryPartner: { select: { name: true, phone: true } },
                 deliveredAt: true
@@ -161,7 +168,7 @@ export const getSettlements = async (req: Request, res: Response): Promise<void>
 
     res.status(200).json({
       success: true,
-      data: settlements
+      data: settlements.map(withOrderCurrentJob)
     });
   } catch (error) {
     console.error("Error in getSettlements:", error);

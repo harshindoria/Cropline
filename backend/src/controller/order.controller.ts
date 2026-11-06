@@ -7,7 +7,8 @@ import { haversineDistance } from '../utils/geoUtils';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
 import { broadcastDeliveryOffer } from '../services/deliveryAssignment.service';
-import { issueRazorpayRefund } from '../services/payment.service';
+import { refundFullPayment } from '../services/paymentRecord.service';
+import { ACTIVE_JOB, withCurrentJob } from '../utils/deliveryJob';
 
 // ── ZOD SCHEMA ──────────────────────────────────────────────────────────────
 const createOrderSchema = z.object({
@@ -330,12 +331,7 @@ export const rejectOrder = async (req: Request<{ id: string }>, res: Response): 
       // 3. 💡 FIX 3: Handle Refund Scenario for Pre-paid Orders
       if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS && order.paymentRecord.providerPaymentId) {
         // Call Razorpay Refund API
-        await issueRazorpayRefund(order.paymentRecord.providerPaymentId, undefined, { reason: 'Order rejected by farmer' });
-        
-        await tx.paymentRecord.update({
-          where: { id: order.paymentRecord.id },
-          data: { status: PaymentStatus.REFUNDED, refundedAt: new Date() }
-        });
+        await refundFullPayment(tx, order.paymentRecord, 'Order rejected by farmer');
       }
       
       // 4. Notify the buyer about the rejection
@@ -475,11 +471,7 @@ const autoRejectExpiredOrders = async () => {
         });
         // Process refund DB state
         if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS && order.paymentRecord.providerPaymentId) {
-          await issueRazorpayRefund(order.paymentRecord.providerPaymentId, undefined, { reason: 'Order auto-rejected (timeout)' });
-          await tx.paymentRecord.update({
-            where: { id: order.paymentRecord.id },
-            data: { status: PaymentStatus.REFUNDED, refundedAt: new Date() }
-          });
+          await refundFullPayment(tx, order.paymentRecord, 'Order auto-rejected (timeout)');
         }
       }
     });
@@ -512,11 +504,11 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
         farmer: { select: { id: true, name: true, village: true, district: true, rating: true, ratingCount: true, isVerified: true } },
         buyer: { select: { id: true, name: true, village: true, district: true } },
         paymentRecord: true,
-        deliveryJob: { include: { deliveryPartner: { select: { id: true, name: true, phone: true } } } }
+        deliveryJobs: { where: ACTIVE_JOB, take: 1, include: { deliveryPartner: { select: { id: true, name: true, phone: true } } } }
       },
       orderBy: { createdAt: 'desc' }
     });
-    res.json({ success: true, orders });
+    res.json({ success: true, orders: orders.map(withCurrentJob) });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch orders' });
   }
@@ -532,7 +524,7 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
         buyer: { select: { id: true, name: true, email: true, phone: true, village: true, district: true, state: true, pincode: true } },
         farmer: { select: { id: true, name: true, email: true, phone: true, village: true, district: true, state: true, rating: true, ratingCount: true, isVerified: true } },
         paymentRecord: true,
-        deliveryJob: { include: { deliveryPartner: { select: { id: true, name: true, phone: true, vehicleType: true } } } }
+        deliveryJobs: { where: ACTIVE_JOB, take: 1, include: { deliveryPartner: { select: { id: true, name: true, phone: true, vehicleType: true } } } }
       }
     });
     if (!order) {
@@ -544,7 +536,7 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
       res.status(403).json({ success: false, message: 'Unauthorized' });
       return;
     }
-    res.json({ success: true, order });
+    res.json({ success: true, order: withCurrentJob(order) });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch order' });
   }
@@ -580,11 +572,7 @@ export const cancelOrder = async (req: Request<{ id: string }>, res: Response): 
 
       // 3. If payment was captured, mark for refund
       if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS && order.paymentRecord.providerPaymentId) {
-        await issueRazorpayRefund(order.paymentRecord.providerPaymentId, undefined, { reason: 'Order cancelled by buyer' });
-        await tx.paymentRecord.update({
-          where: { id: order.paymentRecord.id },
-          data: { status: PaymentStatus.REFUNDED, refundedAt: new Date() }
-        });
+        await refundFullPayment(tx, order.paymentRecord, 'Order cancelled by buyer');
       }
     });
 

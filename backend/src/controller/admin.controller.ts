@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../config/db';
 import { z } from 'zod';
 import { Role, RoleAccessStatus, NotificationType, NotificationAlertLevel, ComplaintStatus, OrderStatus, Prisma } from '@prisma/client';
+import { ACTIVE_JOB, withOrderCurrentJob } from '../utils/deliveryJob';
 
 export const getRoleApplications = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -802,7 +803,9 @@ export const getComplaints = async (req: Request, res: Response): Promise<void> 
             completedAt: true,
             farmer: { select: { id: true, name: true, phone: true } },
             buyer: { select: { id: true, name: true, phone: true } },
-            deliveryJob: {
+            deliveryJobs: {
+              where: ACTIVE_JOB,
+              take: 1,
               select: {
                 pickedUpAt: true,
                 deliveredAt: true,
@@ -814,7 +817,7 @@ export const getComplaints = async (req: Request, res: Response): Promise<void> 
       }
     });
 
-    res.json({ success: true, data: complaints });
+    res.json({ success: true, data: complaints.map(withOrderCurrentJob) });
   } catch (error) {
     console.error("Error fetching complaints:", error);
     res.status(500).json({ success: false, message: "Internal server error" });

@@ -5,7 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
 import { 
-  ArrowLeft, MapPin, CheckCircle2, Star, Package, Leaf, Users, Phone, Clock, MessageCircle, Loader2, ShoppingBasket, Edit3, ChevronDown, ChevronLeft, ChevronRight, X
+  ArrowLeft, MapPin, CheckCircle2, Star, Package, Leaf, Users, Phone, Clock, MessageCircle, Loader2, ShoppingBasket, ChevronDown, ChevronLeft, ChevronRight
 } from "lucide-react";
 import Image from "next/image";
 import CropCard from "../../components/CropCard";
@@ -36,34 +36,6 @@ export default function FarmerPublicProfilePage() {
   const REVIEWS_PER_PAGE = 3;
 
   // New Review Modal States
-  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
-  const [newReviewRating, setNewReviewRating] = useState(0);
-  const [newReviewComment, setNewReviewComment] = useState("");
-  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
-
-  const handleSubmitReview = async () => {
-    if (newReviewRating === 0) return alert("Please select a rating");
-    try {
-      setIsSubmittingReview(true);
-      const payload = {
-        targetId: farmerId,
-        targetType: "FARMER",
-        rating: newReviewRating,
-        comment: newReviewComment
-      };
-      const res = await api.post('/reviews', payload);
-      if (res.data.success) {
-        alert("Review submitted successfully!");
-        setIsReviewModalOpen(false);
-        window.location.reload(); 
-      }
-    } catch (err: any) {
-      alert(err.response?.data?.message || "Failed to submit review");
-    } finally {
-      setIsSubmittingReview(false);
-    }
-  };
-
   useEffect(() => {
     setIsClient(true);
     const saved = localStorage.getItem("cropline_cart");
@@ -365,14 +337,7 @@ export default function FarmerPublicProfilePage() {
               <div className="flex text-yellow-400 mb-2">
                 {[...Array(5)].map((_, i) => <Star key={i} className="w-5 h-5 fill-yellow-400" />)}
               </div>
-              <p className="text-[10px] font-semibold text-gray-500 mb-4 text-center">Your review helps other buyers!</p>
-              <button 
-                onClick={() => setIsReviewModalOpen(true)}
-                className="w-full py-2 bg-white border border-[#2E7D32] text-[#2E7D32] rounded-lg text-sm font-bold flex items-center justify-center gap-2 hover:bg-green-50 transition-colors shadow-sm"
-              >
-                <Edit3 className="w-4 h-4" />
-                Write a Review
-              </button>
+              <p className="text-[10px] font-semibold text-gray-500 text-center">You can rate this farmer from your delivered orders.</p>
             </div>
           </div>
 
@@ -553,57 +518,6 @@ export default function FarmerPublicProfilePage() {
         </div>
       )}
 
-      {/* Write a Review Modal */}
-      {isReviewModalOpen && (
-        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-[24px] w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-[#F9FAF7]">
-              <h3 className="text-lg font-black text-[#1B5E20]">Write a Review</h3>
-              <button onClick={() => setIsReviewModalOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-white transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-6 space-y-6">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">Overall Rating</label>
-                <div className="flex items-center gap-2">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                      key={star}
-                      onClick={() => setNewReviewRating(star)}
-                      className="focus:outline-none transition-transform hover:scale-110 active:scale-95"
-                    >
-                      <Star 
-                        className={`w-10 h-10 ${star <= newReviewRating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-200 fill-gray-200'} transition-colors`} 
-                      />
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">Your Experience</label>
-                <textarea 
-                  rows={4}
-                  value={newReviewComment}
-                  onChange={(e) => setNewReviewComment(e.target.value)}
-                  placeholder="Tell others about the quality of the produce, delivery experience, etc."
-                  className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-[#2E7D32]/20 focus:border-[#2E7D32] transition-all resize-none outline-none"
-                />
-              </div>
-
-              <button 
-                onClick={handleSubmitReview}
-                disabled={isSubmittingReview || newReviewRating === 0}
-                className="w-full py-4 bg-[#2E7D32] hover:bg-[#1B5E20] disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 shadow-sm"
-              >
-                {isSubmittingReview ? <Loader2 className="w-5 h-5 animate-spin" /> : "Submit Review"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
 } from '../services/payment.service';
 import crypto from 'crypto';
 import { settleCashLiability } from '../services/ledger.service';
+import { applyProcessedRefund, markPaymentFailed, markPaymentSucceeded } from '../services/paymentRecord.service';
 
 // ============================================================================
 // 1. THE MASTER SWITCHBOARD (Webhook Listener)
@@ -37,14 +38,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
         const paymentEntity = payload.payment.entity;
         const razorpayOrderId = paymentEntity.order_id;
 
-        await prisma.paymentRecord.updateMany({
-          where: { providerOrderId: razorpayOrderId },
-          data: {
-            status: 'SUCCESS', // Exactly matches PaymentStatus Enum
-            providerPaymentId: paymentEntity.id,
-            capturedAt: new Date() // Aapke schema ke mutabiq precise date
-          }
-        });
+        await markPaymentSucceeded(razorpayOrderId, paymentEntity.id);
         break;
       }
 
@@ -52,10 +46,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
         const paymentEntity = payload.payment.entity;
         const razorpayOrderId = paymentEntity.order_id;
 
-        await prisma.paymentRecord.updateMany({
-          where: { providerOrderId: razorpayOrderId },
-          data: { status: 'FAILED' }
-        });
+        await markPaymentFailed(razorpayOrderId, paymentEntity.id, paymentEntity.error_description);
         console.log(`Payment failed for Order ID: ${razorpayOrderId}`);
         break;
       }
@@ -121,16 +112,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
       // C. THE REFUND LOOP
       // ---------------------------------------------------------
       case 'refund.processed': {
-        const refundEntity = payload.refund.entity;
-        const paymentId = refundEntity.payment_id;
-
-        await prisma.paymentRecord.updateMany({
-          where: { providerPaymentId: paymentId },
-          data: {
-            status: 'REFUNDED',
-            refundedAt: new Date()
-          }
-        });
+        await applyProcessedRefund(payload.refund.entity);
         break;
       }
 
@@ -302,14 +284,7 @@ export const verifyOrderPayment = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    await prisma.paymentRecord.updateMany({
-      where: { providerOrderId: razorpay_order_id },
-      data: {
-        status: 'SUCCESS',
-        providerPaymentId: razorpay_payment_id,
-        capturedAt: new Date()
-      }
-    });
+    await markPaymentSucceeded(razorpay_order_id, razorpay_payment_id);
 
     res.status(200).json({ success: true, message: 'Payment verified successfully' });
   } catch (error) {
