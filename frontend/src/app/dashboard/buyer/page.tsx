@@ -14,6 +14,8 @@ import Image from "next/image";
 import ApplicationModal from "@/components/ApplicationModal";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import NotificationDropdown from "@/components/NotificationDropdown";
+import { useSocket } from "@/context/SocketContext";
+import { toast } from "sonner";
 import CropCard from "./components/CropCard";
 import LocationSelector, { LocationValue } from "@/components/LocationSelector";
 import { getGpsOrSavedLocation, reverseGeocode } from "@/lib/location";
@@ -29,6 +31,7 @@ const categories = [
 
 function BuyerDashboardContent() {
   const { user, loading, switchRole, logout } = useAuth();
+  const { socket } = useSocket();
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
@@ -329,6 +332,30 @@ function BuyerDashboardContent() {
       }
     }
   }, [user, loading, router]);
+
+  // Socket Event Listeners for Buyer
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleOrderAssigned = (data: any) => {
+      toast.success("Order Update", {
+        description: data.message || "Your order status has been updated.",
+        duration: 5000,
+        action: {
+          label: "View Orders",
+          onClick: () => router.push("/dashboard/buyer/orders")
+        }
+      });
+    };
+
+    socket.on("order:assigned", handleOrderAssigned);
+    socket.on("order:picked_up", handleOrderAssigned);
+
+    return () => {
+      socket.off("order:assigned", handleOrderAssigned);
+      socket.off("order:picked_up", handleOrderAssigned);
+    };
+  }, [socket, router]);
 
   useEffect(() => {
     setPage(1);

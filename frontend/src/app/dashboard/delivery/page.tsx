@@ -14,9 +14,12 @@ import {
 import api from "@/lib/axios";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import NotificationDropdown from "@/components/NotificationDropdown";
+import { useSocket } from "@/context/SocketContext";
+import { toast } from "sonner";
 
 export default function DeliveryDashboard() {
   const { user, loading } = useAuth();
+  const { socket } = useSocket();
   const router = useRouter();
   
   const [monthlyEarnings, setMonthlyEarnings] = useState<number[]>(new Array(12).fill(0));
@@ -83,6 +86,38 @@ export default function DeliveryDashboard() {
       fetchData();
     }
   }, [user, loading, router]);
+
+  // Socket Event Listeners
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleOrderAssigned = (data: any) => {
+      toast.info("Job Update", {
+        description: data.message || "A delivery job status has been updated.",
+        duration: 5000,
+      });
+      // Optionally re-fetch some data directly without full fetchData
+      if (user?.latitude && user?.longitude) {
+        api.get(`/delivery/nearby?lat=${user.latitude}&lng=${user.longitude}`).then(res => {
+          if (res.data.success) {
+            let within5 = 0, within10 = 0, priority = 0;
+            res.data.data.forEach((job: any) => {
+              if (job.distance <= 5) within5++;
+              else if (job.distance <= 10) within10++;
+              if (job.isPriority) priority++;
+            });
+            setNearbyActivity({ within5, within10, priority });
+          }
+        }).catch(err => console.error(err));
+      }
+    };
+
+    socket.on("order:assigned", handleOrderAssigned);
+
+    return () => {
+      socket.off("order:assigned", handleOrderAssigned);
+    };
+  }, [socket, user]);
 
   if (loading || !user) {
     return (

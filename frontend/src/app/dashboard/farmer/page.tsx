@@ -6,6 +6,8 @@ import RoleSwitcher from "@/components/RoleSwitcher";
 import NotificationDropdown from "@/components/NotificationDropdown";
 import { getGpsOrSavedLocation, reverseGeocode } from "@/lib/location";
 import { useAuth } from "@/context/AuthContext";
+import { useSocket } from "@/context/SocketContext";
+import { toast } from "sonner";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef, Suspense } from "react";
 import api from "@/lib/axios";
@@ -36,7 +38,31 @@ const CATEGORY_COLORS: Record<string, string> = {
 function FarmerDashboardContent() {
   const { user, loading, switchRole, logout } = useAuth();
   const router = useRouter();
+  const { socket } = useSocket();
   const [cropLang, setCropLang] = useState<"en" | "hi">("en");
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleOrderUpdate = (data: { message?: string }) => {
+      toast.success("Order Update", {
+        description: data.message || "Your order status has been updated.",
+        duration: 5000,
+        action: {
+          label: "View Orders",
+          onClick: () => router.push("/dashboard/farmer/orders")
+        }
+      });
+    };
+
+    socket.on("order:assigned", handleOrderUpdate);
+    socket.on("order:picked_up", handleOrderUpdate);
+
+    return () => {
+      socket.off("order:assigned", handleOrderUpdate);
+      socket.off("order:picked_up", handleOrderUpdate);
+    };
+  }, [socket, router]);
 
   useEffect(() => {
     const saved = localStorage.getItem("cropline_crop_lang");

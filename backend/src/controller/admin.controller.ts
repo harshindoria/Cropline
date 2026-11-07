@@ -3,6 +3,7 @@ import { primaryCropsSelect, primaryCropsText } from '../utils/primaryCrops';
 import prisma from '../config/db';
 import { z } from 'zod';
 import { Role, RoleAccessStatus, NotificationType, NotificationAlertLevel, ComplaintStatus, OrderStatus, Prisma } from '@prisma/client';
+import { disconnectUser } from '../sockets/socket.handler';
 import { ACTIVE_JOB, withOrderCurrentJob } from '../utils/deliveryJob';
 import { hasRole, HELD_ROLES, withRoles } from '../utils/roles';
 import { decryptField } from '../utils/fieldEncryption';
@@ -256,6 +257,8 @@ export const blockBuyer = async (req: Request<{id: string}>, res: Response): Pro
       where: { id },
       data: { isActive: !block }
     });
+
+    if (block) disconnectUser(id);
 
     res.json({ success: true, message: block ? "Buyer blocked" : "Buyer unblocked", user });
   } catch (error) {

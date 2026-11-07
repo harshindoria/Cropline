@@ -36,8 +36,10 @@ const httpServer = createServer(app);
 export const io = new Server(httpServer, {
   cors: {
     origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+    methods: ['GET', 'POST'],
   },
+  // Clients only send short IDs, so reject large messages (default is 1 MB).
+  maxHttpBufferSize: 10_000,
 });
 
 // Middlewares

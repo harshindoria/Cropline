@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Poppins, Nunito } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
+import { SocketProvider } from "@/context/SocketContext";
+import { Toaster } from "sonner";
 
 const poppins = Poppins({
   variable: "--font-poppins",
@@ -30,7 +32,10 @@ export default function RootLayout({
     <html lang="hi" className={`${poppins.variable} ${nunito.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         <AuthProvider>
-          {children}
+          <SocketProvider>
+            {children}
+            <Toaster position="top-right" richColors closeButton />
+          </SocketProvider>
         </AuthProvider>
         {/* Container for Firebase Recaptcha */}
         <div id="recaptcha-container"></div>

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Prisma, DeliveryJobStatus, OrderStatus, Role, DeliveryType, RoleAccessStatus} from '@prisma/client';
+import { Prisma, DeliveryJobStatus, OrderStatus, Role, DeliveryType, RoleAccessStatus } from '@prisma/client';
 import prisma from '../config/db';
 import { getIO } from '../sockets/socket.handler';
 import { haversineDistance } from '../utils/geoUtils';
@@ -248,6 +248,12 @@ export const acceptJob = async (req: Request<{orderId : string}>, res: Response)
     const estimatedMinutes = Math.round((distanceKm / 30) * 60);
     const estimatedDeliveryAt = new Date(Date.now() + estimatedMinutes * 60 * 1000);
 
+    // Partners whose open offer is about to be lost, so their dashboards can refresh
+    const otherOffers = await prisma.deliveryOffer.findMany({
+      where: { orderId, status: 'OFFERED', partnerId: { not: req.user!.id } },
+      select: { partnerId: true },
+    });
+
     // 5. THE ATOMIC TRANSACTION (The Ultimate Race Guard)
     const [deliveryJob] = await prisma.$transaction([
       
@@ -298,6 +304,14 @@ export const acceptJob = async (req: Request<{orderId : string}>, res: Response)
       message: 'A delivery partner is heading to pick up your order.',
       estimatedDeliveryAt,
     });
+
+    // Ping the other partners. The guard matters: io.to([]) would broadcast to every client.
+    if (otherOffers.length > 0) {
+      io.to(otherOffers.map((offer) => `user:${offer.partnerId}`)).emit('order:assigned', {
+        orderId,
+        message: 'Another delivery partner accepted this job.',
+      });
+    }
 
     // 7. Success Response
     res.status(201).json({
@@ -486,13 +500,19 @@ export const markPickedUp = async (req: Request, res: Response): Promise<void> =
 // ── UPDATE LIVE LOCATION (The GPS Ping) ─────────────────────────────────────
 export const updateLocation = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { lat, lng, orderId } = req.body;
+    const { orderId } = req.body;
+    const lat = parseFloat(req.body.lat);
+    const lng = parseFloat(req.body.lng);
 
-    // 1. Data Validation
-    if (!lat || !lng || !orderId) {
+    // 1. Data Validation (these values are stored and broadcast to the buyer)
+    if (
+      typeof orderId !== 'string' || !orderId ||
+      !Number.isFinite(lat) || Math.abs(lat) > 90 ||
+      !Number.isFinite(lng) || Math.abs(lng) > 180
+    ) {
       res.status(400).json({
         success: false,
-        message: 'Coordinates (lat, lng) and orderId are required.',
+        message: 'Valid coordinates (lat, lng) and orderId are required.',
       });
       return;
     }
@@ -523,8 +543,8 @@ export const updateLocation = async (req: Request, res: Response): Promise<void>
     await prisma.deliveryJob.update({
       where: { id: job.id },
       data: {
-        liveLatitude: Number(lat),
-        liveLongitude: Number(lng),
+        liveLatitude: lat,
+        liveLongitude: lng,
         liveLocationUpdatedAt: now,
       },
     });
@@ -532,8 +552,8 @@ export const updateLocation = async (req: Request, res: Response): Promise<void>
     // 4. Socket.io Broadcast (The Live Magic)
     const io = getIO();
     io.to(`order:${orderId}`).emit('delivery:location:broadcast', {
-      lat: Number(lat),
-      lng: Number(lng),
+      lat,
+      lng,
       timestamp: now.toISOString(),
     });
 
