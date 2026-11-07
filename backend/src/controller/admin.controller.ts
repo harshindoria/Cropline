@@ -717,7 +717,7 @@ export const getNotificationHistory = async (req: Request, res: Response): Promi
     // Basic history logic: group by title and body, to show "bulk" sends as one row
     // Since prisma doesn't support grouping by all these fields easily with counts natively without raw,
     // let's fetch raw or just get distinct logs.
-    const history = await prisma.$queryRaw`
+    const history = await prisma.$queryRaw<any[]>`
       SELECT 
         "type", 
         "title", 
@@ -730,7 +730,12 @@ export const getNotificationHistory = async (req: Request, res: Response): Promi
       LIMIT 50
     `;
 
-    res.status(200).json({ success: true, data: history });
+    const formattedHistory = history.map(item => ({
+      ...item,
+      sentCount: Number(item.sentCount)
+    }));
+
+    res.status(200).json({ success: true, data: formattedHistory });
   } catch (error) {
     console.error("Error fetching notification history:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
