@@ -1,5 +1,6 @@
 import prisma from '../config/db';
 import { DeliveryJobStatus, OrderStatus, PaymentStatus } from '@prisma/client';
+import { refundFullPayment } from './paymentRecord.service';
 import { expireStaleOffers, releaseDeliveryJob, retryBroadcastWithExpandedRadius } from './deliveryAssignment.service';
 
 // A partner who accepts a job must reach the farm within this time, or the job goes to someone else.
@@ -68,11 +69,9 @@ export async function processRetryDeliveryAssignments() {
           where: { id: order.cropId },
           data: { quantityRemainingKg: { increment: order.quantityKg } }
         });
-        if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS) {
-          await tx.paymentRecord.update({
-            where: { id: order.paymentRecord.id },
-            data: { status: PaymentStatus.REFUNDED }
-          });
+        if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS && order.paymentRecord.providerPaymentId) {
+          // Actual refund call to Razorpay
+          await refundFullPayment(tx, order.paymentRecord, 'Order auto-cancelled: No delivery partner found');
         }
         await tx.notification.create({
           data: {

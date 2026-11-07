@@ -251,11 +251,8 @@ export const confirmOrder = async (req: Request<{ id: string }>, res: Response):
       include: { crop: { include: { catalog: true } } }
     });
 
-    let notifiedCount = 0;
-    if (updatedOrder.deliveryType === DeliveryType.DELIVERY) {
-      notifiedCount = await broadcastDeliveryOffer(id);
-      // Status stays DELIVERY_SEARCHING — drivers will accept via Radar
-    }
+    // We do NOT broadcast for delivery here.
+    // The driver should only be called when the farmer has packed the crop and marks it as READY_FOR_PICKUP.
 
     // Notify the buyer
     await prisma.notification.create({
@@ -269,9 +266,7 @@ export const confirmOrder = async (req: Request<{ id: string }>, res: Response):
 
     res.status(200).json({
       success: true,
-      message: notifiedCount > 0 
-        ? `Order confirmed! Broadcast sent to ${notifiedCount} nearby delivery partner(s).` 
-        : 'Order confirmed successfully. No delivery partner found nearby yet; will keep searching.',
+      message: 'Order confirmed successfully. Mark the crop ready when it is prepared to notify delivery partners.',
       data: updatedOrder
     });
 
