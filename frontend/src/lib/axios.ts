@@ -23,4 +23,24 @@ api.interceptors.request.use(
   }
 );
 
+export const SESSION_EXPIRED_EVENT = "cropline:session-expired";
+
+// The backend says the saved token is no longer valid (expired, or the account is gone).
+// AuthContext listens for this and logs the user out. Other 401s, like a wrong OTP, are left alone.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const sentToken = Boolean(error?.config?.headers?.Authorization);
+    if (
+      typeof window !== "undefined" &&
+      sentToken &&
+      error?.response?.status === 401 &&
+      error.response.data?.code === "SESSION_INVALID"
+    ) {
+      window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default api;

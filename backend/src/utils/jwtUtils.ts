@@ -6,6 +6,7 @@ export interface JwtPayload {
   userId: string;
   roles: Role[];
   activeRole: Role;
+  exp?: number;
 }
 
 // 1. Naya Token Generate Karne Wala Function
@@ -17,7 +18,7 @@ export const signToken = (userId: string, roles: Role[], activeRole: Role): stri
     throw new Error('JWT_SECRET is not defined in environment variables');
   }
 
-  // Token banate hain jo 30 din tak valid rahega
+  // Token JWT_EXPIRES_IN tak valid rahega (set na ho to 30 din)
   return jwt.sign({ userId, roles, activeRole }, secret, {
     expiresIn:process.env.JWT_EXPIRES_IN as any || '30d',
   });

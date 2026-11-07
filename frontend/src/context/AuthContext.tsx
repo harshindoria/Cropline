@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, FC, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import {
   PhoneAuthProvider,
   RecaptchaVerifier,
@@ -11,7 +11,13 @@ import {
 } from "firebase/auth";
 import { auth } from "../lib/firebase"; 
 import { isAxiosError } from "axios";
-import api from "../lib/axios";
+import api, { SESSION_EXPIRED_EVENT } from "../lib/axios";
+
+declare global {
+  interface Window {
+    recaptchaVerifier?: RecaptchaVerifier;
+  }
+}
 
 export type Role = "BUYER" | "FARMER" | "DELIVERY" | "ADMIN"; 
 
@@ -28,6 +34,7 @@ export interface UserProfile {
   district: string | null;
   state: string | null;
   pincode: string | null;
+  dob?: string | null;
   latitude: number | null;
   longitude: number | null;
   farmArea: number | null;
@@ -48,9 +55,8 @@ interface AuthContextType {
   confirmPhoneChange: (verificationId: string, otp: string) => Promise<void>;
   completeRegistration: (profileData: Partial<UserProfile>) => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
-  onboardNewRole: (role: "FARMER" | "DELIVERY", additionalData?: Record<string, any>) => Promise<void>;
+  onboardNewRole: (role: "FARMER" | "DELIVERY", additionalData?: Record<string, unknown>) => Promise<void>;
   logout: () => Promise<void>;
-  mockLogin: (mockRole: Role) => void; // Added for easy demoing/testing
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -70,12 +76,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         
         if (savedToken && savedUser) {
           setUser(JSON.parse(savedUser));
-
-          // Demo sessions have no backend account to check against
-          if (savedToken.startsWith("mock_")) {
-            setToken(savedToken);
-            return;
-          }
 
           // The token is only published after this check, so the socket never connects with an expired one
           try {
@@ -123,21 +123,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return { isNew: newUserFlag };
       }
       throw new Error("Backend authentication failed");
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error during backend validation", error);
       throw error;
     }
   };
 
   const getRecaptchaVerifier = (): RecaptchaVerifier => {
-    let verifier = (window as any).recaptchaVerifier;
-    if (!verifier) {
-      verifier = new RecaptchaVerifier(auth, "recaptcha-container", {
+    // One verifier for the whole page; Firebase resets it after every use.
+    if (!window.recaptchaVerifier) {
+      window.recaptchaVerifier = new RecaptchaVerifier(auth, "recaptcha-container", {
         size: "invisible",
       });
-      (window as any).recaptchaVerifier = verifier;
     }
-    return verifier;
+    return window.recaptchaVerifier;
   };
 
   // Add country code if not present
@@ -197,14 +196,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const switchRole = async (role: Role) => {
     try {
       setLoading(true);
-      // Local fallback for mock roles
-      if (token && token.startsWith("mock_")) {
-        const updatedUser = { ...user!, activeRole: role };
-        setUser(updatedUser);
-        localStorage.setItem("cropline_user", JSON.stringify(updatedUser));
-        return;
-      }
-
       const response = await api.post("/users/switch-role", { role });
       if (response.data.success) {
         const { user: updatedUser, token: newToken } = response.data;
@@ -218,66 +209,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const onboardNewRole = async (role: "FARMER" | "DELIVERY", additionalData?: Record<string, any>) => {
+  const onboardNewRole = async (role: "FARMER" | "DELIVERY", additionalData?: Record<string, unknown>) => {
     try {
       setLoading(true);
-      // Local fallback for mock roles
-      if (token && token.startsWith("mock_")) {
-        alert(`Application for ${role} submitted! (Mock Mode Auto-Approval in 5 seconds)`);
-        setTimeout(() => {
-          const roles = [...(user?.roles || [])];
-          if (!roles.includes(role)) roles.push(role);
-          const updatedUser = { ...user!, roles, activeRole: role, vehicleType: additionalData?.vehicleType || user?.vehicleType || null, ...additionalData };
-          setUser(updatedUser);
-          localStorage.setItem("cropline_user", JSON.stringify(updatedUser));
-        }, 3000);
-        return;
-      }
-
       const response = await api.post("/users/onboard-role", { role, ...additionalData });
       return response.data;
-    } catch (err: any) {
-      if (err.response?.status === 409) {
-        alert(err.response.data.message || "Application already pending.");
+    } catch (err) {
+      if (isAxiosError(err) && err.response?.status === 409) {
+        alert(err.response.data?.message || "Application already pending.");
       }
       throw err;
     } finally {
       setLoading(false);
     }
-  };
-
-  const mockLogin = (mockRole: Role) => {
-    // Generate a structured mock user matching schema
-    const mockUid = `mock_${Date.now()}`;
-    const dummyUser: UserProfile = {
-      id: `usr_${Date.now()}`,
-      firebaseUid: mockUid,
-      name: `Demo ${mockRole}`,
-      email: `${mockRole.toLowerCase()}@cropline.com`,
-      phone: "+919999999999",
-      roles: [mockRole === "ADMIN" ? "ADMIN" : "BUYER", mockRole].filter(Boolean) as Role[],
-      activeRole: mockRole,
-      aadhaarLast4: "1234",
-      village: "Kalyanpura",
-      district: "Jaipur",
-      state: "Rajasthan",
-      pincode: "302020",
-      latitude: 26.9124,
-      longitude: 75.7873,
-      farmArea: mockRole === "FARMER" ? 2.5 : null,
-      vehicleType: mockRole === "DELIVERY" ? "BIKE" : null,
-      walletBalance: "2500.00",
-      isVerified: true,
-      isActive: true
-    };
-    
-    const dummyToken = `mock_jwt_token_${mockUid}`;
-    
-    localStorage.setItem("cropline_token", dummyToken);
-    localStorage.setItem("cropline_user", JSON.stringify(dummyUser));
-    setToken(dummyToken);
-    setUser(dummyUser);
-    setIsNewUser(false);
   };
 
   const logout = async () => {
@@ -295,6 +239,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsNewUser(false);
   };
 
+  // The token expired or the account is gone while the app was open: log out and leave the dashboard.
+  useEffect(() => {
+    const handleSessionExpired = async () => {
+      await logout();
+      if (window.location.pathname !== "/") window.location.assign("/");
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+    // logout only uses state setters and storage, so the first one stays correct.
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -310,7 +265,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         switchRole,
         onboardNewRole,
         logout,
-        mockLogin,
       }}
     >
       {children}

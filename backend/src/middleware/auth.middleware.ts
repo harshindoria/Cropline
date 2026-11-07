@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { JsonWebTokenError } from 'jsonwebtoken';
 import { verifyToken } from '../utils/jwtUtils';
 import prisma from '../config/db';
 import { Role } from '@prisma/client';
@@ -29,8 +30,19 @@ export const protect = async (req: Request, res: Response, next: NextFunction): 
       return;
     }
 
-    // 2. Verify the token cryptographically
-    const decoded = verifyToken(token);
+    // 2. Verify the token cryptographically. Only a bad or expired token means the session is over.
+    let decoded;
+    try {
+      decoded = verifyToken(token);
+    } catch (error) {
+      if (!(error instanceof JsonWebTokenError)) throw error;
+      res.status(401).json({
+        success: false,
+        code: 'SESSION_INVALID',
+        message: 'Invalid or expired token. Please log in again.'
+      });
+      return;
+    }
 
     // 3. Verify if the user still exists in the database
     const currentUser = await prisma.user.findUnique({
@@ -38,9 +50,10 @@ export const protect = async (req: Request, res: Response, next: NextFunction): 
     });
 
     if (!currentUser) {
-      res.status(401).json({ 
-        success: false, 
-        message: 'The user belonging to this token no longer exists.' 
+      res.status(401).json({
+        success: false,
+        code: 'SESSION_INVALID',
+        message: 'The user belonging to this token no longer exists.'
       });
       return;
     }
@@ -59,10 +72,11 @@ export const protect = async (req: Request, res: Response, next: NextFunction): 
     next();
 
   } catch (error) {
+    // A database or server failure says nothing about the session, so the client must not log out.
     console.error('[Auth Middleware] Error:', error);
-    res.status(401).json({ 
-      success: false, 
-      message: 'Invalid or expired token. Please log in again.' 
+    res.status(500).json({
+      success: false,
+      message: 'Could not check your session. Please try again.'
     });
     return;
   }

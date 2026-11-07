@@ -3,10 +3,11 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Phone, Loader2, User, Calendar, Mail, CreditCard, Check, ChevronRight } from "lucide-react";
-import { useAuth, Role } from "../context/AuthContext";
+import { useAuth } from "../context/AuthContext";
 import { ConfirmationResult } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import LocationSelector, { LocationValue } from "./LocationSelector";
+import { describeAuthError, isExpectedAuthError } from "@/lib/authErrors";
 
 type Step = "phone" | "otp" | "new-user-form" | "success";
 
@@ -16,13 +17,13 @@ interface LoginModalProps {
 }
 
 const VALID_MOBILE = /^[6-9]\d{9}$/;
+const RESEND_COOLDOWN_SECONDS = 30;
 
 export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
   const {
     sendPhoneOtp,
     verifyPhoneOtp, 
     completeRegistration, 
-    mockLogin,
     logout,
     user: authUser
   } = useAuth();
@@ -34,7 +35,9 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
-  
+  const [resendIn, setResendIn] = useState(0);
+  const [resending, setResending] = useState(false);
+
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -60,12 +63,39 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
     try {
       const result = await sendPhoneOtp(phone);
       setConfirmationResult(result);
+      setResendIn(RESEND_COOLDOWN_SECONDS);
       setStep("otp");
-    } catch (err: any) {
-      console.error(err);
-      setErrorMessage(err.message || "Failed to send OTP. Please check the number.");
+    } catch (err) {
+      if (!isExpectedAuthError(err)) console.error(err);
+      setErrorMessage(describeAuthError(err, "Failed to send OTP. Please check the number."));
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Count down until the user may ask for another code.
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const timer = setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendIn]);
+
+  const handleResendOtp = async () => {
+    if (resendIn > 0 || resending || loading) return;
+    setResending(true);
+    setErrorMessage("");
+    try {
+      // A new code replaces the old one, so the old confirmation can no longer be used.
+      const result = await sendPhoneOtp(phone);
+      setConfirmationResult(result);
+      setOtp(["", "", "", "", "", ""]);
+      setResendIn(RESEND_COOLDOWN_SECONDS);
+      document.getElementById("otp-0")?.focus();
+    } catch (err) {
+      if (!isExpectedAuthError(err)) console.error(err);
+      setErrorMessage(describeAuthError(err, "Could not resend the code. Please try again."));
+    } finally {
+      setResending(false);
     }
   };
 
@@ -94,9 +124,9 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
         } else {
           handleSuccess();
         }
-      } catch (err: any) {
-        console.error(err);
-        setErrorMessage(err.message || "Invalid code. Please try again.");
+      } catch (err) {
+        if (!isExpectedAuthError(err)) console.error(err);
+        setErrorMessage(describeAuthError(err, "Invalid code. Please try again."));
         setOtp(["", "", "", "", "", ""]);
         document.getElementById("otp-0")?.focus();
       } finally {
@@ -119,6 +149,11 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
       return;
     }
 
+    if (new Date(form.dob) > new Date()) {
+      setErrorMessage("Date of birth cannot be in the future.");
+      return;
+    }
+
     // 2. Aadhaar Validation
     if (form.aadhaarLast4.length !== 4) {
       setErrorMessage("Please enter exactly 4 digits for your Aadhaar card.");
@@ -130,6 +165,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
       await completeRegistration({
         name: form.name,
         email: form.email,
+        dob: form.dob,
         aadhaarLast4: form.aadhaarLast4,
         village: location.village,
         district: location.district,
@@ -137,9 +173,9 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
         pincode: location.pincode,
       });
       handleSuccess();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      setErrorMessage(err.response?.data?.message || err.message || "Failed to save details. Please check the form.");
+      setErrorMessage(describeAuthError(err, "Failed to save details. Please check the form."));
     } finally {
       setLoading(false);
     }
@@ -151,19 +187,6 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
       onClose();
       router.push("/dashboard");
     }, 1500);
-  };
-
-  const handleDemoAccess = (role: Role) => {
-    setLoading(true);
-    setErrorMessage("");
-    try {
-      mockLogin(role);
-      handleSuccess();
-    } catch (err: any) {
-      setErrorMessage("Mock login failed");
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleCancelRegistration = () => {
@@ -306,7 +329,18 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
                     <p className="text-center text-sm text-gray-400">
                       Didn&apos;t receive the code?{" "}
-                      <button className="text-[#2E7D32] font-semibold hover:underline">Resend OTP</button>
+                      {resendIn > 0 ? (
+                        <span className="font-semibold">Resend in {resendIn}s</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleResendOtp}
+                          disabled={loading || resending}
+                          className="text-[#2E7D32] font-semibold hover:underline disabled:opacity-50 disabled:no-underline"
+                        >
+                          {resending ? "Sending..." : "Resend OTP"}
+                        </button>
+                      )}
                     </p>
                     
                     <button 
@@ -375,6 +409,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
                         <input
                           required
                           type="date"
+                          max={new Date().toISOString().split("T")[0]}
                           value={form.dob}
                           onChange={e => setForm({ ...form, dob: e.target.value })}
                           className="flex-1 outline-none text-sm text-[#212121] font-semibold"
