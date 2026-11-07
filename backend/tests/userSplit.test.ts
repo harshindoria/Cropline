@@ -110,6 +110,31 @@ describe('profile update', () => {
     expect((await prisma.deliveryProfile.findUniqueOrThrow({ where: { userId: user.id } })).vehicleType).toBe('BIKE');
   });
 
+  it('saves a date of birth sent as a plain date or a full date', async () => {
+    const user = await makeUser();
+    const savedDob = async () => (await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).dob?.toISOString();
+
+    const plain = await call(updateProfile, { user, body: { dob: '2000-05-06' } });
+    expect(plain.status).toBe(200);
+    expect(await savedDob()).toBe('2000-05-06T00:00:00.000Z');
+
+    const full = await call(updateProfile, { user, body: { dob: '1999-01-02T00:00:00.000Z' } });
+    expect(full.status).toBe(200);
+    expect(await savedDob()).toBe('1999-01-02T00:00:00.000Z');
+  });
+
+  it('refuses a future or invalid date of birth, and explains why', async () => {
+    const user = await makeUser();
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    const future = await call(updateProfile, { user, body: { dob: tomorrow } });
+    expect(future.status).toBe(400);
+    expect(future.body.message).toBe('Date of birth cannot be in the future.');
+
+    expect((await call(updateProfile, { user, body: { dob: 'not a date' } })).status).toBe(400);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).dob).toBeNull();
+  });
+
   it('stores the bank account and documents encrypted, and never returns them', async () => {
     const user = await makeUser();
 

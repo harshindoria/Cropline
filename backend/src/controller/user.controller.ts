@@ -26,7 +26,13 @@ const updateProfileSchema = z.object({
   
   // New profile fields
   aboutMe: z.string().optional(),
-  dob: z.string().optional(),
+  // Forms send "2000-05-06" or a full ISO date, and the database client needs a real Date.
+  dob: z
+    .string()
+    .refine((value) => !Number.isNaN(Date.parse(value)), 'Enter a valid date of birth.')
+    .refine((value) => Date.parse(value) <= Date.now(), 'Date of birth cannot be in the future.')
+    .transform((value) => new Date(value))
+    .optional(),
   gender: z.string().optional(),
   languagePref: z.string().optional(),
   vehicleNumber: z.string().optional(),
@@ -202,6 +208,7 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
         res.status(400).json({
             success: false,
             error: "Invalid data provided",
+            message: validation.error.issues[0].message,
             details: validation.error.format() // Exact batayega kahan galti hui
         });
         return;
