@@ -4,16 +4,9 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const useAuthEmulator = process.env.FIREBASE_USE_AUTH_EMULATOR === 'true';
-const authEmulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST?.trim();
-
-if (process.env.NODE_ENV !== 'production' && useAuthEmulator && authEmulatorHost) {
-  process.env.FIREBASE_AUTH_EMULATOR_HOST = authEmulatorHost;
-  console.log(`Firebase Auth emulator enabled at ${authEmulatorHost}`);
-} else {
-  delete process.env.FIREBASE_AUTH_EMULATOR_HOST;
-  console.log('Firebase Auth emulator disabled. Verifying tokens against live Firebase.');
-}
+// firebase-admin switches to the Auth emulator by itself when this variable is set, and the
+// emulator accepts unsigned tokens. Clear it so tokens are always checked against live Firebase.
+delete process.env.FIREBASE_AUTH_EMULATOR_HOST;
 
 const projectId = process.env.FIREBASE_PROJECT_ID;
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
