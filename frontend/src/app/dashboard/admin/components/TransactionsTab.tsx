@@ -121,7 +121,7 @@ export default function TransactionsTab() {
     if (statusFilter === 'All Status') return true;
     const s = status.toUpperCase();
     if (statusFilter === 'Success' && ['SUCCESS', 'VERIFIED', 'SETTLED', 'AVAILABLE', 'DEPOSITED'].includes(s)) return true;
-    if (statusFilter === 'Pending' && ['PENDING', 'PENDING_DEPOSIT'].includes(s)) return true;
+    if (statusFilter === 'Pending' && ['PENDING', 'PENDING_DEPOSIT', 'AWAITING_CASH', 'AWAITING_TRANSFER'].includes(s)) return true;
     if (statusFilter === 'Failed' && ['FAILED', 'OVERDUE'].includes(s)) return true;
     return false;
   };
@@ -213,6 +213,8 @@ export default function TransactionsTab() {
         return 'bg-green-100 text-green-700 border-green-200';
       case 'PENDING':
       case 'PENDING_DEPOSIT':
+      case 'AWAITING_CASH':
+      case 'AWAITING_TRANSFER':
         return 'bg-orange-100 text-orange-700 border-orange-200';
       case 'FAILED':
       case 'OVERDUE':
@@ -233,6 +235,8 @@ export default function TransactionsTab() {
         return 'bg-green-500';
       case 'PENDING':
       case 'PENDING_DEPOSIT':
+      case 'AWAITING_CASH':
+      case 'AWAITING_TRANSFER':
         return 'bg-orange-500';
       case 'FAILED':
       case 'OVERDUE':

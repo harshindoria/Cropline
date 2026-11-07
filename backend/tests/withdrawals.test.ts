@@ -61,7 +61,7 @@ describe('requesting a withdrawal', () => {
     expect(await wallet(user.id)).toBe(599.5);
     const payout = await prisma.ledgerEntry.findFirstOrThrow();
     expect(payout.type).toBe('PAYOUT');
-    expect(payout.status).toBe('PENDING');
+    expect(payout.status).toBe('AWAITING_TRANSFER');
     expect(payout.orderId).toBeNull();
     expect(Number(payout.amount)).toBe(400.5);
   });
@@ -288,7 +288,7 @@ describe('database rules', () => {
     const { payout } = await payoutEntry();
     await process_(payout.id, 'PAID');
     await expect(
-      prisma.ledgerEntry.update({ where: { id: payout.id }, data: { status: 'PENDING' } }),
+      prisma.ledgerEntry.update({ where: { id: payout.id }, data: { status: 'AWAITING_TRANSFER' } }),
     ).rejects.toThrow('LedgerEntry_protected');
   });
 
@@ -301,11 +301,11 @@ describe('database rules', () => {
   it('requires an owner on a payout, and none on a platform fee', async () => {
     const user = await makeUser();
     await expect(
-      prisma.ledgerEntry.create({ data: { type: 'PAYOUT', amount: 1, idempotencyKey: 'no-owner' } }),
+      prisma.ledgerEntry.create({ data: { type: 'PAYOUT', status: 'AWAITING_TRANSFER', amount: 1, idempotencyKey: 'no-owner' } }),
     ).rejects.toThrow('LedgerEntry_owner_matches_type_check');
     await expect(
       prisma.ledgerEntry.create({
-        data: { userId: user.id, type: 'PLATFORM_CROP_FEE', amount: 1, idempotencyKey: 'owned-fee' },
+        data: { userId: user.id, type: 'PLATFORM_CROP_FEE', status: 'SETTLED', amount: 1, idempotencyKey: 'owned-fee' },
       }),
     ).rejects.toThrow('LedgerEntry_owner_matches_type_check');
   });
@@ -317,14 +317,24 @@ describe('database rules', () => {
   it('rejects a negative ledger amount', async () => {
     const user = await makeUser();
     await expect(
-      prisma.ledgerEntry.create({ data: { userId: user.id, type: 'PAYOUT', amount: -1, idempotencyKey: 'a' } }),
+      prisma.ledgerEntry.create({ data: { userId: user.id, type: 'PAYOUT', status: 'AWAITING_TRANSFER', amount: -1, idempotencyKey: 'a' } }),
     ).rejects.toThrow('LedgerEntry_amount_non_negative_check');
   });
 
   it('requires an order on every ledger entry except a payout', async () => {
     const user = await makeUser();
     await expect(
-      prisma.ledgerEntry.create({ data: { userId: user.id, type: 'FARMER_EARNING', amount: 1, idempotencyKey: 'a' } }),
+      prisma.ledgerEntry.create({ data: { userId: user.id, type: 'FARMER_EARNING', status: 'AVAILABLE', amount: 1, idempotencyKey: 'a' } }),
     ).rejects.toThrow('LedgerEntry_order_required_check');
+  });
+
+  it('rejects a status that does not belong to the entry type', async () => {
+    const user = await makeUser();
+    await expect(
+      prisma.ledgerEntry.create({ data: { userId: user.id, type: 'PAYOUT', status: 'AWAITING_CASH', amount: 1, idempotencyKey: 'a' } }),
+    ).rejects.toThrow('LedgerEntry_status_matches_type_check');
+    await expect(
+      prisma.ledgerEntry.create({ data: { userId: user.id, type: 'PAYOUT', status: 'AVAILABLE', amount: 1, idempotencyKey: 'b' } }),
+    ).rejects.toThrow('LedgerEntry_status_matches_type_check');
   });
 });

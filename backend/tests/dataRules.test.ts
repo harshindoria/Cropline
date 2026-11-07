@@ -148,7 +148,7 @@ describe('money rows', () => {
   it('allows only one pending payout per user at the database level', async () => {
     const user = await makeUser();
     const payout = (key: string) =>
-      prisma.ledgerEntry.create({ data: { userId: user.id, type: 'PAYOUT', amount: 1, idempotencyKey: key } });
+      prisma.ledgerEntry.create({ data: { userId: user.id, type: 'PAYOUT', status: 'AWAITING_TRANSFER', amount: 1, idempotencyKey: key } });
     const first = await payout('a');
     await expect(payout('b')).rejects.toThrow();
 

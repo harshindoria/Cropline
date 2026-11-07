@@ -9,7 +9,7 @@ import api from "@/lib/axios";
 type Withdrawal = {
   id: string;
   amount: string;
-  status: "PENDING" | "SETTLED" | "FAILED";
+  status: "AWAITING_TRANSFER" | "SETTLED" | "FAILED";
 };
 
 const VALID_AMOUNT = /^\d+(\.\d{1,2})?$/;
@@ -26,7 +26,7 @@ export default function WithdrawFunds({ balance, className = "" }: { balance: nu
       .get("/wallet/withdrawals")
       .then((res) => {
         const withdrawals: Withdrawal[] = res.data.data ?? [];
-        setPending(withdrawals.find((withdrawal) => withdrawal.status === "PENDING") ?? null);
+        setPending(withdrawals.find((withdrawal) => withdrawal.status === "AWAITING_TRANSFER") ?? null);
       })
       .catch((err) => console.warn("Could not load withdrawals", err));
   }, []);

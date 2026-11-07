@@ -60,11 +60,13 @@ enum LedgerEntryType {
   PAYOUT
 }
 
+// Which statuses a type can use is enforced by LedgerEntry_status_matches_type_check.
 enum LedgerEntryStatus {
-  PENDING
-  AVAILABLE
-  SETTLED
-  FAILED
+  AWAITING_CASH // Earnings and fees of a cash order, until the delivery partner deposits the cash.
+  AWAITING_TRANSFER // A payout taken from the wallet, until admin sends the bank transfer.
+  AVAILABLE // Earnings that are in the wallet.
+  SETTLED // Fees the platform has received, or a payout that reached the bank.
+  FAILED // A payout admin rejected; the money went back to the wallet.
 }
 
 enum CropCategory {
@@ -592,7 +594,7 @@ model LedgerEntry {
   user           User?             @relation(fields: [userId], references: [id], onDelete: Restrict)
   userId         String? // Empty only for the platform's own fees.
   type           LedgerEntryType
-  status         LedgerEntryStatus @default(PENDING)
+  status         LedgerEntryStatus
   amount         Decimal           @db.Decimal(10, 2)
   idempotencyKey String            @unique
   availableAt    DateTime?         @db.Timestamptz(3)

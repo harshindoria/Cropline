@@ -57,7 +57,7 @@ export const getMyWithdrawals = async (req: Request, res: Response): Promise<voi
 export const getPendingWithdrawals = async (req: Request, res: Response): Promise<void> => {
   try {
     const withdrawals = await prisma.ledgerEntry.findMany({
-      where: { type: LedgerEntryType.PAYOUT, status: LedgerEntryStatus.PENDING },
+      where: { type: LedgerEntryType.PAYOUT, status: LedgerEntryStatus.AWAITING_TRANSFER },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,

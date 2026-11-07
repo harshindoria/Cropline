@@ -176,7 +176,7 @@ describe('cash order delivered', () => {
     expect(result.status).toBe(200);
     expect(await wallet(farmer.id)).toBe(0);
     expect(await wallet(partner.id)).toBe(0);
-    expect(Object.values(await ledger()).map((row) => row.status)).toEqual(['PENDING', 'PENDING', 'PENDING', 'PENDING']);
+    expect(Object.values(await ledger()).map((row) => row.status)).toEqual(['AWAITING_CASH', 'AWAITING_CASH', 'AWAITING_CASH', 'AWAITING_CASH']);
     const liability = await prisma.cashLiability.findUniqueOrThrow({ where: { orderId: order.id } });
     expect(Number(liability.amount)).toBe(1010);
     expect(await revenueToday()).toBe(0);

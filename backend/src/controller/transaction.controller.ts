@@ -21,7 +21,7 @@ export const getTransactionsOverview = async (req: Request, res: Response): Prom
       prisma.ledgerEntry.aggregate({
         _sum: { amount: true },
         _count: { id: true },
-        where: { status: 'PENDING', type: { in: ['FARMER_EARNING', 'DELIVERY_EARNING'] } }
+        where: { status: 'AWAITING_CASH', type: { in: ['FARMER_EARNING', 'DELIVERY_EARNING'] } }
       }),
       prisma.paymentRecord.count({
         where: { status: 'FAILED' }

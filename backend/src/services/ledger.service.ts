@@ -31,7 +31,7 @@ const EARNING_TYPES: LedgerEntryType[] = [LedgerEntryType.FARMER_EARNING, Ledger
  * Records where every rupee of a delivered order goes. The unique idempotency keys make a repeat
  * of this call fail, which rolls back its whole transaction, so an order can never pay out twice.
  *
- * Cash orders are held as PENDING, because the money is still with the delivery partner.
+ * Cash orders are held as AWAITING_CASH, because the money is still with the delivery partner.
  */
 export const recordDeliveredOrder = async (
   tx: Tx,
@@ -43,11 +43,11 @@ export const recordDeliveredOrder = async (
   const now = new Date();
 
   const earning = {
-    status: held ? LedgerEntryStatus.PENDING : LedgerEntryStatus.AVAILABLE,
+    status: held ? LedgerEntryStatus.AWAITING_CASH : LedgerEntryStatus.AVAILABLE,
     availableAt: held ? null : now,
   };
   const fee = {
-    status: held ? LedgerEntryStatus.PENDING : LedgerEntryStatus.SETTLED,
+    status: held ? LedgerEntryStatus.AWAITING_CASH : LedgerEntryStatus.SETTLED,
     settledAt: held ? null : now,
   };
 
@@ -72,7 +72,7 @@ export const recordDeliveredOrder = async (
 };
 
 const releaseHeldEntries = async (tx: Tx, orderId: string): Promise<void> => {
-  const held = await tx.ledgerEntry.findMany({ where: { orderId, status: LedgerEntryStatus.PENDING } });
+  const held = await tx.ledgerEntry.findMany({ where: { orderId, status: LedgerEntryStatus.AWAITING_CASH } });
   const now = new Date();
 
   for (const entry of held) {
@@ -122,7 +122,7 @@ export const settleCashLiability = async (tx: Tx, liabilityId: string, adminId?:
 };
 
 /**
- * Takes the money out of the wallet straight away and creates a PENDING payout for admin to pay.
+ * Takes the money out of the wallet straight away and creates a payout AWAITING_TRANSFER by admin.
  * The wallet update locks the user's row, so simultaneous requests are handled one at a time.
  */
 export const requestWithdrawal = async (user: { id: string }, amount: Prisma.Decimal) => {
@@ -143,7 +143,7 @@ export const requestWithdrawal = async (user: { id: string }, amount: Prisma.Dec
     }
 
     const pending = await tx.ledgerEntry.count({
-      where: { userId: user.id, type: LedgerEntryType.PAYOUT, status: LedgerEntryStatus.PENDING },
+      where: { userId: user.id, type: LedgerEntryType.PAYOUT, status: LedgerEntryStatus.AWAITING_TRANSFER },
     });
     if (pending > 0) {
       throw new WalletError(409, 'WITHDRAWAL_PENDING', 'You already have a withdrawal being processed.');
@@ -158,7 +158,7 @@ export const requestWithdrawal = async (user: { id: string }, amount: Prisma.Dec
       data: {
         userId: user.id,
         type: LedgerEntryType.PAYOUT,
-        status: LedgerEntryStatus.PENDING,
+        status: LedgerEntryStatus.AWAITING_TRANSFER,
         amount,
         idempotencyKey: `payout:${randomUUID()}`,
         payoutDetail: { create: { bankAccount, bankIfsc, bankName: bank?.bankName, accountHolderName: bank?.accountHolderName } },
@@ -169,13 +169,13 @@ export const requestWithdrawal = async (user: { id: string }, amount: Prisma.Dec
 
 /**
  * Completes a pending payout: PAID after admin has sent the bank transfer, or REJECTED, which
- * returns the money to the wallet. A payout can only leave PENDING once.
+ * returns the money to the wallet. A payout can only leave AWAITING_TRANSFER once.
  */
 export const processWithdrawal = async (payoutId: string, action: 'PAID' | 'REJECTED', adminId: string) =>
   prisma.$transaction(async (tx) => {
     const paid = action === 'PAID';
     const claimed = await tx.ledgerEntry.updateMany({
-      where: { id: payoutId, type: LedgerEntryType.PAYOUT, status: LedgerEntryStatus.PENDING },
+      where: { id: payoutId, type: LedgerEntryType.PAYOUT, status: LedgerEntryStatus.AWAITING_TRANSFER },
       data: paid ? { status: LedgerEntryStatus.SETTLED, settledAt: new Date() } : { status: LedgerEntryStatus.FAILED },
     });
 
