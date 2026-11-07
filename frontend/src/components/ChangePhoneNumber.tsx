@@ -3,31 +3,9 @@
 import { useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { describeAuthError, isExpectedAuthError } from "@/lib/authErrors";
 
 const VALID_MOBILE = /^[6-9]\d{9}$/;
-
-type ChangePhoneError = {
-  code?: string;
-  message?: string;
-  response?: { data?: { message?: string } };
-};
-
-const describeError = (error: unknown): string => {
-  const err = error as ChangePhoneError | undefined;
-  switch (err?.code) {
-    case "auth/credential-already-in-use":
-    case "auth/account-exists-with-different-credential":
-      return "This number already belongs to another account.";
-    case "auth/invalid-verification-code":
-      return "That code is not correct. Please try again.";
-    case "auth/code-expired":
-      return "That code has expired. Please request a new one.";
-    case "auth/requires-recent-login":
-      return "For your security, please log out and log in again before changing your number.";
-    default:
-      return err?.response?.data?.message || err?.message || "Could not change your number. Please try again.";
-  }
-};
 
 export default function ChangePhoneNumber() {
   const { sendPhoneChangeOtp, confirmPhoneChange } = useAuth();
@@ -52,8 +30,8 @@ export default function ChangePhoneNumber() {
     try {
       await action();
     } catch (err) {
-      console.error("Change phone error", err);
-      setError(describeError(err));
+      if (!isExpectedAuthError(err)) console.error("Change phone error", err);
+      setError(describeAuthError(err, "Could not change your number. Please try again."));
     } finally {
       setBusy(false);
     }
