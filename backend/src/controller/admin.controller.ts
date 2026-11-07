@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { primaryCropsSelect, primaryCropsText } from '../utils/primaryCrops';
 import prisma from '../config/db';
 import { z } from 'zod';
 import { Role, RoleAccessStatus, NotificationType, NotificationAlertLevel, ComplaintStatus, OrderStatus, Prisma } from '@prisma/client';
@@ -145,7 +146,7 @@ export const getFarmers = async (req: Request, res: Response): Promise<void> => 
       include: {
         ordersAsFarmer: { where: { status: { in: FULFILLED_ORDER_STATUSES } } },
         crops: true,
-        farmerProfile: { select: { primaryCrops: true } }
+        farmerProfile: { select: { primaryCrops: primaryCropsSelect } }
       }
     });
 
@@ -168,7 +169,7 @@ export const getFarmers = async (req: Request, res: Response): Promise<void> => 
         location: city && state ? `${city}, ${state}` : city || state || "Unknown",
         city,
         state,
-        primaryCrops: farmer.farmerProfile?.primaryCrops || "",
+        primaryCrops: primaryCropsText(farmer.farmerProfile?.primaryCrops),
         listings: farmer.crops.length,
         totalOrders,
         earnings,

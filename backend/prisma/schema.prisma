@@ -213,15 +213,16 @@ model User {
 }
 
 model FarmerProfile {
-  userId       String   @id
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String        @id
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   farmArea     Float?
-  primaryCrops String?
+  // Only crops from the platform catalog; the API still shows them as a comma-separated list.
+  primaryCrops CropCatalog[] @relation("FarmerPrimaryCrops")
   farmingType  String?
   soilType     String?
   waterSource  String?
-  createdAt    DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
 }
 
 model DeliveryProfile {
@@ -314,7 +315,8 @@ model CropCatalog {
   isActive      Boolean      @default(true) // Admin chahe toh kisi fasal ko temporarily band kar de
   createdAt     DateTime     @default(now()) @db.Timestamptz(3)
 
-  crops Crop[] // Ek catalog item se hazaron kisaan fasal bech sakte hain
+  farmers FarmerProfile[] @relation("FarmerPrimaryCrops")
+  crops   Crop[] // Ek catalog item se hazaron kisaan fasal bech sakte hain
 
   @@index([category, isActive])
 }

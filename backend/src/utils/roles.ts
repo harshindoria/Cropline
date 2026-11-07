@@ -1,5 +1,6 @@
 import { Prisma, Role, RoleAccessStatus, User } from '@prisma/client';
 import prisma from '../config/db';
+import { primaryCropsSelect, primaryCropsText } from './primaryCrops';
 
 // UserRoleAccess is the only record of a user's roles. A blocked user still holds the role, but
 // someone who is waiting for approval or was rejected does not.
@@ -26,7 +27,7 @@ export const loadAccount = async <T extends User>(user: T) => {
     where: { id: user.id },
     select: {
       roleAccess: HELD_ROLES,
-      farmerProfile: true,
+      farmerProfile: { include: { primaryCrops: primaryCropsSelect } },
       deliveryProfile: true,
       bankDetails: { select: { bankIfsc: true, bankName: true, accountHolderName: true } },
       kycDocuments: {
@@ -39,7 +40,7 @@ export const loadAccount = async <T extends User>(user: T) => {
     ...user,
     roles: roleAccess.map((access) => access.role),
     farmArea: farmerProfile?.farmArea ?? null,
-    primaryCrops: farmerProfile?.primaryCrops ?? null,
+    primaryCrops: farmerProfile ? primaryCropsText(farmerProfile.primaryCrops) : null,
     farmingType: farmerProfile?.farmingType ?? null,
     soilType: farmerProfile?.soilType ?? null,
     waterSource: farmerProfile?.waterSource ?? null,

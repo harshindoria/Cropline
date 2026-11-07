@@ -161,12 +161,19 @@ describe('profile update', () => {
 
   it('shows a farmer profile with its farm details', async () => {
     const farmer = await makeUser({ roles: [Role.BUYER, Role.FARMER] });
-    await call(updateProfile, { user: farmer, body: { primaryCrops: 'Wheat' } });
+    await prisma.cropCatalog.create({ data: { englishName: 'Wheat', hindiName: 'Gehu', category: 'GRAINS' } });
+    await call(updateProfile, { user: farmer, body: { primaryCrops: 'wheat' } });
 
     const { body } = await call(getFarmerPublicProfile, { params: { id: farmer.id }, user: farmer });
 
     expect(JSON.stringify(body)).toContain('Wheat');
     expect(JSON.stringify(body)).not.toContain('farmerProfile');
+  });
+
+  it('rejects a primary crop that is not on the platform', async () => {
+    const farmer = await makeUser({ roles: [Role.BUYER, Role.FARMER] });
+    const { status } = await call(updateProfile, { user: farmer, body: { primaryCrops: 'Moonfruit' } });
+    expect(status).toBe(400);
   });
 });
 

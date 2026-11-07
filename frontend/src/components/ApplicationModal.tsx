@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { 
   X, Tractor, Truck, CheckCircle2, ChevronRight, Check, 
   Upload, Camera, FileText, AlertCircle
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import api from "@/lib/axios";
 import LocationSelector, { LocationValue } from "./LocationSelector";
 
 interface ApplicationModalProps {
@@ -112,7 +113,10 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
   });
   const [farmArea, setFarmArea] = useState("");
   const [experience, setExperience] = useState("");
-  const [primaryCrops, setPrimaryCrops] = useState("");
+  // Only crops from the platform catalog can be chosen.
+  const [primaryCrops, setPrimaryCrops] = useState<string[]>([]);
+  const [catalog, setCatalog] = useState<{ id: string; englishName: string; hindiName?: string }[]>([]);
+  const [cropSearch, setCropSearch] = useState("");
   const [farmingType, setFarmingType] = useState("");
   const [soilType, setSoilType] = useState("");
   const [waterSource, setWaterSource] = useState("");
@@ -127,6 +131,13 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
   // ─── Delivery Specific ─────────────────────────────────────
   const [vehicleType, setVehicleType] = useState("BIKE");
   const [licenceId, setLicenceId] = useState("");
+
+  useEffect(() => {
+    if (!isOpen || role !== "FARMER" || catalog.length) return;
+    api.get("/crops/catalog")
+      .then(res => { if (res.data.success) setCatalog(res.data.catalog || []); })
+      .catch(() => {});
+  }, [isOpen, role, catalog.length]);
 
   if (!isOpen || !role) return null;
 
@@ -173,6 +184,10 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
       alert("Please upload your Aadhaar Card photo before submitting.");
       return;
     }
+    if (role === "FARMER" && primaryCrops.length === 0) {
+      alert("Please select at least one primary crop.");
+      return;
+    }
     if (role === "DELIVERY" && (!licenceBase64 || !rcBase64)) {
       alert("Please upload both your Driving License and RC (Vehicle) photos before submitting.");
       return;
@@ -195,7 +210,7 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
       });
       
       const additionalData = role === "FARMER" ? {
-        primaryCrops,
+        primaryCrops: primaryCrops.join(", "),
         farmingType,
         soilType,
         waterSource
@@ -212,7 +227,9 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
       handleClose();
     } catch (error: any) {
       console.error(error);
-      if (error.response?.status !== 409) {
+      if (error.response?.data?.code === "UNKNOWN_CROP") {
+        alert(error.response.data.message);
+      } else if (error.response?.status !== 409) {
         alert("Failed to submit application. Please try again.");
       }
     } finally {
@@ -318,16 +335,39 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
                   </div>
 
                   {/* Farm Details */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-bold text-[#424242] block mb-1.5">Primary Crops</label>
-                      <input
-                        required type="text" placeholder="Wheat, Bajra, Mustard"
-                        value={primaryCrops} onChange={e => setPrimaryCrops(e.target.value)}
-                        className={`w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm font-semibold outline-none focus:ring-1 ${accentRing}`}
-                      />
+                  <div>
+                    <label className="text-xs font-bold text-[#424242] block mb-1.5">
+                      Primary Crops{primaryCrops.length > 0 && <span className="text-gray-400 font-semibold"> · {primaryCrops.length} selected</span>}
+                    </label>
+                    <input
+                      type="text" placeholder="Search crops..."
+                      value={cropSearch} onChange={e => setCropSearch(e.target.value)}
+                      className={`w-full bg-gray-50 border border-gray-200 rounded-xl p-3 mb-2 text-sm font-semibold outline-none focus:ring-1 ${accentRing}`}
+                    />
+                    <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto p-1">
+                      {catalog.length === 0 && <p className="text-xs text-gray-400">Loading crops...</p>}
+                      {catalog
+                        .filter(c => {
+                          const q = cropSearch.toLowerCase();
+                          return c.englishName.toLowerCase().includes(q) || (c.hindiName || "").toLowerCase().includes(q);
+                        })
+                        .map(c => {
+                          const selected = primaryCrops.includes(c.englishName);
+                          return (
+                            <button
+                              key={c.id} type="button"
+                              onClick={() => setPrimaryCrops(prev => selected ? prev.filter(x => x !== c.englishName) : [...prev, c.englishName])}
+                              className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition-all ${selected ? "bg-[#1B5E20] text-white border-[#1B5E20]" : "bg-gray-50 text-gray-600 border-gray-200 hover:border-green-300"}`}
+                            >
+                              {c.englishName}
+                            </button>
+                          );
+                        })}
                     </div>
-                    <div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2">
                       <label className="text-xs font-bold text-[#424242] block mb-1.5">Farming Type</label>
                       <input
                         required type="text" placeholder="e.g. Organic, Conventional"

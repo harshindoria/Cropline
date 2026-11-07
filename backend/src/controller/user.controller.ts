@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../config/db';
+import { UnknownCropError, primaryCropsRelation, primaryCropsSelect, primaryCropsText } from '../utils/primaryCrops';
 import { sanitizeUser } from '../utils/helper';
 import { z } from 'zod';
 import { Role, RoleAccessStatus, UnbanFeeStatus } from '@prisma/client';
@@ -181,12 +182,12 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 const pick = <K extends string>(data: Record<string, unknown>, keys: readonly K[]) =>
   Object.fromEntries(keys.filter((key) => data[key] !== undefined).map((key) => [key, data[key]])) as Partial<Record<K, any>>;
 
-const FARMER_FIELDS = ['farmArea', 'primaryCrops', 'farmingType', 'soilType', 'waterSource'] as const;
+const FARMER_FIELDS = ['farmArea', 'farmingType', 'soilType', 'waterSource'] as const;
 const DELIVERY_FIELDS = ['vehicleType', 'vehicleNumber', 'vehicleColor', 'coverageRadiusKm'] as const;
 const BANK_FIELDS = ['bankIfsc', 'bankName', 'accountHolderName'] as const;
 const KYC_FIELDS = ['aadhaarLast4'] as const;
 const KYC_DOCUMENTS = ['aadhaarUrl', 'dlUrl', 'rcUrl'] as const;
-const ACCOUNT_FIELDS: readonly string[] = [...FARMER_FIELDS, ...DELIVERY_FIELDS, ...BANK_FIELDS, ...KYC_FIELDS, ...KYC_DOCUMENTS, 'bankAccount'];
+const ACCOUNT_FIELDS: readonly string[] = ['primaryCrops', ...FARMER_FIELDS, ...DELIVERY_FIELDS, ...BANK_FIELDS, ...KYC_FIELDS, ...KYC_DOCUMENTS, 'bankAccount'];
 
 // An empty value means the user removed the document.
 const encryptedOrNull = (value: string) => (value ? encryptField(value) : null);
@@ -241,8 +242,15 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
 
     const updatedUser = await prisma.$transaction(async (tx) => {
         const updated = await tx.user.update({ where: { id: userId }, data: userFields });
-        if (Object.keys(farmer).length) {
-            await tx.farmerProfile.upsert({ where: { userId }, create: { userId, ...farmer }, update: farmer });
+        if (Object.keys(farmer).length || safeUpdateData.primaryCrops !== undefined) {
+            const crops = safeUpdateData.primaryCrops !== undefined
+                ? { primaryCrops: await primaryCropsRelation(tx, safeUpdateData.primaryCrops) }
+                : {};
+            await tx.farmerProfile.upsert({
+                where: { userId },
+                create: { userId, ...farmer, ...(crops.primaryCrops && { primaryCrops: { connect: crops.primaryCrops.set } }) },
+                update: { ...farmer, ...crops },
+            });
         }
         if (Object.keys(delivery).length) {
             await tx.deliveryProfile.upsert({ where: { userId }, create: { userId, ...delivery }, update: delivery });
@@ -264,6 +272,10 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
     });
     
   } catch (error: any) {
+     if (error instanceof UnknownCropError) {
+         res.status(400).json({ success: false, code: 'UNKNOWN_CROP', message: error.message });
+         return;
+     }
      if (error.code === 'P2002') {
          const field = error.meta?.target?.[0] || 'Field';
          res.status(409).json({ success: false, message: `This ${field} is already in use by another account.` });
@@ -323,7 +335,9 @@ export const onboardRole = async (req: Request, res: Response): Promise<void> =>
     return;
   }
 
-  const access = await prisma.$transaction(async tx => {
+  let access;
+  try {
+  access = await prisma.$transaction(async tx => {
     const userId = req.user!.id;
     if (parsed.data.vehicleType) {
       const delivery = { vehicleType: parsed.data.vehicleType };
@@ -331,13 +345,17 @@ export const onboardRole = async (req: Request, res: Response): Promise<void> =>
     }
     if (parsed.data.role === Role.FARMER) {
       const { primaryCrops, farmingType, soilType, waterSource } = parsed.data;
+      const crops = primaryCrops ? await primaryCropsRelation(tx, primaryCrops) : undefined;
       const farmer = {
-        ...(primaryCrops && { primaryCrops }),
         ...(farmingType && { farmingType }),
         ...(soilType && { soilType }),
         ...(waterSource && { waterSource }),
       };
-      await tx.farmerProfile.upsert({ where: { userId }, create: { userId, ...farmer }, update: farmer });
+      await tx.farmerProfile.upsert({
+        where: { userId },
+        create: { userId, ...farmer, ...(crops && { primaryCrops: { connect: crops.set } }) },
+        update: { ...farmer, ...(crops && { primaryCrops: crops }) },
+      });
     }
 
     return tx.userRoleAccess.upsert({
@@ -346,6 +364,10 @@ export const onboardRole = async (req: Request, res: Response): Promise<void> =>
       create: { userId: req.user!.id, role: parsed.data.role, status: RoleAccessStatus.PENDING_APPROVAL },
     });
   });
+  } catch (error) {
+    if (error instanceof UnknownCropError) { res.status(400).json({ success: false, code: 'UNKNOWN_CROP', message: error.message }); return; }
+    throw error;
+  }
   
   // The role is only held once an admin approves the application.
   const user = await getCurrentUser(req.user!.id);
@@ -403,7 +425,7 @@ export const getFarmerPublicProfile = async (req: Request, res: Response): Promi
         isVerified: true,
         phone: true,
         email: true,
-        farmerProfile: { select: { farmArea: true, primaryCrops: true, farmingType: true, soilType: true, waterSource: true } },
+        farmerProfile: { select: { farmArea: true, primaryCrops: primaryCropsSelect, farmingType: true, soilType: true, waterSource: true } },
       }
     });
 
@@ -413,7 +435,7 @@ export const getFarmerPublicProfile = async (req: Request, res: Response): Promi
     }
 
     const { farmerProfile, ...farmerDetails } = farmerRow;
-    const farmer = { ...farmerDetails, ...farmerProfile };
+    const farmer = { ...farmerDetails, ...farmerProfile, primaryCrops: primaryCropsText(farmerProfile?.primaryCrops) };
 
     const activeCrops = await prisma.crop.findMany({
       where: { farmerId, status: 'ACTIVE' },

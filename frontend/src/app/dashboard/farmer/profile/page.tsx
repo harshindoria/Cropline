@@ -180,6 +180,12 @@ export default function FarmerProfile() {
         payload.farmArea = parseFloat(payload.farmArea);
       }
       
+      // A crop the admin has since removed from the platform can't be picked or unpicked here, so drop it.
+      if (typeof payload.primaryCrops === 'string' && catalog.length) {
+        const available = new Set(catalog.map(c => c.englishName));
+        payload.primaryCrops = payload.primaryCrops.split(',').map((x: string) => x.trim()).filter((x: string) => available.has(x)).join(', ');
+      }
+
       const res = await api.patch('/users/profile', payload);
       if (res.data.success) {
         setProfileData(res.data.user);
@@ -187,7 +193,7 @@ export default function FarmerProfile() {
       }
     } catch (err: any) {
       console.error(err);
-      alert(err.response?.data?.error || 'Failed to update profile');
+      alert(err.response?.data?.message || err.response?.data?.error || 'Failed to update profile');
     } finally {
       setIsSaving(false);
     }
