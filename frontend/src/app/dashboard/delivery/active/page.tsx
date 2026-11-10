@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { MapPin, Navigation, Camera, CheckCircle2, AlertCircle, Package, Clock, Wallet, ShoppingBag, Waypoints, Calendar, TrendingUp, Headset, PhoneCall, ShieldCheck, TriangleAlert, IndianRupee } from 'lucide-react';
 import Image from 'next/image';
 import api from '@/lib/axios';
+import { apiErrorMessage } from '@/lib/apiError';
+import type { ActiveJob } from '@/types/api';
 
 function CountdownTimer({ deadline }: { deadline: string | null }) {
   const [timeLeft, setTimeLeft] = useState<{ m: number, s: number } | null>(null);
@@ -43,8 +45,8 @@ export default function ActiveDeliveries() {
   const { user, loading } = useAuth();
   const router = useRouter();
   
-  const [inProgressJobs, setInProgressJobs] = useState<any[]>([]);
-  const [completedJobs, setCompletedJobs] = useState<any[]>([]);
+  const [inProgressJobs, setInProgressJobs] = useState<ActiveJob[]>([]);
+  const [completedJobs, setCompletedJobs] = useState<ActiveJob[]>([]);
   const [summary, setSummary] = useState({ todayEarnings: 0, completedJobs: 0, totalDistanceKm: 0, avgTimeMins: 0 });
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState('');
@@ -56,7 +58,7 @@ export default function ActiveDeliveries() {
   // Modals state
   const [showPickupModal, setShowPickupModal] = useState(false);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
-  const [selectedJob, setSelectedJob] = useState<any>(null);
+  const [selectedJob, setSelectedJob] = useState<ActiveJob | null>(null);
 
   // Form state
   const [tokenInput, setTokenInput] = useState('');
@@ -92,8 +94,8 @@ export default function ActiveDeliveries() {
       if (summaryRes.data.success) {
         setSummary(summaryRes.data.data);
       }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to fetch active jobs');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to fetch active jobs'));
     } finally {
       setFetching(false);
     }
@@ -106,8 +108,8 @@ export default function ActiveDeliveries() {
     try {
       await api.patch(`/delivery/jobs/${jobId}/cancel`);
       await fetchData();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to cancel the job');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to cancel the job'));
     } finally {
       setProcessingId(null);
     }
@@ -154,8 +156,8 @@ export default function ActiveDeliveries() {
             closeModals();
             fetchData();
           }
-        } catch (err: any) {
-          alert(err.response?.data?.message || 'Pickup failed');
+        } catch (err) {
+          alert(apiErrorMessage(err, 'Pickup failed'));
         } finally {
           setProcessingId(null);
         }
@@ -185,8 +187,8 @@ export default function ActiveDeliveries() {
         fetchData();
         alert('Delivery completed successfully!');
       }
-    } catch (err: any) {
-      alert(err.response?.data?.message || 'Delivery confirmation failed');
+    } catch (err) {
+      alert(apiErrorMessage(err, 'Delivery confirmation failed'));
     } finally {
       setProcessingId(null);
     }

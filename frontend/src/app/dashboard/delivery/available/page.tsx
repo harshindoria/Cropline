@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Search, MapPin, List, Clock, IndianRupee, LayoutGrid, CheckCircle2, AlertCircle, Leaf } from 'lucide-react';
 import Image from 'next/image';
 import api from '@/lib/axios';
+import { apiErrorMessage } from '@/lib/apiError';
+import type { NearbyJob } from '@/types/api';
 import dynamic from 'next/dynamic';
 import { getGpsOrSavedLocation } from '@/lib/location';
 
@@ -15,7 +17,7 @@ export default function AvailableDeliveries() {
   const { user, loading } = useAuth();
   const router = useRouter();
   
-  const [jobs, setJobs] = useState<any[]>([]);
+  const [jobs, setJobs] = useState<NearbyJob[]>([]);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
@@ -50,9 +52,9 @@ export default function AvailableDeliveries() {
       } else {
         setError(res.data.message || 'Failed to fetch jobs');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      setError(err.response?.data?.message || err.message || 'Something went wrong while fetching jobs.');
+      setError(apiErrorMessage(err, err instanceof Error ? err.message : 'Something went wrong while fetching jobs.'));
     } finally {
       setFetching(false);
     }
@@ -68,9 +70,9 @@ export default function AvailableDeliveries() {
         // Push to active deliveries
         router.push('/dashboard/delivery/active');
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
-      alert(error.response?.data?.message || 'Failed to accept job. It may have been taken by someone else.');
+      alert(apiErrorMessage(error, 'Failed to accept job. It may have been taken by someone else.'));
     } finally {
       setAcceptingId(null);
     }

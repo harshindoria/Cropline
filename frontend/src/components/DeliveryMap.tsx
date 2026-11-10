@@ -3,9 +3,10 @@ import { useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import type { NearbyJob } from '@/types/api';
 
 // Fix Leaflet's default icon path issues with Webpack/Next.js
-delete (L.Icon.Default.prototype as any)._getIconUrl;
+delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
@@ -42,7 +43,7 @@ function RecenterMap({ lat, lng }: { lat: number, lng: number }) {
 interface DeliveryMapProps {
   userLat: number;
   userLng: number;
-  jobs: any[];
+  jobs: NearbyJob[];
 }
 
 export default function DeliveryMap({ userLat, userLng, jobs }: DeliveryMapProps) {

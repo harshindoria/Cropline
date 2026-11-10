@@ -1,10 +1,12 @@
 import Link from "next/link";
+import type { Crop, CropCategory, CropListing, CropNameSource } from "@/types/api";
 import { Leaf, Heart, MapPin, Plus, Minus } from "lucide-react";
 
 interface CropCardProps {
-  crop: any;
+  // A marketplace listing, or a crop on a farmer's profile with the farmer filled in.
+  crop: Crop & { cropName?: string; category?: CropCategory; marketPrice?: number | null; farmer?: Partial<NonNullable<CropListing["farmer"]>> };
   categories: { name: string; emoji: string }[];
-  getCropName: (crop: any) => string;
+  getCropName: (crop: CropNameSource) => string;
   cart: Record<string, number>;
   addToCart: (cropId: string) => void;
   removeFromCart: (cropId: string) => void;
@@ -25,8 +27,6 @@ export default function CropCard({
           {/* Priority: Catalog Image > Farmer Image > Emoji */}
           {crop.catalog?.imageTemplate ? (
             <img src={crop.catalog.imageTemplate} alt={crop.cropName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-          ) : crop.images && crop.images.length > 0 ? (
-            <img src={crop.images[0].url} alt={crop.cropName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
           ) : crop.photos && crop.photos.length > 0 ? (
             <img src={crop.photos[0]} alt={crop.cropName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
           ) : (

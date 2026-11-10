@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from 'react';
 import api from '@/lib/axios';
+import { apiErrorMessage } from '@/lib/apiError';
 import { 
   Users, ShieldCheck, FileText, FileCheck, Clock,
   ChevronDown, 
@@ -9,9 +10,25 @@ import {
 
 const PAGE_SIZE = 8;
 
+type VerificationDocument = {
+  id: string;
+  userId: string;
+  applicantName: string | null;
+  applicantPhone: string;
+  applicantEmail: string | null;
+  userType: string;
+  docType: string;
+  docTypeEnum: 'aadhaar' | 'dl' | 'rc';
+  docUrl: string | null;
+  status: 'Approved' | 'Pending' | 'Rejected'; // The backend does not send 'Rejected' yet
+  submittedOn: string;
+};
+
+type DocumentMetrics = { totalPending: number; pendingAadhaar: number; pendingDl: number; pendingRc: number };
+
 export default function DocumentVerificationTab() {
-  const [documents, setDocuments] = useState<any[]>([]);
-  const [metrics, setMetrics] = useState<any>(null);
+  const [documents, setDocuments] = useState<VerificationDocument[]>([]);
+  const [metrics, setMetrics] = useState<DocumentMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +43,7 @@ export default function DocumentVerificationTab() {
   const [currentPage, setCurrentPage] = useState(1);
 
   // Selected doc & image viewer
-  const [selectedDoc, setSelectedDoc] = useState<any>(null);
+  const [selectedDoc, setSelectedDoc] = useState<VerificationDocument | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [rejectNote, setRejectNote] = useState("");
 
@@ -45,9 +62,9 @@ export default function DocumentVerificationTab() {
       } else {
         setError("Failed to fetch documents data.");
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Failed to fetch documents:", err);
-      setError(err?.response?.data?.message || "Could not connect to server.");
+      setError(apiErrorMessage(err, "Could not connect to server."));
     } finally {
       setLoading(false);
     }
@@ -110,7 +127,7 @@ export default function DocumentVerificationTab() {
     }
   };
 
-  const getInitials = (name?: string) => {
+  const getInitials = (name?: string | null) => {
     if (!name) return "U";
     return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
   };

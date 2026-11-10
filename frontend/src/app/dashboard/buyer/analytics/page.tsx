@@ -4,31 +4,40 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
+import type { CatalogItem } from "@/types/api";
 import { 
   ArrowLeft, BarChart2, TrendingUp, TrendingDown, Package, ShoppingBag, 
   IndianRupee, Leaf, Calendar, ChevronDown, Check, User
 } from "lucide-react";
+
+// GET /analytics/buyer
+type BuyerSummary = { totalSpent: number; totalVolume: number; activeOrders: number; totalSavings: number };
+type SpendTrend = { month: string; spent: number; volume: number };
+type CategoryShare = { category: string; value: number };
+type TopFarmer = { name: string | null; orders: number; spent: number };
+// GET /analytics/crop-trends
+type PriceTrend = { month: string; avgPrice: number };
 
 export default function BuyerAnalytics() {
   const { user, loading } = useAuth();
   const router = useRouter();
 
   // General state
-  const [stats, setStats] = useState<any>({
+  const [stats, setStats] = useState<BuyerSummary>({
     totalSpent: 0,
     totalVolume: 0,
     activeOrders: 0,
     totalSavings: 0
   });
-  const [spendTrends, setSpendTrends] = useState<any[]>([]);
-  const [categoryDistribution, setCategoryDistribution] = useState<any[]>([]);
-  const [topFarmers, setTopFarmers] = useState<any[]>([]);
+  const [spendTrends, setSpendTrends] = useState<SpendTrend[]>([]);
+  const [categoryDistribution, setCategoryDistribution] = useState<CategoryShare[]>([]);
+  const [topFarmers, setTopFarmers] = useState<TopFarmer[]>([]);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
 
   // Crop price trends state
-  const [catalogItems, setCatalogItems] = useState<any[]>([]);
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [selectedCrop, setSelectedCrop] = useState<string>("");
-  const [cropTrendData, setCropTrendData] = useState<any[]>([]);
+  const [cropTrendData, setCropTrendData] = useState<PriceTrend[]>([]);
   const [loadingCropTrends, setLoadingCropTrends] = useState(false);
   const [showCropDropdown, setShowCropDropdown] = useState(false);
 

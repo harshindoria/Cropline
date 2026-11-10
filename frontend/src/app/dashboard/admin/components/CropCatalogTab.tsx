@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import api from '@/lib/axios';
+import { apiErrorMessage } from '@/lib/apiError';
 import { 
   Search, ChevronDown, Filter,
   MoreVertical, Eye, Image as ImageIcon, CheckCircle, PauseCircle, Sprout, X, Edit2, UploadCloud, Trash2, ShieldCheck, AlertTriangle, UserIcon
@@ -18,8 +19,19 @@ const CATEGORIES = [
   "OTHER"
 ];
 
+type CatalogCrop = {
+  id: string;
+  englishName: string;
+  hindiName: string;
+  category: string;
+  imageTemplate: string | null;
+  isActive: boolean;
+  createdAt: string;
+  stats: { activeListings: number; totalFarmersUsing: number };
+};
+
 export default function CropCatalogTab() {
-  const [catalog, setCatalog] = useState<any[]>([]);
+  const [catalog, setCatalog] = useState<CatalogCrop[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
@@ -41,7 +53,7 @@ export default function CropCatalogTab() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Drawer
-  const [selectedCrop, setSelectedCrop] = useState<any>(null);
+  const [selectedCrop, setSelectedCrop] = useState<CatalogCrop | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editForm, setEditForm] = useState({
     category: "",
@@ -150,7 +162,7 @@ export default function CropCatalogTab() {
     }
   };
 
-  const handleToggleStatus = async (crop: any) => {
+  const handleToggleStatus = async (crop: CatalogCrop) => {
     if (!confirm(`Are you sure you want to ${crop.isActive ? 'disable' : 'enable'} ${crop.englishName}?`)) return;
     try {
       const res = await api.patch(`/admin/catalog/${crop.id}`, { isActive: !crop.isActive });
@@ -166,7 +178,7 @@ export default function CropCatalogTab() {
     }
   };
 
-  const handleDelete = async (crop: any) => {
+  const handleDelete = async (crop: CatalogCrop) => {
     if (crop.stats && crop.stats.totalFarmersUsing > 0) {
       alert("Cannot delete crop. It is currently being used by farmers.");
       return;
@@ -179,13 +191,13 @@ export default function CropCatalogTab() {
         alert("Crop deleted successfully.");
         fetchCatalog();
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      alert(err.response?.data?.message || "Failed to delete crop.");
+      alert(apiErrorMessage(err, "Failed to delete crop."));
     }
   };
 
-  const openDrawer = (crop: any) => {
+  const openDrawer = (crop: CatalogCrop) => {
     setSelectedCrop(crop);
     setEditForm({
       category: crop.category,

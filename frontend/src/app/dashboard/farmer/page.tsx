@@ -5,8 +5,11 @@ import ApplicationModal from "@/components/ApplicationModal";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import NotificationDropdown from "@/components/NotificationDropdown";
 import { getGpsOrSavedLocation, reverseGeocode } from "@/lib/location";
+import { useAuth, Role } from "@/context/AuthContext";
+import { apiErrorMessage } from "@/lib/apiError";
 import { ALLOWED_PHOTO_TYPES, preparePhoto } from "@/lib/photoUpload";
-import { useAuth } from "@/context/AuthContext";
+import type { CatalogItem, FarmerCrop } from "@/types/api";
+import type { LucideIcon } from "lucide-react";
 import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -21,6 +24,20 @@ import {
 } from "lucide-react";
 
 type TabType = "dashboard" | "mycrops" | "addcrop" | "earnings" | "profile" | "help";
+
+type FarmerStats = {
+  totalCrops: number;
+  activeCrops: number;
+  totalOrders: number;
+  pendingOrders: number;
+  completedOrders: number;
+  totalEarnings: number;
+  totalQuantitySold: number;
+  walletBalance: number;
+  monthlyEarnings: { month: string; earnings: number }[];
+  cropSales: { name: string; sold: number; earned: number }[];
+  recentTransactions: { id: string; cropName: string; quantityKg: number; earned: number; date: string }[];
+};
 
 const CATEGORY_EMOJI: Record<string, string> = {
   VEGETABLES: "🥬", FRUITS: "🍎", GRAINS: "🌾", HERBS: "🌿", DAIRY: "🥛", PULSES: "🫘", OILSEEDS: "🥜", OTHER: "📦"
@@ -93,19 +110,19 @@ function FarmerDashboardContent() {
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
 
   // ── Stats ──
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<FarmerStats | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
 
   // ── My Crops ──
-  const [crops, setCrops] = useState<any[]>([]);
+  const [crops, setCrops] = useState<FarmerCrop[]>([]);
   const [loadingCrops, setLoadingCrops] = useState(false);
   const [cropFilter, setCropFilter] = useState("ALL");
 
   // ── Add Crop ──
-  const [catalog, setCatalog] = useState<any[]>([]);
-  const [catalogGrouped, setCatalogGrouped] = useState<Record<string, any[]>>({});
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [catalogGrouped, setCatalogGrouped] = useState<Record<string, CatalogItem[]>>({});
   const [addStep, setAddStep] = useState(1);
-  const [selectedCatalog, setSelectedCatalog] = useState<any>(null);
+  const [selectedCatalog, setSelectedCatalog] = useState<CatalogItem | null>(null);
   const [catFilter, setCatFilter] = useState("ALL");
   const [cropForm, setCropForm] = useState({ quantityKg: "", basePricePerKg: "", minOrderKg: "1", harvestDate: "", description: "", selfPickupEnabled: false, isPreHarvest: false });
   const [photos, setPhotos] = useState<File[]>([]);
@@ -117,7 +134,7 @@ function FarmerDashboardContent() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Edit Crop ──
-  const [editingCrop, setEditingCrop] = useState<any>(null);
+  const [editingCrop, setEditingCrop] = useState<FarmerCrop | null>(null);
   const [editCropForm, setEditCropForm] = useState({ basePricePerKg: "", offerMinQuantityKg: "", offerDiscountPercentage: "" });
   const [savingCrop, setSavingCrop] = useState(false);
 
@@ -170,7 +187,7 @@ function FarmerDashboardContent() {
   if (loading || !user) return <div className="h-screen flex items-center justify-center bg-[#FAFBFA]"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1B5E20]" /></div>;
 
   const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good Morning" : h < 17 ? "Good Afternoon" : "Good Evening"; };
-  const handleRoleSwitch = (r: string) => { setShowRoleDropdown(false); if (user.roles.includes(r as any)) switchRole(r as any); };
+  const handleRoleSwitch = (r: string) => { setShowRoleDropdown(false); if (user.roles.includes(r as Role)) switchRole(r as Role); };
 
   // ── Crop Actions ──
   const togglePause = async (id: string, status: string) => {
@@ -182,14 +199,14 @@ function FarmerDashboardContent() {
 
   const deleteCrop = async (id: string) => {
     if (!confirm("Are you sure you want to close this listing?")) return;
-    try { await api.delete(`/crops/${id}`); setCrops(prev => prev.filter(c => c.id !== id)); } catch (e: any) { alert(e.response?.data?.message || "Failed to delete"); }
+    try { await api.delete(`/crops/${id}`); setCrops(prev => prev.filter(c => c.id !== id)); } catch (e) { alert(apiErrorMessage(e, "Failed to delete")); }
   };
 
   const handleSaveCrop = async () => {
     if (!editingCrop) return;
     setSavingCrop(true);
     try {
-      const payload: any = {
+      const payload: { basePricePerKg: string; offerMinQuantityKg?: string; offerDiscountPercentage?: string } = {
         basePricePerKg: editCropForm.basePricePerKg
       };
       if (editCropForm.offerMinQuantityKg && editCropForm.offerDiscountPercentage) {
@@ -204,8 +221,8 @@ function FarmerDashboardContent() {
       } : c));
       setEditingCrop(null);
       alert("Crop updated successfully!");
-    } catch (e: any) {
-      alert(e.response?.data?.message || "Failed to update crop");
+    } catch (e) {
+      alert(apiErrorMessage(e, "Failed to update crop"));
     } finally {
       setSavingCrop(false);
     }
@@ -250,7 +267,7 @@ function FarmerDashboardContent() {
         setOfferForm({ offerMinQuantityKg: "", offerDiscountPercentage: "" }); 
         router.push("/dashboard/farmer?tab=mycrops");
       }, 2000);
-    } catch (e: any) { alert(e.response?.data?.message || e.message || "Failed to add crop"); }
+    } catch (e) { alert(apiErrorMessage(e, e instanceof Error ? e.message : "Failed to add crop")); }
     finally { setSubmitting(false); }
   };
 
@@ -293,10 +310,14 @@ function FarmerDashboardContent() {
   // ── Profile save ──
   const saveProfile = async () => {
     try {
-      const payload: any = { ...profileForm };
-      if (payload.farmArea) payload.farmArea = parseFloat(payload.farmArea);
-      if (payload.latitude) payload.latitude = parseFloat(payload.latitude);
-      if (payload.longitude) payload.longitude = parseFloat(payload.longitude);
+      const { farmArea, latitude, longitude, ...rest } = profileForm;
+      // Empty number fields stay as "", as before; filled ones are sent as numbers.
+      const payload = {
+        ...rest,
+        farmArea: farmArea ? parseFloat(farmArea) : farmArea,
+        latitude: latitude ? parseFloat(latitude) : latitude,
+        longitude: longitude ? parseFloat(longitude) : longitude,
+      };
       
       await api.patch("/users/profile", payload);
       setEditing(false); alert("Profile updated!");
@@ -304,7 +325,7 @@ function FarmerDashboardContent() {
   };
 
   const filteredCrops = cropFilter === "ALL" ? crops : crops.filter(c => c.status === cropFilter);
-  const filteredCatalog = catFilter === "ALL" ? catalog : catalog.filter((c: any) => c.category === catFilter);
+  const filteredCatalog = catFilter === "ALL" ? catalog : catalog.filter((c) => c.category === catFilter);
 
   return (
     <div className="min-h-screen bg-[#FAFBFA] flex font-[family-name:var(--font-poppins)] text-[#212121]">
@@ -454,8 +475,8 @@ function FarmerDashboardContent() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                  {filteredCrops.map((crop: any) => {
-                    const pct = crop.quantityKg > 0 ? Math.round((Number(crop.quantityRemainingKg) / Number(crop.quantityKg)) * 100) : 0;
+                  {filteredCrops.map((crop) => {
+                    const pct = Number(crop.quantityKg) > 0 ? Math.round((Number(crop.quantityRemainingKg) / Number(crop.quantityKg)) * 100) : 0;
                     const cat = crop.catalog?.category || "OTHER";
                     return (
                       <div key={crop.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
@@ -491,9 +512,9 @@ function FarmerDashboardContent() {
                               <button onClick={() => {
                                 setEditingCrop(crop);
                                 setEditCropForm({
-                                  basePricePerKg: crop.basePricePerKg || "",
-                                  offerMinQuantityKg: crop.offer?.minQuantityKg || "",
-                                  offerDiscountPercentage: crop.offer?.discountPercentage || ""
+                                  basePricePerKg: String(crop.basePricePerKg || ""),
+                                  offerMinQuantityKg: String(crop.offer?.minQuantityKg || ""),
+                                  offerDiscountPercentage: String(crop.offer?.discountPercentage || "")
                                 });
                               }} className="p-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-500 transition-colors">
                                 <Edit3 size={14} />
@@ -554,7 +575,7 @@ function FarmerDashboardContent() {
                         ))}
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                        {filteredCatalog.map((item: any) => (
+                        {filteredCatalog.map((item) => (
                           <div key={item.id} onClick={() => setSelectedCatalog(item)} className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${selectedCatalog?.id === item.id ? "border-[#1B5E20] bg-green-50/50" : "border-gray-100 hover:border-gray-300"}`}>
                             <div className="text-2xl mb-1">{CATEGORY_EMOJI[item.category]}</div>
                             <p className="text-sm font-bold text-gray-800">
@@ -580,7 +601,7 @@ function FarmerDashboardContent() {
                   {addStep === 2 && (
                     <div className="bg-white rounded-2xl border border-gray-100 p-6">
                       <div className="flex items-center gap-2 mb-6">
-                        <span className="text-2xl">{CATEGORY_EMOJI[selectedCatalog?.category]}</span>
+                        <span className="text-2xl">{selectedCatalog && CATEGORY_EMOJI[selectedCatalog.category]}</span>
                         <div>
                           <h3 className="font-bold text-lg">
                             {cropLang === "hi" ? (selectedCatalog?.hindiName || selectedCatalog?.englishName) : selectedCatalog?.englishName}
@@ -703,8 +724,8 @@ function FarmerDashboardContent() {
                   <div className="bg-white rounded-2xl border border-gray-100 p-6 mb-8">
                     <h3 className="font-bold text-lg mb-6">Monthly Earnings</h3>
                     <div className="flex items-end gap-4 h-52">
-                      {(stats?.monthlyEarnings || []).map((m: any, i: number) => {
-                        const max = Math.max(...(stats?.monthlyEarnings || []).map((e: any) => e.earnings), 1);
+                      {(stats?.monthlyEarnings || []).map((m, i) => {
+                        const max = Math.max(...(stats?.monthlyEarnings || []).map((e) => e.earnings), 1);
                         const h = max > 0 ? (m.earnings / max) * 200 : 4;
                         return (
                           <div key={i} className="flex-1 flex flex-col items-center justify-end">
@@ -718,13 +739,13 @@ function FarmerDashboardContent() {
                   </div>
 
                   {/* Crop Sales */}
-                  {(stats?.cropSales?.length > 0) && (
+                  {stats && stats.cropSales.length > 0 && (
                     <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden mb-8">
                       <div className="px-6 py-4 border-b border-gray-100 bg-[#FAFBFA]"><h3 className="font-bold">Crop-wise Sales</h3></div>
                       <table className="w-full text-left">
                         <thead><tr className="text-xs font-bold text-gray-400 uppercase border-b border-gray-100"><th className="p-4 pl-6">Crop</th><th className="p-4">Qty Sold</th><th className="p-4 pr-6 text-right">Earned</th></tr></thead>
                         <tbody className="divide-y divide-gray-50">
-                          {stats.cropSales.map((c: any, i: number) => (
+                          {stats.cropSales.map((c, i) => (
                             <tr key={i} className="hover:bg-gray-50"><td className="p-4 pl-6 font-bold text-gray-800">{c.name}</td><td className="p-4 text-sm text-gray-500">{c.sold} kg</td><td className="p-4 pr-6 text-right font-bold text-[#1B5E20]">₹{c.earned.toLocaleString("en-IN")}</td></tr>
                           ))}
                         </tbody>
@@ -733,11 +754,11 @@ function FarmerDashboardContent() {
                   )}
 
                   {/* Recent Transactions */}
-                  {(stats?.recentTransactions?.length > 0) && (
+                  {stats && stats.recentTransactions.length > 0 && (
                     <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
                       <div className="px-6 py-4 border-b border-gray-100 bg-[#FAFBFA]"><h3 className="font-bold">Recent Transactions</h3></div>
                       <div className="divide-y divide-gray-50">
-                        {stats.recentTransactions.map((t: any) => (
+                        {stats.recentTransactions.map((t) => (
                           <div key={t.id} className="px-6 py-4 flex items-center justify-between">
                             <div><p className="text-sm font-bold text-gray-800">{t.cropName} — {t.quantityKg} kg</p><p className="text-[10px] text-gray-400">{new Date(t.date).toLocaleDateString("en-IN")}</p></div>
                             <p className="font-bold text-[#1B5E20]">+₹{t.earned.toLocaleString("en-IN")}</p>
@@ -825,7 +846,7 @@ export default function FarmerDashboard() {
 
 // ═══ SUB-COMPONENTS ═══
 
-const StatCard = ({ icon: Icon, label, value, color, bg }: any) => (
+const StatCard = ({ icon: Icon, label, value, color, bg }: { icon: LucideIcon; label: string; value: React.ReactNode; color: string; bg: string }) => (
   <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${bg} shrink-0`}><Icon className={`w-7 h-7 ${color}`} /></div>
     <div><p className="text-[11px] font-bold text-gray-400 uppercase mb-0.5">{label}</p><h3 className="text-2xl font-black text-gray-800">{value}</h3></div>
@@ -836,20 +857,6 @@ const InputField = ({ label, type, placeholder, value, onChange, min, max }: { l
   <div>
     <label className="text-xs font-bold text-gray-600 block mb-1.5">{label}</label>
     <input type={type} placeholder={placeholder} value={value} min={min} max={max} onChange={e => onChange(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-semibold outline-none focus:border-[#1B5E20] focus:ring-1 focus:ring-[#1B5E20]" />
-  </div>
-);
-
-const ProfileField = ({ icon: Icon, label, value, editing, onChange }: any) => (
-  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-    <Icon className="w-4 h-4 text-gray-400 shrink-0" />
-    <div className="flex-1 min-w-0">
-      <p className="text-[10px] font-bold text-gray-400 uppercase">{label}</p>
-      {editing && onChange ? (
-        <input value={value} onChange={(e: any) => onChange(e.target.value)} className="w-full text-sm font-bold text-gray-800 bg-white border border-gray-200 rounded-lg px-2 py-1 mt-0.5 outline-none focus:border-[#1B5E20]" />
-      ) : (
-        <p className="text-sm font-bold text-gray-800 truncate">{value}</p>
-      )}
-    </div>
   </div>
 );
 

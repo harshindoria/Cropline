@@ -4,6 +4,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter, useParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
+import { apiErrorMessage } from "@/lib/apiError";
+import type { Order } from "@/types/api";
 import { ArrowLeft, Package, Truck, CreditCard, Banknote, Star, ShieldCheck, MapPin, Phone, CheckCircle2, XCircle, AlertCircle, RefreshCw } from "lucide-react";
 import Image from "next/image";
 
@@ -31,7 +33,7 @@ export default function OrderDetailPage() {
   const params = useParams();
   const orderId = params.id as string;
 
-  const [order, setOrder] = useState<any>(null);
+  const [order, setOrder] = useState<Order | null>(null);
   const [loadingOrder, setLoadingOrder] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [cropLang, setCropLang] = useState<"en" | "hi">("en");
@@ -108,9 +110,9 @@ export default function OrderDetailPage() {
         alert("Order cancelled successfully");
         fetchOrder();
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Failed to cancel order", err);
-      alert(err.response?.data?.message || "Failed to cancel order");
+      alert(apiErrorMessage(err, "Failed to cancel order"));
       setProcessing(false);
     }
   };
@@ -128,8 +130,8 @@ export default function OrderDetailPage() {
       alert("Your complaint has been sent. Our team will review it.");
       setShowComplaintModal(false);
       setComplaintDetails("");
-    } catch (err: any) {
-      alert(err.response?.data?.message || "Failed to submit complaint");
+    } catch (err) {
+      alert(apiErrorMessage(err, "Failed to submit complaint"));
     } finally {
       setSubmittingComplaint(false);
     }
@@ -152,9 +154,9 @@ export default function OrderDetailPage() {
         setRatingComment("");
         setRatingValue(5);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Failed to submit review", err);
-      alert(err.response?.data?.message || "Failed to submit review");
+      alert(apiErrorMessage(err, "Failed to submit review"));
     } finally {
       setSubmittingRating(false);
     }
@@ -162,7 +164,7 @@ export default function OrderDetailPage() {
 
   const statusObj = STATUS_CONFIG[order.status] || STATUS_CONFIG['PENDING'];
   const crop = order.crop;
-  const photoUrl = crop?.photos?.[0] || crop?.images?.[0]?.url;
+  const photoUrl = crop?.photos?.[0];
 
   // Determine current step index in the timeline
   const currentStepIndex = STATUS_ORDER.indexOf(order.status);
@@ -231,10 +233,10 @@ export default function OrderDetailPage() {
               </div>
               <div className="flex-1">
                 <h3 className="text-lg font-black text-[#212121]">
-                  {cropLang === "hi" ? (crop?.catalog?.hindiName || crop?.catalog?.englishName || crop?.cropName || "Crop") : (crop?.catalog?.englishName || crop?.cropName || "Crop")}
+                  {cropLang === "hi" ? (crop?.catalog?.hindiName || crop?.catalog?.englishName || "Crop") : (crop?.catalog?.englishName || "Crop")}
                 </h3>
                 <p className="text-sm font-semibold text-gray-500 mb-1">
-                  {cropLang === "hi" ? (crop?.catalog?.englishName || crop?.cropName || "") : (crop?.catalog?.hindiName || "")}
+                  {cropLang === "hi" ? (crop?.catalog?.englishName || "") : (crop?.catalog?.hindiName || "")}
                 </p>
                 <div className="text-sm font-bold text-[#1B5E20]">
                   {order.quantityKg} kg × ₹{(Number(order.basePricePerKg) * (1 + Number(order.cropMarkupRate || 0.20))).toFixed(2)}/kg
@@ -458,6 +460,7 @@ export default function OrderDetailPage() {
               {order.deliveryJob?.deliveryPartnerId && (
                 <button
                   onClick={() => {
+                    if (!order.deliveryJob) return;
                     setRatingTargetId(order.deliveryJob.deliveryPartnerId);
                     setRatingTargetType('DELIVERY');
                     setShowRatingModal(true);

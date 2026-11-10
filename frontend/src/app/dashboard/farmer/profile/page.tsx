@@ -8,6 +8,8 @@ import {
   CreditCard, ChevronRight, Edit2, CheckCircle, AlertCircle, X, Upload, Sprout, Tractor, Droplet, TreePine, Clock, Search, ChevronDown
 } from 'lucide-react';
 import api from '@/lib/axios';
+import { apiErrorMessage } from '@/lib/apiError';
+import type { AccountProfile, CatalogItem } from '@/types/api';
 import LocationSelector, { LocationValue } from '@/components/LocationSelector';
 import ChangePhoneNumber from '@/components/ChangePhoneNumber';
 
@@ -42,18 +44,19 @@ export default function FarmerProfile() {
   const { user, loading } = useAuth();
   const router = useRouter();
   
-  const [profileData, setProfileData] = useState<any>(null);
+  const [profileData, setProfileData] = useState<AccountProfile | null>(null);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState('');
   
   // Modal states
   const [editModal, setEditModal] = useState<'personal' | 'farm' | 'bank' | 'about' | 'document' | null>(null);
   const [docTypeToEdit, setDocTypeToEdit] = useState<'aadhaar' | 'dl' | 'rc' | null>(null);
-  const [formData, setFormData] = useState<any>({});
+  // Every field in the edit forms is text.
+  const [formData, setFormData] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [docImagePreview, setDocImagePreview] = useState<string | null>(null);
   const docFileInputRef = useRef<HTMLInputElement>(null);
-  const [catalog, setCatalog] = useState<any[]>([]);
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [lang, setLang] = useState<'en' | 'hi'>('en');
   const [cropSearch, setCropSearch] = useState('');
   const [isCropDropdownOpen, setIsCropDropdownOpen] = useState(false);
@@ -86,8 +89,8 @@ export default function FarmerProfile() {
       if (catRes.data.success) {
         setCatalog(catRes.data.catalog || []);
       }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to fetch profile');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to fetch profile'));
     } finally {
       setFetching(false);
     }
@@ -120,7 +123,7 @@ export default function FarmerProfile() {
       });
     } else if (type === 'farm') {
       setFormData({
-        farmArea: profileData?.farmArea || '',
+        farmArea: String(profileData?.farmArea || ''),
         primaryCrops: profileData?.primaryCrops || '',
         farmingType: profileData?.farmingType || '',
         soilType: profileData?.soilType || '',
@@ -154,7 +157,7 @@ export default function FarmerProfile() {
     reader.onload = () => {
       const base64 = reader.result as string;
       setDocImagePreview(base64);
-      setFormData((prev: any) => ({ ...prev, [`${docTypeToEdit}Url`]: base64 }));
+      setFormData((prev) => ({ ...prev, [`${docTypeToEdit}Url`]: base64 }));
     };
     reader.readAsDataURL(file);
   };
@@ -162,7 +165,7 @@ export default function FarmerProfile() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const payload = {
+      const payload: Record<string, string | number | undefined> = {
         ...formData,
         ...(editModal === 'personal' ? {
           village: locationData.village,
@@ -177,7 +180,7 @@ export default function FarmerProfile() {
         delete payload.dob;
       }
       if (payload.farmArea) {
-        payload.farmArea = parseFloat(payload.farmArea);
+        payload.farmArea = parseFloat(String(payload.farmArea));
       }
       
       // A crop the admin has since removed from the platform can't be picked or unpicked here, so drop it.
@@ -191,9 +194,9 @@ export default function FarmerProfile() {
         setProfileData(res.data.user);
         closeModal();
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      alert(err.response?.data?.message || err.response?.data?.error || 'Failed to update profile');
+      alert(apiErrorMessage(err, 'Failed to update profile'));
     } finally {
       setIsSaving(false);
     }
@@ -211,9 +214,9 @@ export default function FarmerProfile() {
     );
   }
 
-  const p = profileData || {};
+  const p: Partial<AccountProfile> = profileData || {};
 
-  const formatDate = (dateString?: string) => {
+  const formatDate = (dateString?: string | null) => {
     if (!dateString) return 'Not Provided';
     const date = new Date(dateString);
     return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -273,7 +276,7 @@ export default function FarmerProfile() {
     );
   };
 
-  const maskBankAccount = (account?: string) => {
+  const maskBankAccount = (account?: string | null) => {
     if (!account) return 'Not Provided';
     if (account.length <= 4) return account;
     return `**** **** **** ${account.slice(-4)}`;

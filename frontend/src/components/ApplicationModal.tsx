@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/axios";
+import { apiErrorBody, apiErrorStatus } from "@/lib/apiError";
 import LocationSelector, { LocationValue } from "./LocationSelector";
 
 interface ApplicationModalProps {
@@ -218,18 +219,19 @@ export default function ApplicationModal({ isOpen, onClose, role }: ApplicationM
         vehicleType
       };
 
-      const res: any = await onboardNewRole(role, additionalData);
+      const res = await onboardNewRole(role, additionalData);
       if (res && res.message) {
         alert(res.message);
       } else {
         alert("Application submitted successfully! Please wait for Admin verification.");
       }
       handleClose();
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
-      if (error.response?.data?.code === "UNKNOWN_CROP") {
-        alert(error.response.data.message);
-      } else if (error.response?.status !== 409) {
+      const body = apiErrorBody(error);
+      if (body.code === "UNKNOWN_CROP") {
+        alert(body.message);
+      } else if (apiErrorStatus(error) !== 409) {
         alert("Failed to submit application. Please try again.");
       }
     } finally {

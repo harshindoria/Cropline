@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from 'react';
 import api from '@/lib/axios';
+import { apiErrorMessage } from '@/lib/apiError';
 import { 
   Users, ShieldCheck, Clock, Ban, XCircle,
   Search, ChevronDown, Calendar,
@@ -9,9 +10,25 @@ import {
 
 const PAGE_SIZE = 10;
 
+type AdminFarmer = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string;
+  location: string;
+  city: string | null;
+  state: string | null;
+  primaryCrops: string;
+  listings: number;
+  totalOrders: number;
+  earnings: number;
+  status: string;
+  joinedOn: string;
+};
+
 export default function FarmersTab() {
-  const [farmers, setFarmers] = useState<any[]>([]);
-  const [metrics, setMetrics] = useState<any>(null);
+  const [farmers, setFarmers] = useState<AdminFarmer[]>([]);
+  const [metrics, setMetrics] = useState<Record<string, number> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +46,7 @@ export default function FarmersTab() {
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
 
   // Action modals
-  const [selectedFarmer, setSelectedFarmer] = useState<any>(null);
+  const [selectedFarmer, setSelectedFarmer] = useState<AdminFarmer | null>(null);
   const [notifModal, setNotifModal] = useState(false);
   const [blockModal, setBlockModal] = useState(false);
   const [notifMessage, setNotifMessage] = useState("");
@@ -50,9 +67,9 @@ export default function FarmersTab() {
       } else {
         setError("Failed to fetch farmers data.");
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Failed to fetch farmers:", err);
-      setError(err?.response?.data?.message || "Could not connect to server.");
+      setError(apiErrorMessage(err, "Could not connect to server."));
     } finally {
       setLoading(false);
     }
@@ -137,7 +154,7 @@ export default function FarmersTab() {
     setDateFilter("All Time");
   };
 
-  const getInitials = (name: string) => {
+  const getInitials = (name: string | null) => {
     if (!name) return "??";
     return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
   };

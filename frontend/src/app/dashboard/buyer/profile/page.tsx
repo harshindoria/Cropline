@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
+import { apiErrorMessage } from "@/lib/apiError";
 import { 
   ArrowLeft, User, MapPin, Save, Loader2, CheckCircle2, Navigation, AlertCircle, Wallet
 } from "lucide-react";
@@ -63,19 +64,19 @@ export default function BuyerProfilePage() {
 
     try {
       // The update profile schema accepts strings for most, numbers for lat/lng
-      const payload: any = {
+      const payload: Record<string, string | number | undefined> = {
         ...formData,
         village: locationData.village,
         district: locationData.district,
         state: locationData.state,
         pincode: locationData.pincode,
       };
-      if (payload.latitude) payload.latitude = Number(payload.latitude);
-      if (payload.longitude) payload.longitude = Number(payload.longitude);
-      
-      // Remove empty strings so Zod doesn't complain about invalid types if they are supposed to be numbers
-      if (payload.latitude === "" || isNaN(payload.latitude)) delete payload.latitude;
-      if (payload.longitude === "" || isNaN(payload.longitude)) delete payload.longitude;
+      // Send coordinates as numbers, and leave out empty or invalid ones so Zod doesn't reject them.
+      for (const key of ["latitude", "longitude"]) {
+        const value = payload[key];
+        if (value === "" || value === undefined || Number.isNaN(Number(value))) delete payload[key];
+        else payload[key] = Number(value);
+      }
 
       const res = await api.patch("/users/profile", payload);
       
@@ -83,9 +84,9 @@ export default function BuyerProfilePage() {
         setSuccessMsg("Profile updated successfully!");
         setTimeout(() => window.location.reload(), 1500);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Profile update error", err);
-      setErrorMsg(err.response?.data?.message || err.response?.data?.error || "Failed to update profile.");
+      setErrorMsg(apiErrorMessage(err, "Failed to update profile."));
       setTimeout(() => setErrorMsg(""), 4000);
     } finally {
       setSaving(false);

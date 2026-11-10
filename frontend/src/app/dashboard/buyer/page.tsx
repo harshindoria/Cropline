@@ -1,6 +1,8 @@
 "use client";
 
-import { useAuth } from "@/context/AuthContext";
+import { useAuth, Role } from "@/context/AuthContext";
+import { apiErrorBody, apiErrorMessage } from "@/lib/apiError";
+import type { CropListing, CropNameSource, OrderSocketEvent } from "@/types/api";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef, Suspense } from "react";
 import api from "@/lib/axios";
@@ -51,7 +53,7 @@ function BuyerDashboardContent() {
     localStorage.setItem("cropline_crop_lang", next);
   };
 
-  const getCropName = (crop: any) => {
+  const getCropName = (crop: CropNameSource) => {
     if (cropLang === "hi" && crop.catalog?.hindiName) {
       return crop.catalog.hindiName;
     }
@@ -61,7 +63,7 @@ function BuyerDashboardContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [sortBy, setSortBy] = useState("newest");
-  const [crops, setCrops] = useState<any[]>([]);
+  const [crops, setCrops] = useState<CropListing[]>([]);
   const [loadingCrops, setLoadingCrops] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -116,7 +118,7 @@ function BuyerDashboardContent() {
   const handleSaveLocation = async () => {
     setIsUpdatingLocation(true);
     try {
-      const payload: any = {
+      const payload: LocationValue & { latitude?: string; longitude?: string } = {
         village: locationData.village,
         district: locationData.district,
         state: locationData.state,
@@ -133,9 +135,9 @@ function BuyerDashboardContent() {
         setIsLocationModalOpen(false);
         window.location.reload();
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      alert(err.response?.data?.error || 'Failed to update location');
+      alert(apiErrorBody(err).error || 'Failed to update location');
     } finally {
       setIsUpdatingLocation(false);
     }
@@ -282,7 +284,7 @@ function BuyerDashboardContent() {
             name: "CropLine",
             description: `Payment for Order`,
             order_id: providerOrderId,
-            handler: function (response: any) {
+            handler: function () {
               setCart({});
               setShowCart(false);
               router.push(`/dashboard/buyer/orders`);
@@ -294,7 +296,7 @@ function BuyerDashboardContent() {
             },
             theme: { color: "#1B5E20" }
           };
-          const rzp = new (window as any).Razorpay(options);
+          const rzp = new window.Razorpay(options);
           rzp.open();
         } else {
           alert("Failed to initiate payment");
@@ -305,9 +307,9 @@ function BuyerDashboardContent() {
         setShowCart(false);
         router.push(`/dashboard/buyer/orders`);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Checkout error:", err);
-      alert(err?.response?.data?.message || err.message || "Failed to place order.");
+      alert(apiErrorMessage(err, err instanceof Error ? err.message : "Failed to place order."));
     }
   };
 
@@ -315,12 +317,12 @@ function BuyerDashboardContent() {
   const handleRoleSwitch = (targetRole: string) => {
     setShowRoleDropdown(false);
 
-    if (!user || !user.roles.includes(targetRole as any)) {
+    if (!user || !user.roles.includes(targetRole as Role)) {
       setAppRole(targetRole as "FARMER" | "DELIVERY");
       setAppModalOpen(true);
       return;
     }
-    switchRole(targetRole as any);
+    switchRole(targetRole as Role);
   };
 
   useEffect(() => {
@@ -337,7 +339,7 @@ function BuyerDashboardContent() {
   useEffect(() => {
     if (!socket) return;
 
-    const handleOrderAssigned = (data: any) => {
+    const handleOrderAssigned = (data: OrderSocketEvent) => {
       toast.success("Order Update", {
         description: data.message || "Your order status has been updated.",
         duration: 5000,

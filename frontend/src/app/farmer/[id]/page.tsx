@@ -18,9 +18,10 @@ import {
   Loader2
 } from 'lucide-react';
 import api from '@/lib/axios';
+import type { FarmerPublicProfile } from '@/types/api';
 
 export default function FarmerProfilePage({ params }: { params: { id: string } }) {
-  const [farmer, setFarmer] = useState<any>(null);
+  const [farmer, setFarmer] = useState<FarmerPublicProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -56,7 +57,7 @@ export default function FarmerProfilePage({ params }: { params: { id: string } }
   if (!farmer) return <div className="min-h-screen flex items-center justify-center bg-[#FDFDFD]">Farmer not found</div>;
 
   const location = [farmer.district, farmer.state].filter(Boolean).join(', ') || 'Not Provided';
-  const tags = [farmer.primaryCrops, farmer.farmingType, farmer.soilType].filter(Boolean).map(t => t.split(',')).flat().map(t => t.trim()).filter(Boolean);
+  const tags = [farmer.primaryCrops, farmer.farmingType, farmer.soilType].filter((t): t is string => Boolean(t)).map(t => t.split(',')).flat().map(t => t.trim()).filter(Boolean);
 
   return (
     <div className="min-h-screen bg-[#FDFDFD] font-[family-name:var(--font-poppins)]">
@@ -106,7 +107,7 @@ export default function FarmerProfilePage({ params }: { params: { id: string } }
             {/* Farmer Avatar */}
             <div className="relative shrink-0">
               <div className="w-40 h-40 rounded-full overflow-hidden border-4 border-white shadow-xl bg-white flex items-center justify-center bg-gray-100">
-                <span className="text-4xl font-bold text-gray-300">{farmer.name.charAt(0)}</span>
+                <span className="text-4xl font-bold text-gray-300">{farmer.name?.charAt(0)}</span>
               </div>
               {farmer.isVerified && (
                 <div className="absolute top-2 right-2 w-8 h-8 bg-[#2E7D32] rounded-full border-[3px] border-white flex items-center justify-center shadow-sm">
@@ -189,7 +190,7 @@ export default function FarmerProfilePage({ params }: { params: { id: string } }
         <div className="grid grid-cols-[1fr_2fr] gap-6">
           {/* About Section */}
           <div className="bg-white rounded-[24px] p-8 border border-gray-100 shadow-sm">
-            <h2 className="text-lg font-black text-[#1B5E20] mb-2">About {farmer.name.split(' ')[0]}</h2>
+            <h2 className="text-lg font-black text-[#1B5E20] mb-2">About {farmer.name?.split(' ')[0]}</h2>
             <div className="w-8 h-1 bg-[#2E7D32] rounded-full mb-6"></div>
             
             <p className="text-sm font-medium text-gray-600 leading-relaxed mb-8 whitespace-pre-wrap">
@@ -216,17 +217,17 @@ export default function FarmerProfilePage({ params }: { params: { id: string } }
             <div className="w-8 h-1 bg-[#2E7D32] rounded-full mb-6"></div>
 
             <div className="grid grid-cols-4 gap-4">
-              {farmer.activeCrops?.map((crop: any) => (
+              {farmer.activeCrops?.map((crop) => (
                 <div key={crop.id} className="group cursor-pointer">
                   <div className="relative h-32 rounded-2xl overflow-hidden mb-3 border border-gray-100 shadow-sm flex items-center justify-center bg-gray-50">
-                    {crop.catalog?.image ? (
-                      <img src={crop.catalog.image} alt={crop.catalog.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                    {crop.catalog?.imageTemplate ? (
+                      <img src={crop.catalog.imageTemplate} alt={crop.catalog.englishName} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
                     ) : (
                       <Leaf className="w-8 h-8 text-green-300" />
                     )}
                   </div>
-                  <h3 className="font-bold text-gray-800">{crop.catalog?.name || crop.variety}</h3>
-                  <p className="text-sm font-semibold text-[#2E7D32]">₹{crop.price} / {crop.unit}</p>
+                  <h3 className="font-bold text-gray-800">{crop.catalog?.englishName || "Crop"}</h3>
+                  <p className="text-sm font-semibold text-[#2E7D32]">₹{Number(crop.basePricePerKg)} / kg</p>
                 </div>
               ))}
               {(!farmer.activeCrops || farmer.activeCrops.length === 0) && (
@@ -249,7 +250,7 @@ export default function FarmerProfilePage({ params }: { params: { id: string } }
           <div className="w-8 h-1 bg-[#2E7D32] rounded-full mb-8"></div>
 
           <div className="grid grid-cols-3 gap-8">
-            {farmer.reviews?.textReviews?.map((review: any) => (
+            {farmer.reviews?.textReviews?.map((review) => (
               <div key={review.id} className="flex gap-4">
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold shrink-0 bg-green-100 text-green-700`}>
                   {review.reviewer?.name?.charAt(0) || 'U'}

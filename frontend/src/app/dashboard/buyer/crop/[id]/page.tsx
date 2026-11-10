@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter, useParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
+import { apiErrorMessage } from "@/lib/apiError";
 import Script from "next/script";
 import { 
   ArrowLeft, Leaf, Clock, TrendingUp, MapPin, Star, ShieldCheck, Package, Minus, Plus, CreditCard, Banknote, ShoppingBasket, ChevronLeft
@@ -148,7 +149,7 @@ export default function CropDetailPage() {
             name: "CropLine",
             description: `Order for ${crop.catalog?.englishName || "Crop"}`,
             order_id: providerOrderId,
-            handler: async function(response: any) {
+            handler: async function(response: RazorpayPaymentResponse) {
               try {
                 // Verify the payment synchronously with the backend
                 await api.post(`/payments/order/${orderId}/verify`, {
@@ -171,16 +172,16 @@ export default function CropDetailPage() {
             },
             theme: { color: "#1B5E20" }
           };
-          const rzp = new (window as any).Razorpay(options);
+          const rzp = new window.Razorpay(options);
           rzp.open();
         }
       } else {
         // COD - redirect directly to order page
         router.push(`/dashboard/buyer/orders/${orderId}`);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Order error:", err);
-      alert(err?.response?.data?.message || err.message || "Failed to place order.");
+      alert(apiErrorMessage(err, err instanceof Error ? err.message : "Failed to place order."));
       setProcessing(false);
     }
   };
@@ -588,7 +589,7 @@ export default function CropDetailPage() {
   );
 }
 
-function ChevronRight({ size = 24, ...props }: any) {
+function ChevronRight({ size = 24, ...props }: { size?: number } & React.SVGProps<SVGSVGElement>) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="m9 18 6-6-6-6"/>

@@ -55,7 +55,7 @@ interface AuthContextType {
   confirmPhoneChange: (verificationId: string, otp: string) => Promise<void>;
   completeRegistration: (profileData: Partial<UserProfile>) => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
-  onboardNewRole: (role: "FARMER" | "DELIVERY", additionalData?: Record<string, unknown>) => Promise<void>;
+  onboardNewRole: (role: "FARMER" | "DELIVERY", additionalData?: Record<string, unknown>) => Promise<{ success: boolean; message?: string }>;
   logout: () => Promise<void>;
 }
 

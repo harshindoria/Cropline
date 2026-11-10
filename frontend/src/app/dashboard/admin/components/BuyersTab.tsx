@@ -9,9 +9,31 @@ import {
 
 const PAGE_SIZE = 10;
 
+type AdminBuyer = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string;
+  location: string;
+  city: string | null;
+  state: string | null;
+  totalOrders: number;
+  totalSpent: number;
+  status: string;
+  joinedOn: string;
+};
+
+type BuyerMetrics = {
+  totalBuyers: number;
+  activeBuyers: number;
+  suspendedBuyers: number;
+  verifiedBuyers: number;
+  newThisMonth: number;
+};
+
 export default function BuyersTab() {
-  const [buyers, setBuyers] = useState<any[]>([]);
-  const [metrics, setMetrics] = useState<any>(null);
+  const [buyers, setBuyers] = useState<AdminBuyer[]>([]);
+  const [metrics, setMetrics] = useState<BuyerMetrics | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Filter states
@@ -27,7 +49,7 @@ export default function BuyersTab() {
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
 
   // Action modals
-  const [selectedBuyer, setSelectedBuyer] = useState<any>(null);
+  const [selectedBuyer, setSelectedBuyer] = useState<AdminBuyer | null>(null);
   const [notifModal, setNotifModal] = useState(false);
   const [blockModal, setBlockModal] = useState(false);
   const [notifMessage, setNotifMessage] = useState("");
@@ -106,7 +128,7 @@ export default function BuyersTab() {
   // Reset to page 1 when filters change
   useEffect(() => { setCurrentPage(1); }, [searchQuery, statusFilter, cityFilter, dateFilter]);
 
-  const getInitials = (name: string) => {
+  const getInitials = (name: string | null) => {
     if (!name) return "??";
     return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
   };

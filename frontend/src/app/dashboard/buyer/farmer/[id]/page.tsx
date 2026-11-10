@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter, useParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
+import type { CropNameSource, FarmerPublicProfile } from "@/types/api";
 import { 
   ArrowLeft, MapPin, CheckCircle2, Star, Package, Leaf, Users, Phone, Clock, MessageCircle, Loader2, ShoppingBasket, ChevronDown, ChevronLeft, ChevronRight
 } from "lucide-react";
@@ -24,7 +25,7 @@ export default function FarmerPublicProfilePage() {
   const params = useParams();
   const farmerId = params.id as string;
 
-  const [farmer, setFarmer] = useState<any>(null);
+  const [farmer, setFarmer] = useState<FarmerPublicProfile | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [cart, setCart] = useState<Record<string, number>>({});
   const [isClient, setIsClient] = useState(false);
@@ -71,7 +72,7 @@ export default function FarmerPublicProfilePage() {
     });
   };
 
-  const getCropName = (crop: any) => {
+  const getCropName = (crop: CropNameSource) => {
     return crop.cropName || crop.catalog?.englishName || "Crop";
   };
 
@@ -130,7 +131,7 @@ export default function FarmerPublicProfilePage() {
   }
 
   const location = [farmer.district, farmer.state].filter(Boolean).join(', ') || 'Not Provided';
-  const tags = [farmer.primaryCrops, farmer.farmingType, farmer.soilType].filter(Boolean).map((t: string) => t.split(',')).flat().map((t: string) => t.trim()).filter(Boolean);
+  const tags = [farmer.primaryCrops, farmer.farmingType, farmer.soilType].filter((t): t is string => Boolean(t)).map((t) => t.split(',')).flat().map((t) => t.trim()).filter(Boolean);
 
   return (
     <div className="h-full overflow-y-auto bg-[#FDFDFD] font-[family-name:var(--font-poppins)] pb-24">
@@ -157,7 +158,7 @@ export default function FarmerPublicProfilePage() {
             {/* Farmer Avatar */}
             <div className="relative shrink-0 w-28 h-28 md:w-40 md:h-40 mx-auto md:mx-0">
               <div className="w-full h-full rounded-full overflow-hidden border-4 border-white shadow-xl bg-white flex items-center justify-center bg-gray-100">
-                <span className="text-4xl font-bold text-gray-300">{farmer.name.charAt(0)}</span>
+                <span className="text-4xl font-bold text-gray-300">{farmer.name?.charAt(0)}</span>
               </div>
               {farmer.isVerified && (
                 <div className="absolute top-0 right-0 md:top-2 md:right-2 w-8 h-8 bg-[#2E7D32] rounded-full border-[3px] border-white flex items-center justify-center shadow-sm">
@@ -240,7 +241,7 @@ export default function FarmerPublicProfilePage() {
         <div className="grid grid-cols-1 md:grid-cols-[1fr_2fr] gap-6">
           {/* About Section */}
           <div className="bg-white rounded-[24px] p-6 md:p-8 border border-gray-100 shadow-sm h-fit">
-            <h2 className="text-lg font-black text-[#1B5E20] mb-2">About {farmer.name.split(' ')[0]}</h2>
+            <h2 className="text-lg font-black text-[#1B5E20] mb-2">About {farmer.name?.split(' ')[0]}</h2>
             <div className="w-8 h-1 bg-[#2E7D32] rounded-full mb-6"></div>
             
             <p className="text-sm font-medium text-gray-600 leading-relaxed mb-8 whitespace-pre-wrap">
@@ -264,7 +265,7 @@ export default function FarmerPublicProfilePage() {
             <div className="w-8 h-1 bg-[#2E7D32] rounded-full mb-6"></div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-              {farmer.activeCrops?.map((crop: any) => (
+              {farmer.activeCrops?.map((crop) => (
                 <CropCard 
                   key={crop.id}
                   crop={{ ...crop, farmer: { id: farmer.id, name: farmer.name, rating: farmer.rating, ratingCount: farmer.reviews?.totalCount || 0 } }}
@@ -387,9 +388,9 @@ export default function FarmerPublicProfilePage() {
             {(() => {
               const allReviews = farmer.reviews?.textReviews || [];
               const filteredReviews = reviewFilter 
-                ? allReviews.filter((r: any) => Math.round(r.rating) === reviewFilter)
+                ? allReviews.filter((r) => Math.round(r.rating) === reviewFilter)
                 : allReviews;
-              const sortedReviews = [...filteredReviews].sort((a: any, b: any) => {
+              const sortedReviews = [...filteredReviews].sort((a, b) => {
                 if (reviewSort === "highest") return b.rating - a.rating;
                 return a.rating - b.rating;
               });
@@ -406,7 +407,7 @@ export default function FarmerPublicProfilePage() {
 
               return (
                 <>
-                  {paginatedReviews.map((review: any) => (
+                  {paginatedReviews.map((review) => (
                     <div key={review.id} className="py-6 flex flex-col sm:flex-row gap-4 sm:gap-6">
                       {/* Avatar */}
                       <div className="flex items-center gap-3 sm:w-48 shrink-0">

@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import { Bell, Check, Trash } from "lucide-react";
 import api from "@/lib/axios";
+import type { AppNotification } from "@/types/api";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function NotificationDropdown() {
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -28,7 +29,7 @@ export default function NotificationDropdown() {
       const res = await api.get("/notifications");
       if (res.data.success) {
         setNotifications(res.data.data);
-        setUnreadCount(res.data.data.filter((n: any) => !n.isRead).length);
+        setUnreadCount(res.data.data.filter((n: AppNotification) => !n.isRead).length);
       }
     } catch (error) {
       console.error("Failed to fetch notifications:", error);

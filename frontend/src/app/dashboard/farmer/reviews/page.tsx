@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
+import type { MyReviews } from "@/types/api";
 import { Star, MessageSquare } from "lucide-react";
 import Image from "next/image";
 
@@ -11,7 +12,7 @@ export default function FarmerReviewsPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
 
-  const [reviewsData, setReviewsData] = useState<any>(null);
+  const [reviewsData, setReviewsData] = useState<MyReviews | null>(null);
   const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
@@ -150,14 +151,14 @@ export default function FarmerReviewsPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {reviewsData.textReviews.map((review: any) => (
+            {reviewsData.textReviews.map((review) => (
               <div key={review.id} className="border border-gray-100 p-5 rounded-2xl bg-gray-50/50 hover:bg-white hover:shadow-md transition-all">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-[#1B5E20] font-black uppercase text-lg">
-                    {review.reviewer.name.charAt(0)}
+                    {review.reviewer?.name?.charAt(0)}
                   </div>
                   <div>
-                    <p className="font-bold text-[#212121]">{review.reviewer.name}</p>
+                    <p className="font-bold text-[#212121]">{review.reviewer?.name}</p>
                     <p className="text-xs font-medium text-gray-400">{new Date(review.createdAt).toLocaleDateString()}</p>
                   </div>
                 </div>
@@ -166,7 +167,7 @@ export default function FarmerReviewsPage() {
                     <Star key={star} size={14} fill={star <= review.rating ? "#FFC107" : "transparent"} className={star <= review.rating ? "text-[#FFC107]" : "text-gray-300"} />
                   ))}
                   <span className="text-[10px] font-bold text-[#1B5E20] ml-2 uppercase tracking-wider bg-green-50 px-2 py-0.5 rounded-full border border-green-100">
-                    {review.order?.crop?.cropName || review.order?.crop?.catalog?.name?.en || 'Crop'}
+                    {review.order?.crop?.catalog?.englishName || 'Crop'}
                   </span>
                 </div>
                 <p className="text-gray-600 text-sm leading-relaxed">{review.comment}</p>

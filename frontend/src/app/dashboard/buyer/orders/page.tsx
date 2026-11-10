@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
+import type { CropNameSource, Order } from "@/types/api";
 import { ArrowLeft, Package, Search, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
@@ -28,7 +29,7 @@ export default function BuyerOrdersPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   
-  const [orders, setOrders] = useState<any[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
   const [activeTab, setActiveTab] = useState("All");
   const [cropLang, setCropLang] = useState<"en" | "hi">("en");
@@ -40,7 +41,7 @@ export default function BuyerOrdersPage() {
     }
   }, []);
 
-  const getCropName = (crop: any) => {
+  const getCropName = (crop?: CropNameSource) => {
     if (cropLang === "hi" && crop?.catalog?.hindiName) {
       return crop.catalog.hindiName;
     }
@@ -59,8 +60,8 @@ export default function BuyerOrdersPage() {
         setLoadingOrders(true);
         const res = await api.get("/orders");
         if (res.data.success) {
-          const allOrders = res.data.orders || [];
-          setOrders(allOrders.filter((o: any) => o.buyerId === user?.id));
+          const allOrders: Order[] = res.data.orders || [];
+          setOrders(allOrders.filter((o) => o.buyerId === user?.id));
         }
       } catch (err) {
         console.error("Failed to fetch orders", err);
@@ -138,7 +139,7 @@ export default function BuyerOrdersPage() {
             filteredOrders.map(order => {
               const status = STATUS_CONFIG[order.status] || { label: order.status, color: "text-gray-700", bg: "bg-gray-100" };
               const crop = order.crop;
-              const photoUrl = crop?.photos?.[0] || crop?.images?.[0]?.url;
+              const photoUrl = crop?.photos?.[0];
               
               return (
                 <Link key={order.id} href={`/dashboard/buyer/orders/${order.id}`}>

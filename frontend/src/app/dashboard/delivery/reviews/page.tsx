@@ -4,17 +4,14 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { Star, Smile, FileText, Clock, ThumbsUp, ChevronDown, Trophy, Package, MessageSquare, CheckCircle, AlertCircle, Leaf } from 'lucide-react';
 import api from '@/lib/axios';
+import { apiErrorMessage } from '@/lib/apiError';
+import type { MyReviews } from '@/types/api';
 
 export default function DeliveryReviews() {
   const { user, loading } = useAuth();
   const router = useRouter();
   
-  const [reviewsData, setReviewsData] = useState<{
-    averageRating: number;
-    totalCount: number;
-    distribution: Record<number, number>;
-    textReviews: any[];
-  } | null>(null);
+  const [reviewsData, setReviewsData] = useState<MyReviews | null>(null);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState('');
 
@@ -39,8 +36,8 @@ export default function DeliveryReviews() {
       } else {
         setError(res.data.message || 'Failed to fetch reviews');
       }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to fetch reviews');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to fetch reviews'));
     } finally {
       setFetching(false);
     }

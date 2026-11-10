@@ -1,13 +1,24 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
 import api from '@/lib/axios';
+import { apiErrorMessage } from '@/lib/apiError';
 import { 
   Megaphone, Gift, AlertTriangle, Wrench, ChevronDown, 
   Send, CheckCircle2, XCircle, Search, User, Filter, Calendar, X, Bell, UserCheck
 } from 'lucide-react';
 
+type SentNotification = {
+  type: string;
+  title: string;
+  body: string;
+  sentOn: string;
+  sentCount: number;
+};
+
+type UserSearchResult = { id: string; name: string | null; phone: string; roles: string[] };
+
 export default function NotificationsTab() {
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<SentNotification[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [loadingSend, setLoadingSend] = useState(false);
 
@@ -19,12 +30,12 @@ export default function NotificationsTab() {
   
   // Specific User State
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [selectedUser, setSelectedUser] = useState<UserSearchResult | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   
   // Drawer State
-  const [previewNotif, setPreviewNotif] = useState<any | null>(null);
+  const [previewNotif, setPreviewNotif] = useState<SentNotification | null>(null);
   
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -104,8 +115,8 @@ export default function NotificationsTab() {
       } else {
         alert("Failed to send notification: " + res.data.message);
       }
-    } catch (error: any) {
-      alert("An error occurred: " + (error.response?.data?.message || error.message));
+    } catch (error) {
+      alert("An error occurred: " + apiErrorMessage(error, error instanceof Error ? error.message : "Unknown error"));
     } finally {
       setLoadingSend(false);
     }

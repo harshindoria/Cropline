@@ -12,6 +12,14 @@ import {
 } from "lucide-react";
 
 import api from "@/lib/axios";
+import type { AppNotification, NearbyJob, OrderSocketEvent } from "@/types/api";
+
+// GET /delivery/nearby sends { jobs, total }. Nothing marks a job as priority yet, so that count is 0.
+const countNearbyJobs = (jobs: NearbyJob[] = []) => ({
+  within5: jobs.filter((job) => job.pickupDistanceKm <= 5).length,
+  within10: jobs.filter((job) => job.pickupDistanceKm > 5 && job.pickupDistanceKm <= 10).length,
+  priority: 0,
+});
 import RoleSwitcher from "@/components/RoleSwitcher";
 import NotificationDropdown from "@/components/NotificationDropdown";
 import { useSocket } from "@/context/SocketContext";
@@ -31,7 +39,7 @@ export default function DeliveryDashboard() {
     dailyGoal: 2000
   });
   const [nearbyActivity, setNearbyActivity] = useState({ within5: 0, within10: 0, priority: 0 });
-  const [recentUpdates, setRecentUpdates] = useState<any[]>([]);
+  const [recentUpdates, setRecentUpdates] = useState<AppNotification[]>([]);
   const [isGoalFlipped, setIsGoalFlipped] = useState(false);
   const [newGoalInput, setNewGoalInput] = useState("");
   const [isOnline, setIsOnline] = useState(false);
@@ -59,15 +67,7 @@ export default function DeliveryDashboard() {
         setNewGoalInput(summaryRes.data.data.dailyGoal.toString());
       }
       if (nearbyRes.data.success) {
-        let within5 = 0;
-        let within10 = 0;
-        let priority = 0; // high priority if crop is pre-harvest or urgency
-        nearbyRes.data.data.forEach((job: any) => {
-          if (job.distance <= 5) within5++;
-          else if (job.distance <= 10) within10++;
-          if (job.isPriority) priority++;
-        });
-        setNearbyActivity({ within5, within10, priority });
+        setNearbyActivity(countNearbyJobs(nearbyRes.data.data.jobs));
       }
       if (notificationsRes.data.success) setRecentUpdates(notificationsRes.data.data);
     } catch (error) {
@@ -91,7 +91,7 @@ export default function DeliveryDashboard() {
   useEffect(() => {
     if (!socket) return;
 
-    const handleOrderAssigned = (data: any) => {
+    const handleOrderAssigned = (data: OrderSocketEvent) => {
       toast.info("Job Update", {
         description: data.message || "A delivery job status has been updated.",
         duration: 5000,
@@ -100,13 +100,7 @@ export default function DeliveryDashboard() {
       if (user?.latitude && user?.longitude) {
         api.get(`/delivery/nearby?lat=${user.latitude}&lng=${user.longitude}`).then(res => {
           if (res.data.success) {
-            let within5 = 0, within10 = 0, priority = 0;
-            res.data.data.forEach((job: any) => {
-              if (job.distance <= 5) within5++;
-              else if (job.distance <= 10) within10++;
-              if (job.isPriority) priority++;
-            });
-            setNearbyActivity({ within5, within10, priority });
+            setNearbyActivity(countNearbyJobs(res.data.data.jobs));
           }
         }).catch(err => console.error(err));
       }

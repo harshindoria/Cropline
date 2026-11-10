@@ -1,6 +1,7 @@
 "use client";
 
-import { useAuth } from "@/context/AuthContext";
+import { useAuth, Role, UserProfile } from "@/context/AuthContext";
+import type { LucideIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
@@ -40,6 +41,39 @@ const MOCK_COMPLAINTS = [
 
 // Remove mock notifications, we will use real ones
 
+type RoleApplication = {
+  id: string;
+  role: Role;
+  createdAt: string;
+  user?: Partial<UserProfile>;
+};
+
+type ActivityType = "USER_REGISTERED" | "ORDER_PLACED" | "COMPLAINT_RAISED" | "CASH_DEPOSIT_PENDING" | "PAYOUT_SUCCESSFUL";
+
+type Activity = {
+  id: string;
+  type: ActivityType;
+  title: string;
+  desc: string;
+  timestamp: string;
+};
+
+type MonthGrowth = { month: string; orders: number; revenue: number; users: number };
+
+type DashboardOverview = {
+  metrics: {
+    totalFarmers: number;
+    totalBuyers: number;
+    deliveryPartners: number;
+    ordersToday: number;
+    revenueToday: string | number; // A Decimal, which arrives as a string
+  };
+  verifications: { farmersPending: number; deliveryPending: number };
+  complaints: { open: number; highPriority: number; resolvedToday: number };
+  marketGrowth: MonthGrowth[];
+  activities: Activity[];
+};
+
 type TabType = "overview" | "applications" | "users" | "complaints" | "notifications";
 
 export default function AdminDashboard() {
@@ -52,7 +86,7 @@ export default function AdminDashboard() {
   const [showNotificationsPopover, setShowNotificationsPopover] = useState(false);
   const [notificationTab, setNotificationTab] = useState('All');
   const [readActivityIds, setReadActivityIds] = useState<string[]>([]);
-  const [applications, setApplications] = useState<any[]>([]);
+  const [applications, setApplications] = useState<RoleApplication[]>([]);
   const [loadingApps, setLoadingApps] = useState(false);
 
   // Auth Guard
@@ -66,7 +100,7 @@ export default function AdminDashboard() {
     }
   }, [user, loading, router]);
 
-  const [overviewData, setOverviewData] = useState<any>(null);
+  const [overviewData, setOverviewData] = useState<DashboardOverview | null>(null);
   const [loadingOverview, setLoadingOverview] = useState(false);
 
   // Fetch Applications from Backend
@@ -127,8 +161,8 @@ export default function AdminDashboard() {
 
   const handleRoleSwitch = (targetRole: string) => {
     setShowRoleDropdown(false);
-    if (user.roles.includes(targetRole as any)) {
-      switchRole(targetRole as any);
+    if (user.roles.includes(targetRole as Role)) {
+      switchRole(targetRole as Role);
     }
   };
 
@@ -147,7 +181,7 @@ export default function AdminDashboard() {
 
   const handleMarkAllRead = () => {
     if (!overviewData?.activities) return;
-    const allIds = overviewData.activities.map((a: any) => a.id);
+    const allIds = overviewData.activities.map((a) => a.id);
     const newReadIds = Array.from(new Set([...readActivityIds, ...allIds]));
     setReadActivityIds(newReadIds);
     localStorage.setItem('readAdminActivities', JSON.stringify(newReadIds));
@@ -180,7 +214,7 @@ export default function AdminDashboard() {
     return `${Math.floor(hours / 24)}d ago`;
   };
 
-  const popoverActivities = (overviewData?.activities || []).map((act: any) => ({
+  const popoverActivities = (overviewData?.activities || []).map((act) => ({
     ...act,
     ...getNotificationProps(act.type, act.id),
     time: getRelativeTime(act.timestamp)
@@ -188,22 +222,22 @@ export default function AdminDashboard() {
 
   const tabCounts = {
     All: popoverActivities.length,
-    Alerts: popoverActivities.filter((a: any) => a.tabType === 'Alerts').length,
-    Activities: popoverActivities.filter((a: any) => a.tabType === 'Activities').length,
-    Transactions: popoverActivities.filter((a: any) => a.tabType === 'Transactions').length,
-    System: popoverActivities.filter((a: any) => a.tabType === 'System').length,
+    Alerts: popoverActivities.filter((a) => a.tabType === 'Alerts').length,
+    Activities: popoverActivities.filter((a) => a.tabType === 'Activities').length,
+    Transactions: popoverActivities.filter((a) => a.tabType === 'Transactions').length,
+    System: popoverActivities.filter((a) => a.tabType === 'System').length,
   };
 
   const totalOrders6Months = overviewData?.marketGrowth
-    ? overviewData.marketGrowth.reduce((acc: number, curr: any) => acc + curr.orders, 0)
+    ? overviewData.marketGrowth.reduce((acc: number, curr) => acc + curr.orders, 0)
     : 0;
 
   const totalRevenue6Months = overviewData?.marketGrowth
-    ? overviewData.marketGrowth.reduce((acc: number, curr: any) => acc + curr.revenue, 0)
+    ? overviewData.marketGrowth.reduce((acc: number, curr) => acc + curr.revenue, 0)
     : 0;
 
   const newUsers6Months = overviewData?.marketGrowth
-    ? overviewData.marketGrowth.reduce((acc: number, curr: any) => acc + curr.users, 0)
+    ? overviewData.marketGrowth.reduce((acc: number, curr) => acc + curr.users, 0)
     : 0;
 
   const getGrowthPercentage = (key: 'orders' | 'revenue' | 'users') => {
@@ -225,10 +259,10 @@ export default function AdminDashboard() {
   // --- SVG Line Chart Generator for Market Growth ---
   const renderMarketGrowthChart = () => {
     if (!overviewData || !overviewData.marketGrowth) return null;
-    const months = overviewData.marketGrowth.map((d: any) => d.month);
-    const ordersData = overviewData.marketGrowth.map((d: any) => d.orders);
-    const revenueData = overviewData.marketGrowth.map((d: any) => d.revenue);
-    const usersData = overviewData.marketGrowth.map((d: any) => d.users);
+    const months = overviewData.marketGrowth.map((d) => d.month);
+    const ordersData = overviewData.marketGrowth.map((d) => d.orders);
+    const revenueData = overviewData.marketGrowth.map((d) => d.revenue);
+    const usersData = overviewData.marketGrowth.map((d) => d.users);
 
     const width = 600;
     const height = 250;
@@ -365,7 +399,7 @@ export default function AdminDashboard() {
 
           <SidebarItem icon={FileCheck} label="Document Verification" active={activeTab === "documents"} onClick={() => setActiveTab("documents")} badge={applications.length > 0 ? applications.length : undefined} />
           <SidebarItem icon={Bell} label="Notifications" active={activeTab === "notifications"} onClick={() => setActiveTab("notifications")} />
-          <SidebarItem icon={AlertTriangle} label="Complaints" active={activeTab === "complaints"} onClick={() => setActiveTab("complaints")} badge={overviewData?.complaints?.open > 0 ? overviewData.complaints.open : undefined} />
+          <SidebarItem icon={AlertTriangle} label="Complaints" active={activeTab === "complaints"} onClick={() => setActiveTab("complaints")} badge={overviewData?.complaints.open || undefined} />
           <SidebarItem icon={Sprout} label="Crop Catalog" active={activeTab === "catalog"} onClick={() => setActiveTab("catalog")} />
           <SidebarItem icon={CreditCard} label="Transactions" active={activeTab === "transactions"} onClick={() => setActiveTab("transactions")} />
           <SidebarItem icon={Settings} label="Settings" active={activeTab === "settings"} onClick={() => setActiveTab("settings")} />
@@ -406,7 +440,7 @@ export default function AdminDashboard() {
                     </div>
                     
                     <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2">
-                      {popoverActivities.filter((n: any) => notificationTab === 'All' || n.tabType === notificationTab).map((n: any) => {
+                      {popoverActivities.filter((n) => notificationTab === 'All' || n.tabType === notificationTab).map((n) => {
                         const Icon = n.icon;
                         return (
                           <div key={n.id} className="flex gap-3 items-start">
@@ -424,7 +458,7 @@ export default function AdminDashboard() {
                           </div>
                         );
                       })}
-                      {popoverActivities.filter((n: any) => notificationTab === 'All' || n.tabType === notificationTab).length === 0 && (
+                      {popoverActivities.filter((n) => notificationTab === 'All' || n.tabType === notificationTab).length === 0 && (
                         <div className="text-center py-6">
                           <p className="text-xs font-semibold text-gray-400">No notifications in this tab.</p>
                         </div>
@@ -817,8 +851,8 @@ export default function AdminDashboard() {
                   <div className="space-y-6 flex-1">
                     {loadingOverview ? (
                       <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-300"></div></div>
-                    ) : overviewData?.activities?.length > 0 ? (
-                      overviewData.activities.map((act: any) => {
+                    ) : (overviewData?.activities?.length ?? 0) > 0 && overviewData ? (
+                      overviewData.activities.map((act) => {
                         let Icon = UserIcon;
                         let colorClass = "text-green-600";
                         let bgClass = "bg-green-50";
@@ -1051,7 +1085,15 @@ export default function AdminDashboard() {
 }
 
 // Subcomponents
-const SidebarItem = ({ icon: Icon, label, active, onClick, badge }: any) => (
+type SidebarItemProps = {
+  icon: LucideIcon;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  badge?: number;
+};
+
+const SidebarItem = ({ icon: Icon, label, active, onClick, badge }: SidebarItemProps) => (
   <button 
     onClick={onClick}
     className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
@@ -1072,7 +1114,15 @@ const SidebarItem = ({ icon: Icon, label, active, onClick, badge }: any) => (
   </button>
 );
 
-const MetricCard = ({ title, value, icon: Icon, color, bg }: any) => (
+type MetricCardProps = {
+  title: string;
+  value: React.ReactNode;
+  icon: LucideIcon;
+  color: string;
+  bg: string;
+};
+
+const MetricCard = ({ title, value, icon: Icon, color, bg }: MetricCardProps) => (
   <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-4">
     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${bg} shrink-0`}>
       <Icon className={`w-7 h-7 ${color}`} />

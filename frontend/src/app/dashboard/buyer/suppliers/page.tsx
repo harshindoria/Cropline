@@ -10,11 +10,28 @@ import {
 import Image from "next/image";
 import { INDIA_STATES } from "@/lib/india-locations";
 
+// A farmer in GET /suppliers.
+type Supplier = {
+  id: string;
+  name: string | null;
+  village: string | null;
+  district: string | null;
+  state: string | null;
+  rating: number;
+  ratingCount: number;
+  createdAt: string;
+  farmArea: number | null;
+  distanceKm: number | null;
+  categories: string[];
+  crops?: unknown[];
+  _count?: { crops: number };
+};
+
 export default function SuppliersDirectory() {
   const { user, loading } = useAuth();
   const router = useRouter();
 
-  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedState, setSelectedState] = useState<string>("");
@@ -94,7 +111,7 @@ export default function SuppliersDirectory() {
 
   // Calculate stats from loaded suppliers
   const totalFarmers = suppliers.length;
-  const activeFarmers = suppliers.filter(s => (s._count?.crops || s.crops?.length) > 0).length;
+  const activeFarmers = suppliers.filter(s => (s._count?.crops || s.crops?.length || 0) > 0).length;
   const totalProducts = suppliers.reduce((acc, s) => acc + (s._count?.crops || s.crops?.length || 0), 0);
   const avgRating = suppliers.length > 0 ? (suppliers.reduce((acc, s) => acc + (s.rating || 0), 0) / suppliers.length).toFixed(1) : "0.0";
   const totalReviews = suppliers.reduce((acc, s) => acc + (s.ratingCount || 0), 0);

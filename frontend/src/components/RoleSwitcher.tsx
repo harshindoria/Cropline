@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { ChevronDown, CheckCircle2 } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, Role } from '@/context/AuthContext';
 import api from '@/lib/axios';
 
 interface RoleSwitcherProps {
@@ -19,7 +19,7 @@ export default function RoleSwitcher({ currentRole, onApplyRole }: RoleSwitcherP
   const handleRoleSwitch = async (role: string) => {
     setShowRoleDropdown(false);
     
-    if (!user.roles.includes(role as any)) {
+    if (!user.roles.includes(role as Role)) {
       if (onApplyRole && (role === 'FARMER' || role === 'DELIVERY')) {
         onApplyRole(role);
       }

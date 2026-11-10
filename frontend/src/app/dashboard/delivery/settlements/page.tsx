@@ -2,9 +2,10 @@
 import { useState, useEffect } from 'react';
 import { Wallet, IndianRupee, Clock, CheckCircle, Package, User } from 'lucide-react';
 import api from '@/lib/axios';
+import type { SettlementSummary } from '@/types/api';
 
 export default function SettlementsPage() {
-  const [summary, setSummary] = useState<any>(null);
+  const [summary, setSummary] = useState<SettlementSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [payingId, setPayingId] = useState<string | null>(null);
 
@@ -79,7 +80,7 @@ export default function SettlementsPage() {
             Pending Orders <span className="bg-gray-100 text-gray-600 text-xs py-1 px-3 rounded-full">{summary?.totalPendingOrders || 0}</span>
           </h3>
           <div className="grid md:grid-cols-2 gap-4">
-            {liabilities.map((l: any) => (
+            {liabilities.map((l) => (
               <div key={l.id} className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-2 h-full bg-orange-400" />
                 
@@ -89,7 +90,7 @@ export default function SettlementsPage() {
                       <Package className="text-orange-500 w-5 h-5" />
                     </div>
                     <div>
-                      <p className="font-bold text-gray-800">{l.order.crop.name} - {l.order.quantityKg} kg</p>
+                      <p className="font-bold text-gray-800">{l.order.crop?.catalog?.englishName || "Crop"} - {l.order.quantityKg} kg</p>
                       <p className="text-xs text-gray-400 font-medium font-mono">ID: {l.orderId.slice(-8).toUpperCase()}</p>
                     </div>
                   </div>

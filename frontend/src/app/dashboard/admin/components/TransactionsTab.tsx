@@ -76,6 +76,11 @@ interface Settlement {
   order: OrderInfo;
 }
 
+type SelectedTx =
+  | { type: 'ONLINE'; data: OnlinePayment }
+  | { type: 'CASH'; data: CashCollection }
+  | { type: 'SETTLEMENTS'; data: Settlement };
+
 export default function TransactionsTab() {
   const [activeTab, setActiveTab] = useState<TabType>('ONLINE');
   const [loading, setLoading] = useState(true);
@@ -96,7 +101,7 @@ export default function TransactionsTab() {
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [dateFilter, setDateFilter] = useState('All Time');
 
-  const [selectedTx, setSelectedTx] = useState<{ type: TabType, data: any } | null>(null);
+  const [selectedTx, setSelectedTx] = useState<SelectedTx | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [processing, setProcessing] = useState(false);
 
@@ -126,23 +131,26 @@ export default function TransactionsTab() {
     return false;
   };
 
-  const matchesSearch = (item: any, type: string) => {
+  const matchesSearch = (tx: SelectedTx) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     let s = '';
-    if (type === 'ONLINE') {
+    if (tx.type === 'ONLINE') {
+      const item = tx.data;
       s = `${item.id} ${item.order?.id} ${item.order?.buyer?.name} ${item.order?.buyer?.phone} ${item.provider}`;
-    } else if (type === 'CASH') {
+    } else if (tx.type === 'CASH') {
+      const item = tx.data;
       s = `${item.id} ${item.order?.id} ${item.deliveryPartner?.name} ${item.deliveryPartner?.phone}`;
-    } else if (type === 'SETTLEMENTS') {
+    } else {
+      const item = tx.data;
       s = `${item.id} ${item.order?.id} ${item.user?.name} ${item.user?.phone} ${item.type}`;
     }
     return s.toLowerCase().includes(q);
   };
 
-  const filteredOnlineData = onlineData.filter(t => filterByDate(t.createdAt) && filterByStatus(t.status) && matchesSearch(t, 'ONLINE'));
-  const filteredCashData = cashData.filter(t => filterByDate(t.createdAt) && filterByStatus(t.status) && matchesSearch(t, 'CASH'));
-  const filteredSettlementData = settlementData.filter(t => filterByDate(t.createdAt) && filterByStatus(t.status) && matchesSearch(t, 'SETTLEMENTS'));
+  const filteredOnlineData = onlineData.filter(t => filterByDate(t.createdAt) && filterByStatus(t.status) && matchesSearch({ type: 'ONLINE', data: t }));
+  const filteredCashData = cashData.filter(t => filterByDate(t.createdAt) && filterByStatus(t.status) && matchesSearch({ type: 'CASH', data: t }));
+  const filteredSettlementData = settlementData.filter(t => filterByDate(t.createdAt) && filterByStatus(t.status) && matchesSearch({ type: 'SETTLEMENTS', data: t }));
 
   useEffect(() => {
     fetchData();
@@ -190,8 +198,8 @@ export default function TransactionsTab() {
     }
   };
 
-  const openDrawer = (type: TabType, data: any) => {
-    setSelectedTx({ type, data });
+  const openDrawer = (tx: SelectedTx) => {
+    setSelectedTx(tx);
     setIsDrawerOpen(true);
   };
 
@@ -462,7 +470,7 @@ export default function TransactionsTab() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <button onClick={() => openDrawer('ONLINE', t)} className="p-2 rounded-lg bg-gray-50 text-gray-500 hover:bg-[#1B5E20] hover:text-white transition-colors border border-gray-200 hover:border-[#1B5E20]">
+                      <button onClick={() => openDrawer({ type: 'ONLINE', data: t })} className="p-2 rounded-lg bg-gray-50 text-gray-500 hover:bg-[#1B5E20] hover:text-white transition-colors border border-gray-200 hover:border-[#1B5E20]">
                         <Eye className="w-4 h-4" />
                       </button>
                     </td>
@@ -498,7 +506,7 @@ export default function TransactionsTab() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <button onClick={() => openDrawer('CASH', t)} className="p-2 rounded-lg bg-gray-50 text-gray-500 hover:bg-[#1B5E20] hover:text-white transition-colors border border-gray-200 hover:border-[#1B5E20]">
+                      <button onClick={() => openDrawer({ type: 'CASH', data: t })} className="p-2 rounded-lg bg-gray-50 text-gray-500 hover:bg-[#1B5E20] hover:text-white transition-colors border border-gray-200 hover:border-[#1B5E20]">
                         <Eye className="w-4 h-4" />
                       </button>
                     </td>
@@ -542,7 +550,7 @@ export default function TransactionsTab() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <button onClick={() => openDrawer('SETTLEMENTS', t)} className="p-2 rounded-lg bg-gray-50 text-gray-500 hover:bg-[#1B5E20] hover:text-white transition-colors border border-gray-200 hover:border-[#1B5E20]">
+                      <button onClick={() => openDrawer({ type: 'SETTLEMENTS', data: t })} className="p-2 rounded-lg bg-gray-50 text-gray-500 hover:bg-[#1B5E20] hover:text-white transition-colors border border-gray-200 hover:border-[#1B5E20]">
                         <Eye className="w-4 h-4" />
                       </button>
                     </td>
