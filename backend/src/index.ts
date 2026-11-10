@@ -1,6 +1,8 @@
-import express from 'express';
+import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import multer from 'multer';
+import { InvalidFileTypeError } from './config/multer';
 // 1. Naye Imports add kiye hain
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -67,6 +69,44 @@ app.use('/api/v1/location', locationRoutes);
 // Health Check API
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', uptime: process.uptime() });
+});
+
+const UPLOAD_ERROR_MESSAGES: Partial<Record<multer.ErrorCode, string>> = {
+  LIMIT_FILE_SIZE: 'Each photo must be 5 MB or smaller.',
+  LIMIT_FILE_COUNT: 'Too many photos were sent.',
+  LIMIT_UNEXPECTED_FILE: 'Too many photos were sent.',
+};
+
+// Errors passed to next(), such as rejected uploads, get a JSON reply the frontend can show.
+// Without this, Express sends its own HTML error page.
+app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+
+  if (err instanceof multer.MulterError) {
+    res.status(400).json({
+      success: false,
+      code: err.code,
+      message: UPLOAD_ERROR_MESSAGES[err.code] ?? 'Photo upload failed.',
+    });
+    return;
+  }
+
+  if (err instanceof InvalidFileTypeError) {
+    res.status(400).json({ success: false, code: 'INVALID_FILE_TYPE', message: err.message });
+    return;
+  }
+
+  // Errors from body parsing carry their own status, and expose=true when the message is safe to show.
+  const { status, expose, message } = err as { status?: number; expose?: boolean; message?: string };
+  const httpStatus = typeof status === 'number' && status >= 400 && status < 600 ? status : 500;
+  if (httpStatus >= 500) console.error('Unhandled error:', err);
+  res.status(httpStatus).json({
+    success: false,
+    message: expose && message ? message : 'Something went wrong. Please try again.',
+  });
 });
 
 // 4. Socket Handler ko initialize karna

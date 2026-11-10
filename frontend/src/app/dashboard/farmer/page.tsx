@@ -5,6 +5,7 @@ import ApplicationModal from "@/components/ApplicationModal";
 import RoleSwitcher from "@/components/RoleSwitcher";
 import NotificationDropdown from "@/components/NotificationDropdown";
 import { getGpsOrSavedLocation, reverseGeocode } from "@/lib/location";
+import { ALLOWED_PHOTO_TYPES, preparePhoto } from "@/lib/photoUpload";
 import { useAuth } from "@/context/AuthContext";
 import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
@@ -109,6 +110,7 @@ function FarmerDashboardContent() {
   const [cropForm, setCropForm] = useState({ quantityKg: "", basePricePerKg: "", minOrderKg: "1", harvestDate: "", description: "", selfPickupEnabled: false, isPreHarvest: false });
   const [photos, setPhotos] = useState<File[]>([]);
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
+  const [processingPhotos, setProcessingPhotos] = useState(false);
   const [offerForm, setOfferForm] = useState({ offerMinQuantityKg: "", offerDiscountPercentage: "" });
   const [submitting, setSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
@@ -211,7 +213,7 @@ function FarmerDashboardContent() {
 
   // ── Add Crop Submit ──
   const handleAddCrop = async () => {
-    if (!selectedCatalog) return;
+    if (!selectedCatalog || photos.length === 0) return;
     setSubmitting(true);
     try {
       const coords = await getGpsOrSavedLocation(user);
@@ -244,8 +246,8 @@ function FarmerDashboardContent() {
         setSubmitSuccess(false); 
         setAddStep(1); setSelectedCatalog(null); 
         setCropForm({ quantityKg: "", basePricePerKg: "", minOrderKg: "1", harvestDate: "", description: "", selfPickupEnabled: false, isPreHarvest: false }); 
-        setPhotos([]); 
-        setPhotoPreviews([]); setOfferForm({ offerMinQuantityKg: "", offerDiscountPercentage: "" }); 
+        clearPhotos();
+        setOfferForm({ offerMinQuantityKg: "", offerDiscountPercentage: "" }); 
         router.push("/dashboard/farmer?tab=mycrops");
       }, 2000);
     } catch (e: any) { alert(e.response?.data?.message || e.message || "Failed to add crop"); }
@@ -253,10 +255,39 @@ function FarmerDashboardContent() {
   };
 
   // ── Photo handler ──
-  const handlePhotos = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []).slice(0, 5 - photos.length);
-    setPhotos(prev => [...prev, ...files]);
-    files.forEach(f => { const r = new FileReader(); r.onload = () => setPhotoPreviews(prev => [...prev, r.result as string]); r.readAsDataURL(f); });
+  const handlePhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files || []);
+    // Clear the input so picking the same file again (e.g. after removing it) still fires onChange.
+    e.target.value = "";
+    const room = 5 - photos.length;
+    if (picked.length > room) toast.error(`You can add ${room} more photo${room === 1 ? "" : "s"} (max 5).`);
+
+    setProcessingPhotos(true);
+    try {
+      const results = await Promise.all(picked.slice(0, room).map(preparePhoto));
+      const accepted: File[] = [];
+      for (const result of results) {
+        if ("error" in result) toast.error(result.error);
+        else accepted.push(result.file);
+      }
+      // Previews are made here, in the same order as the photos, so index i is the same photo in both lists.
+      setPhotos(prev => [...prev, ...accepted]);
+      setPhotoPreviews(prev => [...prev, ...accepted.map(f => URL.createObjectURL(f))]);
+    } finally {
+      setProcessingPhotos(false);
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    URL.revokeObjectURL(photoPreviews[index]);
+    setPhotos(prev => prev.filter((_, i) => i !== index));
+    setPhotoPreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const clearPhotos = () => {
+    photoPreviews.forEach(url => URL.revokeObjectURL(url));
+    setPhotos([]);
+    setPhotoPreviews([]);
   };
 
   // ── Profile save ──
@@ -620,16 +651,19 @@ function FarmerDashboardContent() {
                           {photoPreviews.map((src, i) => (
                             <div key={i} className="w-24 h-24 rounded-xl overflow-hidden border-2 border-gray-200 relative">
                               <img src={src} alt="" className="w-full h-full object-cover" />
-                              <button onClick={() => { setPhotos(p => p.filter((_, idx) => idx !== i)); setPhotoPreviews(p => p.filter((_, idx) => idx !== i)); }} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5"><X size={12} /></button>
+                              <button onClick={() => removePhoto(i)} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5"><X size={12} /></button>
                             </div>
                           ))}
                           {photos.length < 5 && (
-                            <button onClick={() => fileRef.current?.click()} className="w-24 h-24 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 hover:border-[#1B5E20] hover:text-[#1B5E20] transition-colors">
-                              <Upload size={20} /><span className="text-[10px] font-bold mt-1">Add</span>
+                            <button disabled={processingPhotos} onClick={() => fileRef.current?.click()} className="w-24 h-24 rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 hover:border-[#1B5E20] hover:text-[#1B5E20] disabled:opacity-60 transition-colors">
+                              {processingPhotos
+                                ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-400" />
+                                : <><Upload size={20} /><span className="text-[10px] font-bold mt-1">Add</span></>}
                             </button>
                           )}
                         </div>
-                        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePhotos} />
+                        <input ref={fileRef} type="file" accept={ALLOWED_PHOTO_TYPES.join(",")} multiple className="hidden" onChange={handlePhotos} />
+                        <p className="text-[11px] text-gray-400 mt-2">JPEG, PNG or WebP. At least 1 photo is required. Large photos are shrunk to fit 5 MB.</p>
                       </div>
                       {/* Bulk Offer */}
                       <div className="border-t border-gray-100 pt-4">
@@ -641,7 +675,7 @@ function FarmerDashboardContent() {
                       </div>
                       <div className="flex gap-3 mt-6">
                         <button onClick={() => setAddStep(2)} className="px-6 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-bold">← Back</button>
-                        <button disabled={submitting} onClick={handleAddCrop} className="flex-1 py-3.5 bg-[#1B5E20] hover:bg-[#2E7D32] disabled:bg-gray-400 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2">
+                        <button disabled={submitting || processingPhotos || photos.length === 0} onClick={handleAddCrop} className="flex-1 py-3.5 bg-[#1B5E20] hover:bg-[#2E7D32] disabled:bg-gray-400 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2">
                           {submitting ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /> Submitting...</> : "🌾 List My Crop"}
                         </button>
                       </div>
