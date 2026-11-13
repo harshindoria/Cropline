@@ -15,6 +15,7 @@ import { initiateOrderPayment } from '../src/controller/payment.controller';
 import { submitReview } from '../src/controller/review.controller';
 import { fetchRazorpayOrderPayments, fetchRazorpayRefunds, issueRazorpayRefund } from '../src/services/payment.service';
 import {
+  applyFailedRefund,
   applyProcessedRefund,
   markPaymentFailed,
   markPaymentSucceeded,
@@ -601,5 +602,66 @@ describe('cancelling a paid order', () => {
     expect(await stockOf(order.cropId)).toBe(160);
     expect(issueRazorpayRefund).toHaveBeenCalledTimes(1);
     expect(await statusOf(record.id)).toBe(PaymentStatus.REFUNDED);
+  });
+});
+
+describe('refund progress', () => {
+  const later = () => new Date(Date.now() + 10 * 60 * 1000);
+  const paidCancelled = async () => {
+    const order = await makeOrder((await makeUser()).id, (await makeUser()).id, OrderStatus.CANCELLED);
+    return prisma.paymentRecord.create({
+      data: {
+        orderId: order.id, provider: 'RAZORPAY', providerOrderId: `order_${order.id}`,
+        providerPaymentId: 'pay_1', amount: 120, status: PaymentStatus.SUCCESS,
+      },
+    });
+  };
+  const load = (id: string) => prisma.paymentRecord.findUniqueOrThrow({ where: { id } });
+
+  it('shows a refund as on its way until Razorpay completes it', async () => {
+    const record = await paidCancelled();
+    vi.mocked(issueRazorpayRefund).mockResolvedValue({ id: 'rfnd_1', amount: 12000, status: 'pending' } as any);
+
+    await refundPayment(record.id, 'Order cancelled');
+    const issued = await load(record.id);
+    expect(issued.status).toBe(PaymentStatus.REFUNDED);
+    expect(issued.refundedAt).toBeNull();
+
+    await applyProcessedRefund({ id: 'rfnd_1', payment_id: 'pay_1', amount: 12000 });
+    expect((await load(record.id)).refundedAt).not.toBeNull();
+  });
+
+  it('holds the payment again when Razorpay reports the refund failed, alerts admins, and refunds it afresh', async () => {
+    const admin = await makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN });
+    const record = await paidCancelled();
+    vi.mocked(issueRazorpayRefund).mockResolvedValue({ id: 'rfnd_1', amount: 12000, status: 'pending' } as any);
+    await refundPayment(record.id, 'Order cancelled');
+
+    await applyFailedRefund({ id: 'rfnd_1', payment_id: 'pay_1', amount: 12000 });
+
+    expect((await load(record.id)).status).toBe(PaymentStatus.SUCCESS);
+    expect((await prisma.refund.findUniqueOrThrow({ where: { providerRefundId: 'rfnd_1' } })).status).toBe('FAILED');
+    expect(await prisma.notification.count({ where: { userId: admin.id, title: 'Refund failed: buyer money is held' } })).toBe(1);
+
+    // Razorpay now lists the failed refund. The job must not mistake it for a refund that worked.
+    vi.mocked(fetchRazorpayRefunds).mockResolvedValue([{ id: 'rfnd_1', amount: 12000, status: 'failed' }]);
+    vi.mocked(issueRazorpayRefund).mockResolvedValue({ id: 'rfnd_2', amount: 12000, status: 'pending' } as any);
+    expect(await reconcileUnconfirmedPayments(later())).toMatchObject({ refunded: 1 });
+
+    expect((await load(record.id)).status).toBe(PaymentStatus.REFUNDED);
+    expect(await prisma.refund.count({ where: { paymentRecordId: record.id } })).toBe(2);
+  });
+
+  it('completes a refund whose webhook was missed', async () => {
+    const record = await paidCancelled();
+    vi.mocked(issueRazorpayRefund).mockResolvedValue({ id: 'rfnd_1', amount: 12000, status: 'pending' } as any);
+    await refundPayment(record.id, 'Order cancelled');
+
+    vi.mocked(fetchRazorpayRefunds).mockResolvedValue([{ id: 'rfnd_1', amount: 12000, status: 'processed' }]);
+    expect(await reconcileUnconfirmedPayments(later())).toMatchObject({ refundsUpdated: 1 });
+
+    const after = await load(record.id);
+    expect(after.status).toBe(PaymentStatus.REFUNDED);
+    expect(after.refundedAt).not.toBeNull();
   });
 });

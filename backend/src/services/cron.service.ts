@@ -97,7 +97,7 @@ export async function processRetryDeliveryAssignments() {
 
 export async function processPaymentReconciliation() {
   const summary = await reconcileUnconfirmedPayments();
-  if (summary.confirmed || summary.failed || summary.refunded || summary.errors) {
+  if (summary.confirmed || summary.failed || summary.refundsUpdated || summary.refunded || summary.errors) {
     console.log('[CRON] Payment reconciliation:', summary);
   }
 }

@@ -8,7 +8,7 @@ import {
 } from '../services/payment.service';
 import crypto from 'crypto';
 import { applySettlementPayment } from '../services/cashSettlement.service';
-import { applyProcessedRefund, markPaymentFailed, markPaymentSucceeded } from '../services/paymentRecord.service';
+import { applyFailedRefund, applyProcessedRefund, markPaymentFailed, markPaymentSucceeded } from '../services/paymentRecord.service';
 import { OrderStatus } from '@prisma/client';
 
 // Orders that are finished one way or another, so no new payment may start for them.
@@ -94,6 +94,11 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
       // ---------------------------------------------------------
       case 'refund.processed': {
         await applyProcessedRefund(payload.refund.entity);
+        break;
+      }
+
+      case 'refund.failed': {
+        await applyFailedRefund(payload.refund.entity);
         break;
       }
 

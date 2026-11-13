@@ -97,7 +97,42 @@ const REFUND_STATUS: Record<string, RefundStatus> = {
   failed: RefundStatus.FAILED,
 };
 
-/** Saves Razorpay's refunds and marks the payment REFUNDED. Returns true only for the call that marked it. */
+/**
+ * Brings a payment's status in line with its refunds.
+ *
+ * REFUNDED means refunds covering the whole payment have been issued. refundedAt is filled only
+ * once Razorpay has completed them, so REFUNDED without refundedAt is a refund still on its way.
+ * A refund Razorpay reports as failed no longer counts, which puts the payment back to SUCCESS:
+ * the money is held again and has to be refunded again.
+ *
+ * Returns true only for the call that moved the payment to REFUNDED.
+ */
+const syncRefundState = async (tx: Tx, paymentRecordId: string, now: Date): Promise<boolean> => {
+  // Locked so two refund updates for one payment can't both act on the same old status.
+  await tx.$queryRaw`SELECT id FROM "PaymentRecord" WHERE id = ${paymentRecordId} FOR UPDATE`;
+  const record = await tx.paymentRecord.findUniqueOrThrow({
+    where: { id: paymentRecordId },
+    select: { amount: true, status: true, refundedAt: true },
+  });
+  if (record.status !== PaymentStatus.SUCCESS && record.status !== PaymentStatus.REFUNDED) return false;
+
+  const refunds = await tx.refund.findMany({ where: { paymentRecordId }, select: { amount: true, status: true } });
+  const total = (counts: (status: RefundStatus) => boolean) =>
+    refunds.filter((r) => counts(r.status)).reduce((sum, r) => sum.plus(r.amount), new Prisma.Decimal(0));
+  const issued = total((status) => status !== RefundStatus.FAILED);
+  const completed = total((status) => status === RefundStatus.PROCESSED);
+
+  const status = issued.gt(0) && issued.gte(record.amount) ? PaymentStatus.REFUNDED : PaymentStatus.SUCCESS;
+  const refundedAt =
+    status === PaymentStatus.REFUNDED && completed.gte(record.amount) ? record.refundedAt ?? now : null;
+
+  if (status !== record.status || refundedAt?.getTime() !== record.refundedAt?.getTime()) {
+    await tx.paymentRecord.update({ where: { id: paymentRecordId }, data: { status, refundedAt } });
+  }
+  return record.status === PaymentStatus.SUCCESS && status === PaymentStatus.REFUNDED;
+};
+
+/** Saves Razorpay's refunds and updates the payment to match. Returns true only for the call that marked it REFUNDED. */
 const saveRefunds = (paymentRecordId: string, refunds: RazorpayRefund[], reason: string) =>
   prisma.$transaction(async (tx) => {
     const now = new Date();
@@ -117,11 +152,7 @@ const saveRefunds = (paymentRecordId: string, refunds: RazorpayRefund[], reason:
         update: { reason },
       });
     }
-    const marked = await tx.paymentRecord.updateMany({
-      where: { id: paymentRecordId, status: PaymentStatus.SUCCESS },
-      data: { status: PaymentStatus.REFUNDED, refundedAt: now },
-    });
-    return marked.count === 1;
+    return syncRefundState(tx, paymentRecordId, now);
   });
 
 export type RefundOutcome = 'REFUNDED' | 'ALREADY_REFUNDED' | 'NOTHING_TO_REFUND';
@@ -237,8 +268,10 @@ const alertAdminsRefundFailed = async (paymentRecordId: string, error: unknown) 
   });
 };
 
+type RefundEvent = { id: string; payment_id: string; amount: number };
+
 /** Records a refund Razorpay has completed. The payment only becomes REFUNDED once all of it has been returned. */
-export const applyProcessedRefund = (entity: { id: string; payment_id: string; amount: number }) =>
+export const applyProcessedRefund = (entity: RefundEvent) =>
   prisma.$transaction(async (tx) => {
     const record = await tx.paymentRecord.findUnique({ where: { providerPaymentId: entity.payment_id } });
     if (!record) return;
@@ -256,20 +289,39 @@ export const applyProcessedRefund = (entity: { id: string; payment_id: string; a
       },
       update: { status: RefundStatus.PROCESSED, processedAt: now },
     });
-
-    const { _sum } = await tx.refund.aggregate({
-      where: { paymentRecordId: record.id, status: { not: RefundStatus.FAILED } },
-      _sum: { amount: true },
-    });
-    if (_sum.amount?.gte(record.amount)) {
-      await tx.paymentRecord.update({
-        where: { id: record.id },
-        data: { status: PaymentStatus.REFUNDED, refundedAt: now },
-      });
-    }
+    await syncRefundState(tx, record.id, now);
 
     if (!alreadyRecorded) await alertAdminsIfDelivered(tx, record.orderId, paiseToRupees(entity.amount));
   });
+
+/**
+ * Records a refund Razorpay could not complete: the money never reached the buyer. The payment goes
+ * back to SUCCESS, so for a cancelled order the reconciliation job issues a fresh refund, and the
+ * admins are told in case it keeps failing.
+ */
+export const applyFailedRefund = async (entity: RefundEvent) => {
+  const recordId = await prisma.$transaction(async (tx) => {
+    const record = await tx.paymentRecord.findUnique({ where: { providerPaymentId: entity.payment_id } });
+    if (!record) return null;
+
+    await tx.refund.upsert({
+      where: { providerRefundId: entity.id },
+      create: {
+        paymentRecordId: record.id,
+        providerRefundId: entity.id,
+        amount: paiseToRupees(entity.amount),
+        status: RefundStatus.FAILED,
+      },
+      update: { status: RefundStatus.FAILED, processedAt: null },
+    });
+    await syncRefundState(tx, record.id, new Date());
+    return record.id;
+  });
+
+  if (recordId) {
+    await alertAdminsRefundFailed(recordId, new Error(`Razorpay reported refund ${entity.id} as failed`));
+  }
+};
 
 // Leave a fresh payment to the checkout and webhook first, so the job doesn't race them.
 const RECONCILE_MIN_AGE_MS = 5 * 60 * 1000;
@@ -299,7 +351,7 @@ export const reconcileUnconfirmedPayments = async (now = new Date()) => {
     select: { id: true, providerOrderId: true },
   });
 
-  const summary = { checked: 0, confirmed: 0, failed: 0, refunded: 0, errors: 0 };
+  const summary = { checked: 0, confirmed: 0, failed: 0, refundsUpdated: 0, refunded: 0, errors: 0 };
   for (const record of records) {
     const providerOrderId = record.providerOrderId!;
     try {
@@ -322,6 +374,35 @@ export const reconcileUnconfirmedPayments = async (now = new Date()) => {
       // One bad record must not stop the rest. It is tried again on the next run.
       summary.errors += 1;
       console.error(`[CRON] Could not reconcile payment ${record.id}:`, error);
+    }
+  }
+
+  // Refunds still waiting for Razorpay, in case the webhook that reports their result was missed.
+  const waiting = await prisma.refund.findMany({
+    where: { status: RefundStatus.PENDING, createdAt: { lte: new Date(now.getTime() - RECONCILE_MIN_AGE_MS) } },
+    orderBy: { createdAt: 'desc' },
+    take: RECONCILE_BATCH,
+    select: { providerRefundId: true, paymentRecord: { select: { providerPaymentId: true } } },
+  });
+  const waitingByPayment = new Map<string, Set<string>>();
+  for (const refund of waiting) {
+    const paymentId = refund.paymentRecord.providerPaymentId;
+    if (!paymentId) continue;
+    waitingByPayment.set(paymentId, (waitingByPayment.get(paymentId) ?? new Set()).add(refund.providerRefundId));
+  }
+  for (const [paymentId, refundIds] of waitingByPayment) {
+    try {
+      for (const refund of await fetchRazorpayRefunds(paymentId)) {
+        if (!refundIds.has(refund.id)) continue;
+        const event = { id: refund.id, payment_id: paymentId, amount: refund.amount };
+        if (refund.status === 'processed') await applyProcessedRefund(event);
+        else if (refund.status === 'failed') await applyFailedRefund(event);
+        else continue;
+        summary.refundsUpdated += 1;
+      }
+    } catch (error) {
+      summary.errors += 1;
+      console.error(`[CRON] Could not check the refunds of payment ${paymentId}:`, error);
     }
   }
 

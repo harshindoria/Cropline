@@ -109,6 +109,28 @@ export default function OrderDetailPage() {
     order.status === 'PENDING' &&
     (!order.paymentRecord || order.paymentRecord.status === 'PENDING' || order.paymentRecord.status === 'FAILED');
 
+  // What the buyer should read as the payment's state. A refund is REFUNDED as soon as it is issued,
+  // and only has refundedAt once Razorpay has completed it. A paid payment on a cancelled order is a
+  // refund that hasn't gone through yet.
+  const payment = ((): { label: string; note?: string } => {
+    const status = order.paymentRecord?.status ?? 'PENDING';
+    const closed = ['CANCELLED', 'DELIVERED', 'COMPLETED'].includes(order.status);
+    if (status === 'REFUNDED') {
+      return order.paymentRecord?.refundedAt
+        ? { label: 'REFUNDED' }
+        : { label: 'REFUND INITIATED', note: 'Refunds usually reach your account in 5 to 7 working days.' };
+    }
+    if (status === 'SUCCESS') {
+      return order.status === 'CANCELLED'
+        ? { label: 'REFUND PENDING', note: 'We are processing your refund. You do not need to do anything.' }
+        : { label: 'PAID' };
+    }
+    if (order.paymentType === 'CASH' && !closed) {
+      return { label: status, note: 'Please pay the delivery partner upon arrival.' };
+    }
+    return { label: status };
+  })();
+
   const handlePayNow = async () => {
     setProcessing(true);
     try {
@@ -433,12 +455,12 @@ export default function OrderDetailPage() {
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Status</p>
                 <div className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold uppercase tracking-wider bg-gray-100 text-gray-700">
-                  {order.paymentRecord?.status || "PENDING"}
+                  {payment.label}
                 </div>
-                {order.paymentType === 'CASH' && order.paymentRecord?.status !== 'RELEASED' && (
+                {payment.note && (
                   <p className="text-[10px] font-semibold text-gray-400 mt-2 flex items-start gap-1">
                     <AlertCircle size={12} className="mt-0.5 shrink-0" />
-                    Please pay the delivery partner upon arrival.
+                    {payment.note}
                   </p>
                 )}
               </div>
