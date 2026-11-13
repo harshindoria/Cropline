@@ -304,7 +304,8 @@ function BuyerDashboardContent() {
                 });
               } catch (verifyErr) {
                 console.error("Payment verification failed:", verifyErr);
-                alert("Payment was successful but verification failed. Please check your orders or contact support.");
+                // The server explains cases like a cancelled order whose payment was refunded.
+                alert(apiErrorMessage(verifyErr, "Payment was successful but verification failed. Please check your orders or contact support."));
               }
               setCart({});
               setShowCart(false);

@@ -8,6 +8,15 @@ import {
 import crypto from 'crypto';
 import { settleCashLiability } from '../services/ledger.service';
 import { applyProcessedRefund, markPaymentFailed, markPaymentSucceeded } from '../services/paymentRecord.service';
+import { OrderStatus } from '@prisma/client';
+
+// Orders that are finished one way or another, so no new payment may start for them.
+const CLOSED_ORDER_STATUSES: OrderStatus[] = [
+  OrderStatus.CANCELLED,
+  OrderStatus.DELIVERED,
+  OrderStatus.COMPLETED,
+  OrderStatus.DISPUTED,
+];
 
 // ============================================================================
 // 1. THE MASTER SWITCHBOARD (Webhook Listener)
@@ -284,7 +293,16 @@ export const verifyOrderPayment = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    await markPaymentSucceeded(razorpay_order_id, razorpay_payment_id);
+    const outcome = await markPaymentSucceeded(razorpay_order_id, razorpay_payment_id);
+
+    if (outcome === 'REFUNDED_CANCELLED_ORDER') {
+      res.status(409).json({
+        success: false,
+        code: 'ORDER_CANCELLED_REFUNDED',
+        message: 'This order was cancelled before your payment arrived, so your payment has been refunded in full.',
+      });
+      return;
+    }
 
     res.status(200).json({ success: true, message: 'Payment verified successfully' });
   } catch (error) {
@@ -314,9 +332,25 @@ export const initiateOrderPayment = async (req: Request, res: Response): Promise
 
     // Allowed converting COD to ONLINE at the door as requested
 
+    // A closed order can't take money. Without this, a buyer could pay for a cancelled order.
+    if (CLOSED_ORDER_STATUSES.includes(order.status)) {
+      res.status(409).json({
+        success: false,
+        code: 'ORDER_CLOSED',
+        message: `This order is ${order.status.toLowerCase()}, so it can't be paid for.`,
+      });
+      return;
+    }
+
     // If payment already completed
     if (order.paymentRecord?.status === 'SUCCESS') {
       res.status(400).json({ success: false, message: 'Payment already completed' });
+      return;
+    }
+
+    // A refunded payment's Razorpay order is finished, so it can't be reused for a new payment.
+    if (order.paymentRecord?.status === 'REFUNDED') {
+      res.status(409).json({ success: false, code: 'PAYMENT_REFUNDED', message: 'The payment for this order was refunded.' });
       return;
     }
 

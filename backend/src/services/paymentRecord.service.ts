@@ -17,17 +17,46 @@ const saveAttempt = (
     update: { status, failureReason },
   });
 
+export type PaymentOutcome = 'NOT_FOUND' | 'PAID' | 'REFUNDED_CANCELLED_ORDER';
+
 // Checkout and the webhook both report the same payment, so this must be safe to run twice.
-export const markPaymentSucceeded = (providerOrderId: string, providerPaymentId: string) =>
+//
+// A buyer can still be on the Razorpay screen when their order is cancelled, so money can arrive
+// for a cancelled order. That money is refunded here, because nothing else would ever return it.
+export const markPaymentSucceeded = (providerOrderId: string, providerPaymentId: string): Promise<PaymentOutcome> =>
   prisma.$transaction(async (tx) => {
     const record = await tx.paymentRecord.findUnique({ where: { providerOrderId } });
-    if (!record) return;
+    if (!record) return 'NOT_FOUND';
+
+    // Locks the order until this transaction ends. A cancellation that is already running finishes
+    // first and we see CANCELLED; one that starts later waits for us. Checkout and the webhook for
+    // the same payment also queue here, so only one of them can issue the refund.
+    const [order] = await tx.$queryRaw<{ status: OrderStatus; buyerId: string }[]>`
+      SELECT status, "buyerId" FROM "Order" WHERE id = ${record.orderId} FOR UPDATE`;
 
     await saveAttempt(tx, record, providerPaymentId, PaymentStatus.SUCCESS);
     await tx.paymentRecord.updateMany({
       where: { id: record.id, status: { in: [PaymentStatus.PENDING, PaymentStatus.FAILED] } },
       data: { status: PaymentStatus.SUCCESS, providerPaymentId, capturedAt: new Date() },
     });
+
+    if (order?.status !== OrderStatus.CANCELLED) return 'PAID';
+
+    // Refund only a payment that is still held. Once refunded it is REFUNDED, so a repeat call does nothing.
+    const current = await tx.paymentRecord.findUniqueOrThrow({ where: { id: record.id } });
+    if (current.status === PaymentStatus.SUCCESS) {
+      await refundFullPayment(tx, current, 'Payment received after the order was cancelled');
+      await tx.notification.create({
+        data: {
+          userId: order.buyerId,
+          alertLevel: 'WARNING',
+          title: 'Payment refunded',
+          body: `Your order was cancelled before your payment of ₹${current.amount} arrived, so we have refunded it in full.`,
+          data: { orderId: record.orderId },
+        },
+      });
+    }
+    return 'REFUNDED_CANCELLED_ORDER';
   });
 
 // A buyer can fail and then retry, so a late failure must not undo a payment that succeeded.

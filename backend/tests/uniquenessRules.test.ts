@@ -10,6 +10,7 @@ import {
 } from '@prisma/client';
 import prisma from '../src/config/db';
 import { getOrderById } from '../src/controller/order.controller';
+import { initiateOrderPayment } from '../src/controller/payment.controller';
 import { submitReview } from '../src/controller/review.controller';
 import { issueRazorpayRefund } from '../src/services/payment.service';
 import {
@@ -222,8 +223,11 @@ describe('reviews', () => {
 });
 
 describe('payment attempts and refunds', () => {
-  const makeRecord = async (data: { status?: PaymentStatus; providerPaymentId?: string } = {}) => {
-    const order = await makeOrder((await makeUser()).id, (await makeUser()).id);
+  const makeRecord = async (
+    data: { status?: PaymentStatus; providerPaymentId?: string } = {},
+    orderStatus: OrderStatus = OrderStatus.DELIVERED,
+  ) => {
+    const order = await makeOrder((await makeUser()).id, (await makeUser()).id, orderStatus);
     return prisma.paymentRecord.create({
       data: { orderId: order.id, provider: 'RAZORPAY', providerOrderId: `order_${order.id}`, amount: 120, ...data },
     });
@@ -301,5 +305,75 @@ describe('payment attempts and refunds', () => {
     expect(refund.status).toBe('PROCESSED');
     expect(refund.reason).toBe('Order cancelled');
     expect((await load(record.id)).status).toBe(PaymentStatus.REFUNDED);
+  });
+
+  it('refunds a payment that arrives after its order was cancelled, once, and tells the buyer', async () => {
+    const record = await makeRecord({}, OrderStatus.CANCELLED);
+    vi.mocked(issueRazorpayRefund).mockResolvedValue({ id: 'rfnd_late', amount: 12000, status: 'pending' } as any);
+
+    // Checkout and the webhook both report the same payment.
+    expect(await markPaymentSucceeded(record.providerOrderId!, 'pay_late')).toBe('REFUNDED_CANCELLED_ORDER');
+    expect(await markPaymentSucceeded(record.providerOrderId!, 'pay_late')).toBe('REFUNDED_CANCELLED_ORDER');
+
+    expect(issueRazorpayRefund).toHaveBeenCalledTimes(1);
+    expect(issueRazorpayRefund).toHaveBeenCalledWith('pay_late', undefined, expect.anything());
+    expect((await load(record.id)).status).toBe(PaymentStatus.REFUNDED);
+
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: record.orderId } });
+    const notes = await prisma.notification.findMany({ where: { userId: order.buyerId, title: 'Payment refunded' } });
+    expect(notes).toHaveLength(1);
+  });
+
+  it('does not refund a payment for an order that is still open', async () => {
+    const record = await makeRecord({}, OrderStatus.PENDING);
+
+    expect(await markPaymentSucceeded(record.providerOrderId!, 'pay_ok')).toBe('PAID');
+
+    expect(issueRazorpayRefund).not.toHaveBeenCalled();
+    expect((await load(record.id)).status).toBe(PaymentStatus.SUCCESS);
+  });
+
+  it('keeps the payment unconfirmed if the refund fails, so the webhook retry can try again', async () => {
+    const record = await makeRecord({}, OrderStatus.CANCELLED);
+    vi.mocked(issueRazorpayRefund).mockRejectedValueOnce(new Error('Razorpay down'));
+
+    await expect(markPaymentSucceeded(record.providerOrderId!, 'pay_late')).rejects.toThrow('Razorpay down');
+    expect((await load(record.id)).status).toBe(PaymentStatus.PENDING);
+
+    vi.mocked(issueRazorpayRefund).mockResolvedValue({ id: 'rfnd_retry', amount: 12000, status: 'pending' } as any);
+    expect(await markPaymentSucceeded(record.providerOrderId!, 'pay_late')).toBe('REFUNDED_CANCELLED_ORDER');
+    expect((await load(record.id)).status).toBe(PaymentStatus.REFUNDED);
+  });
+});
+
+describe('starting a payment', () => {
+  const initiate = async (orderStatus: OrderStatus, paymentStatus: PaymentStatus = PaymentStatus.PENDING) => {
+    const buyer = await makeUser();
+    const order = await makeOrder((await makeUser()).id, buyer.id, orderStatus);
+    await prisma.paymentRecord.create({
+      data: { orderId: order.id, provider: 'RAZORPAY', providerOrderId: `order_${order.id}`, amount: 120, status: paymentStatus },
+    });
+    return call({ params: { orderId: order.id }, user: buyer }, initiateOrderPayment);
+  };
+
+  it.each([OrderStatus.CANCELLED, OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderStatus.DISPUTED])(
+    'refuses to take money for a %s order',
+    async (status) => {
+      const result = await initiate(status);
+      expect(result.status).toBe(409);
+      expect(result.body.code).toBe('ORDER_CLOSED');
+    },
+  );
+
+  it('refuses to reuse the Razorpay order of a refunded payment', async () => {
+    const result = await initiate(OrderStatus.PENDING, PaymentStatus.REFUNDED);
+    expect(result.status).toBe(409);
+    expect(result.body.code).toBe('PAYMENT_REFUNDED');
+  });
+
+  it('still lets the buyer pay for an open order', async () => {
+    const result = await initiate(OrderStatus.PENDING);
+    expect(result.status).toBe(200);
+    expect(result.body.data.providerOrderId).toMatch(/^order_/);
   });
 });
