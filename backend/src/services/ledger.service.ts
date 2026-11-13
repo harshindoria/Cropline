@@ -106,10 +106,21 @@ const releaseHeldEntries = async (tx: Tx, orderId: string): Promise<void> => {
  * Marks a partner's cash as received and releases that order's held money. Returns false if it
  * was already settled, so a repeated webhook or a second admin click pays nobody twice.
  */
-export const settleCashLiability = async (tx: Tx, liabilityId: string, adminId?: string): Promise<boolean> => {
+export const settleCashLiability = async (
+  tx: Tx,
+  liabilityId: string,
+  adminId?: string,
+  settlementPaymentId?: string,
+): Promise<boolean> => {
   const claimed = await tx.cashLiability.updateMany({
     where: { id: liabilityId, reconciledAt: null },
-    data: { status: 'VERIFIED', depositedAt: new Date(), reconciledAt: new Date(), reconciledByAdminId: adminId ?? null },
+    data: {
+      status: 'VERIFIED',
+      depositedAt: new Date(),
+      reconciledAt: new Date(),
+      reconciledByAdminId: adminId ?? null,
+      settlementPaymentId: settlementPaymentId ?? null,
+    },
   });
   if (claimed.count !== 1) return false;
 

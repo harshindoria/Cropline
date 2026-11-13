@@ -644,11 +644,15 @@ model CashLiability {
   reconciledAt        DateTime?         @db.Timestamptz(3)
   reconciledByAdmin   User?             @relation("CashReconciledBy", fields: [reconciledByAdminId], references: [id], onDelete: Restrict)
   reconciledByAdminId String?
+  // The Razorpay payment (from a settlement link) that paid this off. Empty when an admin verified a
+  // cash deposit. One payment can pay off several of a partner's liabilities.
+  settlementPaymentId String?
   createdAt           DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt           DateTime          @updatedAt @db.Timestamptz(3)
 
   @@index([reconciledByAdminId])
   @@index([deliveryPartnerId, status])
+  @@index([settlementPaymentId])
 }
 
 model Review {

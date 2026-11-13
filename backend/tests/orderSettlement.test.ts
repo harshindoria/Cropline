@@ -4,7 +4,7 @@ import prisma from '../src/config/db';
 import { getDashboardOverview } from '../src/controller/admin.controller';
 import { markDelivered } from '../src/controller/delivery.controller';
 import { createDriverSettlementLink, razorpayWebhook } from '../src/controller/payment.controller';
-import { createRazorpayPaymentLink } from '../src/services/payment.service';
+import { createRazorpayPaymentLink, fetchRazorpayRefunds, issueRazorpayRefund } from '../src/services/payment.service';
 import { getTransactionsOverview, verifyCashDeposit } from '../src/controller/transaction.controller';
 import { makeCatalog, makeUser, resetDatabase } from './helpers';
 
@@ -18,6 +18,7 @@ vi.mock('../src/services/payment.service', () => ({
   createRazorpayPaymentLink: vi.fn(),
   createRazorpayOrder: vi.fn(),
   issueRazorpayRefund: vi.fn(),
+  fetchRazorpayRefunds: vi.fn(),
 }));
 
 const call = async (handler: (req: any, res: any) => Promise<void>, req: Record<string, unknown>) => {
@@ -115,18 +116,22 @@ const revenueToday = async () => {
   return Number(result.body.data.metrics.revenueToday);
 };
 
-const linkPaid = (entity: Record<string, unknown>) =>
+const linkPaid = (entity: Record<string, unknown>, paymentId = 'pay_link_1') =>
   call(razorpayWebhook, {
     headers: { 'x-razorpay-signature': 'signed' },
     rawBody: 'raw',
-    body: { event: 'payment_link.paid', payload: { payment_link: { entity } } },
+    body: { event: 'payment_link.paid', payload: { payment_link: { entity }, payment: { entity: { id: paymentId } } } },
   });
 
 // A link as createDriverSettlementLink makes it: its own unique reference, the partner in the notes.
-const webhook = (liabilityId: string, driverId: string, paise: number) =>
-  linkPaid({ reference_id: 'settle_abc123', amount_paid: paise, notes: { liabilityId, driverId } });
+const webhook = (liabilityId: string, driverId: string, paise: number, paymentId?: string) =>
+  linkPaid({ reference_id: 'settle_abc123', amount_paid: paise, notes: { liabilityId, driverId } }, paymentId);
 
-beforeEach(resetDatabase);
+beforeEach(async () => {
+  await resetDatabase();
+  vi.mocked(issueRazorpayRefund).mockReset().mockResolvedValue({ id: 'rfnd_settle', amount: 0, status: 'pending' } as any);
+  vi.mocked(fetchRazorpayRefunds).mockReset().mockResolvedValue([]);
+});
 
 afterAll(async () => {
   await prisma.$disconnect();
@@ -241,7 +246,11 @@ describe('cash order delivered', () => {
 
     expect(await wallet(farmer.id)).toBe(800);
     expect(await wallet(partner.id)).toBe(40);
-    expect((await prisma.cashLiability.findUniqueOrThrow({ where: { id: liability.id } })).status).toBe('VERIFIED');
+    const settled = await prisma.cashLiability.findUniqueOrThrow({ where: { id: liability.id } });
+    expect(settled.status).toBe('VERIFIED');
+    expect(settled.settlementPaymentId).toBe('pay_link_1');
+    // The repeat is the same payment, not a second one, so nothing is refunded.
+    expect(issueRazorpayRefund).not.toHaveBeenCalled();
   });
 
   it('releases everything when the partner settles all their dues at once', async () => {
@@ -282,7 +291,7 @@ describe('cash order delivered', () => {
     expect(first[3]).toEqual({ liabilityId: liability.id, driverId: partner.id });
   });
 
-  it('keeps holding when the payment link was underpaid', async () => {
+  it('keeps holding when the payment link was underpaid, and refunds what was paid', async () => {
     const { job, order, farmer, partner } = await setUp(PaymentType.CASH, 'PENDING');
     await deliver(job.id, partner);
     const liability = await prisma.cashLiability.findUniqueOrThrow({ where: { orderId: order.id } });
@@ -291,6 +300,67 @@ describe('cash order delivered', () => {
 
     expect(await wallet(farmer.id)).toBe(0);
     expect(await wallet(partner.id)).toBe(0);
+    expect(issueRazorpayRefund).toHaveBeenCalledWith('pay_link_1', 500, expect.anything());
+  });
+
+  it('refunds a second payment for cash that is already settled, and tells the partner', async () => {
+    const { job, order, partner } = await setUp(PaymentType.CASH, 'PENDING');
+    await deliver(job.id, partner);
+    const liability = await prisma.cashLiability.findUniqueOrThrow({ where: { orderId: order.id } });
+
+    // The partner made two links for the same cash and paid both.
+    await webhook(liability.id, partner.id, 101000, 'pay_link_1');
+    const second = await webhook(liability.id, partner.id, 101000, 'pay_link_2');
+
+    expect(second.status).toBe(200);
+    expect(issueRazorpayRefund).toHaveBeenCalledTimes(1);
+    expect(issueRazorpayRefund).toHaveBeenCalledWith('pay_link_2', 1010, expect.anything());
+    expect(await prisma.notification.count({ where: { userId: partner.id, title: 'Extra settlement payment refunded' } })).toBe(1);
+  });
+
+  it('settles only the cash owed when the link was made, and refunds the rest', async () => {
+    const first = await setUp(PaymentType.CASH, 'PENDING');
+    await deliver(first.job.id, first.partner);
+    const partner = first.partner;
+    const old = await prisma.cashLiability.findUniqueOrThrow({ where: { orderId: first.order.id } });
+    const linkCreatedAt = new Date(old.createdAt.getTime() + 1000);
+
+    // After the link was made, an admin verified that cash, and the partner collected new cash.
+    await prisma.cashLiability.update({ where: { id: old.id }, data: { status: 'VERIFIED', reconciledAt: new Date() } });
+    const later = await setUp(PaymentType.CASH, 'PENDING');
+    await deliver(later.job.id, later.partner);
+    const fresh = await prisma.cashLiability.update({
+      where: { orderId: later.order.id },
+      data: { deliveryPartnerId: partner.id, createdAt: new Date(linkCreatedAt.getTime() + 60_000) },
+    });
+
+    await linkPaid({
+      reference_id: 'settle_abc123',
+      amount_paid: 101000,
+      created_at: Math.floor(linkCreatedAt.getTime() / 1000),
+      notes: { liabilityId: 'ALL', driverId: partner.id },
+    });
+
+    // The new cash was not part of what the partner chose to pay, so it stays open.
+    expect((await prisma.cashLiability.findUniqueOrThrow({ where: { id: fresh.id } })).reconciledAt).toBeNull();
+    expect(issueRazorpayRefund).toHaveBeenCalledWith('pay_link_1', 1010, expect.anything());
+  });
+
+  it('retries only the refund when the webhook repeats after a refund failed, and alerts admins once', async () => {
+    const admin = await makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN });
+    const { job, order, partner } = await setUp(PaymentType.CASH, 'PENDING');
+    await deliver(job.id, partner);
+    const liability = await prisma.cashLiability.findUniqueOrThrow({ where: { orderId: order.id } });
+    vi.mocked(issueRazorpayRefund).mockRejectedValue(new Error('Failed to issue refund via Razorpay: invalid request sent'));
+
+    // Paid ₹1100 for ₹1010 of cash.
+    expect((await webhook(liability.id, partner.id, 110000)).status).toBe(500);
+    expect((await webhook(liability.id, partner.id, 110000)).status).toBe(500);
+
+    expect(issueRazorpayRefund).toHaveBeenCalledTimes(2);
+    expect(issueRazorpayRefund).toHaveBeenLastCalledWith('pay_link_1', 90, expect.anything());
+    expect((await prisma.cashLiability.findUniqueOrThrow({ where: { id: liability.id } })).status).toBe('VERIFIED');
+    expect(await prisma.notification.count({ where: { userId: admin.id, title: 'Settlement refund failed: partner money is held' } })).toBe(1);
   });
 });
 

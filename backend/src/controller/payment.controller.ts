@@ -6,7 +6,7 @@ import {
   createRazorpayOrder
 } from '../services/payment.service';
 import crypto from 'crypto';
-import { settleCashLiability } from '../services/ledger.service';
+import { applySettlementPayment } from '../services/cashSettlement.service';
 import { applyProcessedRefund, markPaymentFailed, markPaymentSucceeded } from '../services/paymentRecord.service';
 import { OrderStatus } from '@prisma/client';
 
@@ -66,48 +66,17 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
       case 'payment_link.paid': {
         const linkEntity = payload.payment_link.entity;
         const notes = linkEntity.notes || {};
-        // Links made before this change carried the partner's ID as their reference_id instead.
-        const driverId = notes.driverId ?? linkEntity.reference_id;
-        const specificLiabilityId = notes.liabilityId;
-        const amountPaidInRupees = Number(linkEntity.amount_paid) / 100;
+        const paymentId = payload.payment?.entity?.id;
+        if (!paymentId) throw new Error('payment_link.paid webhook has no payment');
 
-        await prisma.$transaction(async (tx) => {
-          if (specificLiabilityId && specificLiabilityId !== 'ALL') {
-            // Settle specific liability ONLY if amount paid is sufficient
-            const liability = await tx.cashLiability.findUnique({
-              where: { id: specificLiabilityId }
-            });
-            
-            if (liability && liability.deliveryPartnerId === driverId && liability.reconciledAt === null) {
-              const requiredAmount = Number(liability.amount);
-              if (amountPaidInRupees >= requiredAmount) {
-                await settleCashLiability(tx, specificLiabilityId);
-              } else {
-                console.warn(`[Webhook] Insufficient amount paid for specific liability. Paid: ${amountPaidInRupees}, Required: ${requiredAmount}`);
-              }
-            }
-          } else {
-            // Fallback: Settle oldest liabilities up to amountPaid
-            const liabilities = await tx.cashLiability.findMany({
-              where: { deliveryPartnerId: driverId, reconciledAt: null },
-              orderBy: { createdAt: 'asc' }
-            });
-
-            let remainingAmountToSettle = amountPaidInRupees;
-            const liabilitiesToSettle = [];
-
-            for (const liability of liabilities) {
-              const liabilityAmount = Number(liability.amount);
-              if (remainingAmountToSettle >= liabilityAmount) {
-                liabilitiesToSettle.push(liability.id);
-                remainingAmountToSettle -= liabilityAmount;
-              }
-            }
-
-            for (const liabilityId of liabilitiesToSettle) {
-              await settleCashLiability(tx, liabilityId);
-            }
-          }
+        // Settles what the link was for, and refunds any part of the payment that settled nothing.
+        await applySettlementPayment({
+          paymentId,
+          // Links made before settlement links had their own reference used the partner's ID as it.
+          driverId: notes.driverId ?? linkEntity.reference_id,
+          liabilityId: notes.liabilityId || 'ALL',
+          amountPaidPaise: Number(linkEntity.amount_paid),
+          linkCreatedAt: linkEntity.created_at ? new Date(Number(linkEntity.created_at) * 1000) : undefined,
         });
         break;
       }

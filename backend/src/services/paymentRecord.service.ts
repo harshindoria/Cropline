@@ -190,7 +190,7 @@ type AdminAlert = {
   data: Prisma.InputJsonObject;
 };
 
-const notifyAdmins = async (db: Pick<Tx, 'userRoleAccess' | 'notification'>, alert: AdminAlert) => {
+export const notifyAdmins = async (db: Pick<Tx, 'userRoleAccess' | 'notification'>, alert: AdminAlert) => {
   const admins = await db.userRoleAccess.findMany({
     where: { role: Role.ADMIN, status: RoleAccessStatus.ACTIVE },
     select: { userId: true },
