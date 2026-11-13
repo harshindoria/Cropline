@@ -72,7 +72,9 @@ export default function SettlementsPage() {
 
   const liabilities = summary?.liabilities || [];
 
+  // The delivery layout's <main> is screen-high and hides overflow, so the page must scroll itself.
   return (
+    <div className="h-full overflow-y-auto">
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6">
       <div className="flex justify-between items-center mb-8">
         <div>
@@ -152,6 +154,7 @@ export default function SettlementsPage() {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

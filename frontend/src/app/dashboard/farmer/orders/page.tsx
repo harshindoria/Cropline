@@ -105,7 +105,8 @@ export default function FarmerOrdersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAFBFA] font-[family-name:var(--font-poppins)] text-[#212121]">
+    // The farmer layout's <main> is screen-high and hides overflow, so the page must scroll itself.
+    <div className="h-full overflow-y-auto bg-[#FAFBFA] font-[family-name:var(--font-poppins)] text-[#212121]">
       {/* Top Navigation */}
       <header className="bg-white border-b border-gray-100 p-4 sticky top-0 z-30">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
