@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import CropCard from "./components/CropCard";
 import LocationSelector, { LocationValue } from "@/components/LocationSelector";
 import { getGpsOrSavedLocation, reverseGeocode } from "@/lib/location";
+import { payForOrder } from "@/lib/razorpayCheckout";
 
 // Mock Categories
 const categories = [
@@ -237,14 +238,6 @@ function BuyerDashboardContent() {
       return;
     }
 
-    // Add Razorpay Script dynamically if it's not present
-    if (paymentMethod === "ONLINE" && !document.getElementById("razorpay-script")) {
-      const script = document.createElement("script");
-      script.id = "razorpay-script";
-      script.src = "https://checkout.razorpay.com/v1/checkout.js";
-      document.body.appendChild(script);
-    }
-
     try {
       let firstOrderId: string | null = null;
       let firstOrderAmount = 0;
@@ -282,47 +275,26 @@ function BuyerDashboardContent() {
 
       if (paymentMethod === "ONLINE") {
         // Online checkout only ever has one crop (see onlineNeedsOneCrop), so this is the only order.
+        // The order exists now, so whatever happens with the payment the buyer lands on its page,
+        // where they can pay again or cancel it.
         const paidOrderId = firstOrderId;
-        const payRes = await api.post(`/payments/order/${paidOrderId}/initiate`);
-        if (payRes.data.success) {
-          const { providerOrderId, amount, currency } = payRes.data.data;
-
-          const options = {
-            key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-            amount: amount,
-            currency: currency,
-            name: "CropLine",
-            description: `Payment for Order`,
-            order_id: providerOrderId,
-            // Razorpay has taken the money. Tell the backend now, so the order doesn't wait on the webhook.
-            handler: async function (response: RazorpayPaymentResponse) {
-              try {
-                await api.post(`/payments/order/${paidOrderId}/verify`, {
-                  razorpay_payment_id: response.razorpay_payment_id,
-                  razorpay_order_id: response.razorpay_order_id,
-                  razorpay_signature: response.razorpay_signature,
-                });
-              } catch (verifyErr) {
-                console.error("Payment verification failed:", verifyErr);
-                // The server explains cases like a cancelled order whose payment was refunded.
-                alert(apiErrorMessage(verifyErr, "Payment was successful but verification failed. Please check your orders or contact support."));
-              }
-              setCart({});
-              setShowCart(false);
-              router.push(`/dashboard/buyer/orders/${paidOrderId}`);
-            },
-            prefill: {
-              name: user?.name,
-              email: user?.email,
-              contact: user?.phone
-            },
-            theme: { color: "#1B5E20" }
-          };
-          const rzp = new window.Razorpay(options);
-          rzp.open();
-        } else {
-          alert("Failed to initiate payment");
+        setCart({});
+        setShowCart(false);
+        try {
+          const result = await payForOrder(paidOrderId, "Payment for Order", {
+            name: user?.name,
+            email: user?.email,
+            contact: user?.phone,
+          });
+          if (result === "DISMISSED") {
+            alert("Payment not completed. Your order is saved, and you can pay for it from the order page.");
+          }
+        } catch (payErr) {
+          console.error("Payment error:", payErr);
+          // The server explains cases like a cancelled order whose payment was refunded.
+          alert(apiErrorMessage(payErr, payErr instanceof Error ? payErr.message : "Payment could not be completed."));
         }
+        router.push(`/dashboard/buyer/orders/${paidOrderId}`);
       } else {
         alert(`Order placed successfully using COD!`);
         setCart({});

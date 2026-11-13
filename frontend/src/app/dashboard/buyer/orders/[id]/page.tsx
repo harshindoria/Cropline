@@ -5,6 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
 import { apiErrorMessage } from "@/lib/apiError";
+import { payForOrder } from "@/lib/razorpayCheckout";
 import type { Order } from "@/types/api";
 import { ArrowLeft, Package, Truck, CreditCard, Banknote, Star, ShieldCheck, MapPin, Phone, CheckCircle2, XCircle, AlertCircle, RefreshCw } from "lucide-react";
 import Image from "next/image";
@@ -101,13 +102,39 @@ export default function OrderDetailPage() {
     );
   }
 
+  // An online order the buyer hasn't paid for yet, for example after closing the payment window.
+  // The farmer only sees it once it is paid.
+  const canPayOnline =
+    order.paymentType === 'ONLINE' &&
+    order.status === 'PENDING' &&
+    (!order.paymentRecord || order.paymentRecord.status === 'PENDING' || order.paymentRecord.status === 'FAILED');
+
+  const handlePayNow = async () => {
+    setProcessing(true);
+    try {
+      const result = await payForOrder(order.id, `Order #${order.id.slice(-6).toUpperCase()}`, {
+        name: user?.name,
+        email: user?.email,
+        contact: user?.phone,
+      });
+      if (result === "PAID") alert("Payment successful! Your order has been sent to the farmer.");
+    } catch (err) {
+      console.error("Payment error:", err);
+      alert(apiErrorMessage(err, err instanceof Error ? err.message : "Payment could not be completed."));
+    } finally {
+      setProcessing(false);
+      fetchOrder();
+    }
+  };
+
   const handleCancelOrder = async () => {
     if (!confirm("Are you sure you want to cancel this order?")) return;
     try {
       setProcessing(true);
       const res = await api.patch(`/orders/${orderId}/cancel`);
       if (res.data.success) {
-        alert("Order cancelled successfully");
+        // The server says whether a refund was started.
+        alert(res.data.message || "Order cancelled successfully");
         fetchOrder();
       }
     } catch (err) {
@@ -419,6 +446,22 @@ export default function OrderDetailPage() {
           </div>
 
           {/* Actions */}
+          {canPayOnline && (
+            <div className="space-y-2">
+              <button
+                onClick={handlePayNow}
+                disabled={processing}
+                className="w-full py-4 bg-[#1B5E20] hover:bg-[#2E7D32] text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {processing ? <RefreshCw size={18} className="animate-spin" /> : <CreditCard size={18} />}
+                Pay ₹{order.totalBuyerPrice} Now
+              </button>
+              <p className="text-xs text-gray-500 text-center">
+                Your order reaches the farmer once it is paid.
+              </p>
+            </div>
+          )}
+
           {order.status === 'PENDING' && (
             <button
               onClick={handleCancelOrder}

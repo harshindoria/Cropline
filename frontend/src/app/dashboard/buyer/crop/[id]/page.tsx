@@ -5,6 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import api from "@/lib/axios";
 import { apiErrorMessage } from "@/lib/apiError";
+import { payForOrder } from "@/lib/razorpayCheckout";
 import Script from "next/script";
 import { 
   ArrowLeft, Leaf, Clock, TrendingUp, MapPin, Star, ShieldCheck, Package, Minus, Plus, CreditCard, Banknote, ShoppingBasket, ChevronLeft
@@ -137,48 +138,23 @@ export default function CropDetailPage() {
       const orderId = orderRes.data.data.id;
 
       if (paymentMethod === "ONLINE") {
-        // Initiate Razorpay Payment
-        const payRes = await api.post(`/payments/order/${orderId}/initiate`);
-        if (payRes.data.success) {
-          const { providerOrderId, amount, currency } = payRes.data.data;
-          
-          const options = {
-            key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-            amount: amount,
-            currency: currency,
-            name: "CropLine",
-            description: `Order for ${crop.catalog?.englishName || "Crop"}`,
-            order_id: providerOrderId,
-            handler: async function(response: RazorpayPaymentResponse) {
-              try {
-                // Verify the payment synchronously with the backend
-                await api.post(`/payments/order/${orderId}/verify`, {
-                  razorpay_payment_id: response.razorpay_payment_id,
-                  razorpay_order_id: response.razorpay_order_id,
-                  razorpay_signature: response.razorpay_signature,
-                  orderId: orderId
-                });
-              } catch (verifyErr) {
-                console.error("Payment verification failed:", verifyErr);
-                alert("Payment was successful but verification failed. Please check your orders or contact support.");
-              }
-              // Redirect to order page regardless to see current status
-              router.push(`/dashboard/buyer/orders/${orderId}`);
-            },
-            prefill: {
-              name: user?.name,
-              email: user?.email,
-              contact: user?.phone
-            },
-            theme: { color: "#1B5E20" }
-          };
-          const rzp = new window.Razorpay(options);
-          rzp.open();
+        // The order exists now, so whatever happens with the payment the buyer lands on its page,
+        // where they can pay again or cancel it.
+        try {
+          const result = await payForOrder(orderId, `Order for ${crop.catalog?.englishName || "Crop"}`, {
+            name: user?.name,
+            email: user?.email,
+            contact: user?.phone,
+          });
+          if (result === "DISMISSED") {
+            alert("Payment not completed. Your order is saved, and you can pay for it from the order page.");
+          }
+        } catch (payErr) {
+          console.error("Payment error:", payErr);
+          alert(apiErrorMessage(payErr, payErr instanceof Error ? payErr.message : "Payment could not be completed."));
         }
-      } else {
-        // COD - redirect directly to order page
-        router.push(`/dashboard/buyer/orders/${orderId}`);
       }
+      router.push(`/dashboard/buyer/orders/${orderId}`);
     } catch (err) {
       console.error("Order error:", err);
       alert(apiErrorMessage(err, err instanceof Error ? err.message : "Failed to place order."));

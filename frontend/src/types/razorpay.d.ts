@@ -17,6 +17,8 @@ interface RazorpayOptions {
   handler: (response: RazorpayPaymentResponse) => void | Promise<void>;
   prefill?: { name?: string | null; email?: string | null; contact?: string | null };
   theme?: { color?: string };
+  // ondismiss runs when the buyer closes the window without paying.
+  modal?: { ondismiss?: () => void };
 }
 
 interface RazorpayCheckout {
