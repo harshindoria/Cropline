@@ -3,7 +3,8 @@ import { DeliveryType, PaymentType, Role } from '@prisma/client';
 import prisma from '../src/config/db';
 import { getDashboardOverview } from '../src/controller/admin.controller';
 import { markDelivered } from '../src/controller/delivery.controller';
-import { razorpayWebhook } from '../src/controller/payment.controller';
+import { createDriverSettlementLink, razorpayWebhook } from '../src/controller/payment.controller';
+import { createRazorpayPaymentLink } from '../src/services/payment.service';
 import { getTransactionsOverview, verifyCashDeposit } from '../src/controller/transaction.controller';
 import { makeCatalog, makeUser, resetDatabase } from './helpers';
 
@@ -114,15 +115,16 @@ const revenueToday = async () => {
   return Number(result.body.data.metrics.revenueToday);
 };
 
-const webhook = (liabilityId: string, driverId: string, paise: number) =>
+const linkPaid = (entity: Record<string, unknown>) =>
   call(razorpayWebhook, {
     headers: { 'x-razorpay-signature': 'signed' },
     rawBody: 'raw',
-    body: {
-      event: 'payment_link.paid',
-      payload: { payment_link: { entity: { reference_id: driverId, amount_paid: paise, notes: { liabilityId } } } },
-    },
+    body: { event: 'payment_link.paid', payload: { payment_link: { entity } } },
   });
+
+// A link as createDriverSettlementLink makes it: its own unique reference, the partner in the notes.
+const webhook = (liabilityId: string, driverId: string, paise: number) =>
+  linkPaid({ reference_id: 'settle_abc123', amount_paid: paise, notes: { liabilityId, driverId } });
 
 beforeEach(resetDatabase);
 
@@ -250,6 +252,34 @@ describe('cash order delivered', () => {
 
     expect(await wallet(farmer.id)).toBe(800);
     expect(await wallet(partner.id)).toBe(40);
+  });
+
+  it('still settles a link made before the partner moved into the notes', async () => {
+    const { job, order, farmer, partner } = await setUp(PaymentType.CASH, 'PENDING');
+    await deliver(job.id, partner);
+    const liability = await prisma.cashLiability.findUniqueOrThrow({ where: { orderId: order.id } });
+
+    // Older links used the partner's ID as their reference and had no driverId note.
+    await linkPaid({ reference_id: partner.id, amount_paid: 101000, notes: { liabilityId: liability.id } });
+
+    expect(await wallet(farmer.id)).toBe(800);
+  });
+
+  it('gives every settlement link its own reference, so a partner can make a second one', async () => {
+    const { job, order, partner } = await setUp(PaymentType.CASH, 'PENDING');
+    await deliver(job.id, partner);
+    const liability = await prisma.cashLiability.findUniqueOrThrow({ where: { orderId: order.id } });
+    vi.mocked(createRazorpayPaymentLink).mockResolvedValue({ id: 'plink_1', short_url: 'https://rzp.io/x' } as any);
+    const asPartner = { ...partner, activeRole: Role.DELIVERY };
+
+    await call(createDriverSettlementLink, { user: asPartner, body: { liabilityId: liability.id } });
+    await call(createDriverSettlementLink, { user: asPartner, body: { liabilityId: liability.id } });
+
+    const [first, second] = vi.mocked(createRazorpayPaymentLink).mock.calls;
+    expect(first[1]).not.toBe(second[1]);
+    expect(first[1]).not.toBe(partner.id);
+    expect(first[1].length).toBeLessThanOrEqual(40); // Razorpay's limit for reference_id
+    expect(first[3]).toEqual({ liabilityId: liability.id, driverId: partner.id });
   });
 
   it('keeps holding when the payment link was underpaid', async () => {

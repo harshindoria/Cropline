@@ -46,7 +46,7 @@ export const createRazorpayOrder = async (
  * yeh ek URL banayega jo wo apni app se click karke pay kar sakta hai.
  * 
  * @param amountInINR - Amount driver owes (e.g., 10000)
- * @param referenceId - Driver ID ya Settlement ID
+ * @param referenceId - Is link ki apni ID. Razorpay ise har link ke liye unique maangta hai, isliye yeh driver ID nahi ho sakti.
  * @param driverDetails - Delivery boy ka naam aur contact (SMS alert ke liye)
  */
 export const createRazorpayPaymentLink = async (

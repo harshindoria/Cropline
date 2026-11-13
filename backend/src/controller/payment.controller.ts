@@ -65,8 +65,9 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
       // ---------------------------------------------------------
       case 'payment_link.paid': {
         const linkEntity = payload.payment_link.entity;
-        const driverId = linkEntity.reference_id;
         const notes = linkEntity.notes || {};
+        // Links made before this change carried the partner's ID as their reference_id instead.
+        const driverId = notes.driverId ?? linkEntity.reference_id;
         const specificLiabilityId = notes.liabilityId;
         const amountPaidInRupees = Number(linkEntity.amount_paid) / 100;
 
@@ -205,9 +206,13 @@ export const createDriverSettlementLink = async (req: Request, res: Response): P
       email: user.email || ''
     };
 
-    // Pass liabilityId in notes so webhook knows exactly what to settle
-    const linkResponse = await createRazorpayPaymentLink(amountDue, user.id, driverDetails, {
-      liabilityId: liabilityId || 'ALL'
+    // Razorpay needs a reference_id that is unique for every payment link, so it can't be the
+    // partner's ID: their second link would be refused. The partner and what to settle travel in
+    // the notes, which Razorpay sends back in the webhook.
+    const referenceId = `settle_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+    const linkResponse = await createRazorpayPaymentLink(amountDue, referenceId, driverDetails, {
+      liabilityId: liabilityId || 'ALL',
+      driverId: user.id,
     });
 
     res.status(200).json({
