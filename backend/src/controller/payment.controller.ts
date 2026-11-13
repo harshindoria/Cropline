@@ -17,7 +17,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
     const signature = req.headers['x-razorpay-signature'] as string;
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET || '';
 
-    const rawBody = (req as any).rawBody;
+    const rawBody = req.rawBody;
 
     if (!rawBody || !verifyRazorpayWebhookSignature(rawBody, signature, secret)) {
       res.status(400).json({ success: false, message: 'Invalid signature' });

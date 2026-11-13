@@ -93,7 +93,7 @@ export const createRazorpayPaymentLink = async (
  * @param secret - Hamara Razorpay Webhook Secret (from .env)
  */
 export const verifyRazorpayWebhookSignature = (
-  rawBody: string,
+  rawBody: Buffer | string,
   signature: string,
   secret: string
 ): boolean => {

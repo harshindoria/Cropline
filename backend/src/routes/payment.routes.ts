@@ -9,17 +9,12 @@ import {
 import { protect } from '../middleware/auth.middleware';
 import { restrictTo, requireRoleOperational } from '../middleware/role.middleware';
 import { Role } from '@prisma/client';
-import express from 'express';
 
 const router = Router();
 
 // ── RAZORPAY WEBHOOK (No auth — Razorpay calls this) ──────────────────────
-// Raw body needed for signature verification
-router.post(
-  '/webhook',
-  express.raw({ type: 'application/json' }),
-  razorpayWebhook
-);
+// The signature is checked against req.rawBody, which the app's JSON parser keeps (see body.middleware.ts).
+router.post('/webhook', razorpayWebhook);
 
 // ── PROTECTED ROUTES ───────────────────────────────────────────────────────
 router.use(protect);

@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import { InvalidFileTypeError } from './config/multer';
+import { parseJsonBody } from './middleware/body.middleware';
 // 1. Naye Imports add kiye hain
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -46,7 +47,7 @@ export const io = new Server(httpServer, {
 
 // Middlewares
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:3000' }));
-app.use(express.json({ limit: "50mb" }));
+app.use(parseJsonBody);
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(express.urlencoded({ extended: true }));
 
