@@ -224,8 +224,18 @@ function BuyerDashboardContent() {
     return sum + (crop ? (Number(crop.basePricePerKg) * 1.20 || 0) * qty : 0);
   }, 0);
 
+  // Each crop becomes its own order, and one Razorpay payment can only pay for one order.
+  // Until the backend can charge several orders together, online checkout takes one crop at a time.
+  const onlineNeedsOneCrop = paymentMethod === "ONLINE" && Object.keys(cart).length > 1;
+
   const handleCheckout = async () => {
     if (Object.keys(cart).length === 0) return;
+
+    // Checked before any order is created, so nothing is left behind unpaid.
+    if (onlineNeedsOneCrop) {
+      alert("Online payment works for one crop at a time. Remove the other crops from your basket, or choose Cash on Delivery.");
+      return;
+    }
 
     // Add Razorpay Script dynamically if it's not present
     if (paymentMethod === "ONLINE" && !document.getElementById("razorpay-script")) {
@@ -271,9 +281,9 @@ function BuyerDashboardContent() {
       }
 
       if (paymentMethod === "ONLINE") {
-        // Initiate Razorpay Payment for the first order as a representative payment
-        // (In a real app, backend should support bulk order payment)
-        const payRes = await api.post(`/payments/order/${firstOrderId}/initiate`);
+        // Online checkout only ever has one crop (see onlineNeedsOneCrop), so this is the only order.
+        const paidOrderId = firstOrderId;
+        const payRes = await api.post(`/payments/order/${paidOrderId}/initiate`);
         if (payRes.data.success) {
           const { providerOrderId, amount, currency } = payRes.data.data;
 
@@ -284,10 +294,21 @@ function BuyerDashboardContent() {
             name: "CropLine",
             description: `Payment for Order`,
             order_id: providerOrderId,
-            handler: function () {
+            // Razorpay has taken the money. Tell the backend now, so the order doesn't wait on the webhook.
+            handler: async function (response: RazorpayPaymentResponse) {
+              try {
+                await api.post(`/payments/order/${paidOrderId}/verify`, {
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_signature: response.razorpay_signature,
+                });
+              } catch (verifyErr) {
+                console.error("Payment verification failed:", verifyErr);
+                alert("Payment was successful but verification failed. Please check your orders or contact support.");
+              }
               setCart({});
               setShowCart(false);
-              router.push(`/dashboard/buyer/orders`);
+              router.push(`/dashboard/buyer/orders/${paidOrderId}`);
             },
             prefill: {
               name: user?.name,
@@ -969,11 +990,17 @@ function BuyerDashboardContent() {
                       💵 Cash on Delivery
                     </button>
                   </div>
+                  {onlineNeedsOneCrop && (
+                    <p className="mt-2 rounded-xl border border-orange-200 bg-orange-50 p-3 text-xs font-semibold text-orange-700">
+                      Online payment works for one crop at a time. Remove the other crops from your basket, or choose Cash on Delivery.
+                    </p>
+                  )}
                 </div>
 
                 <button
                   onClick={handleCheckout}
-                  className="w-full bg-[#1B5E20] hover:bg-[#2E7D32] text-white py-4 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 shadow-md"
+                  disabled={onlineNeedsOneCrop}
+                  className="w-full bg-[#1B5E20] hover:bg-[#2E7D32] text-white py-4 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 shadow-md disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[#1B5E20]"
                 >
                   Confirm Order & Checkout <ChevronRight size={16} />
                 </button>
