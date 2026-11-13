@@ -8,17 +8,22 @@ export default function SettlementsPage() {
   const [summary, setSummary] = useState<SettlementSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [payingId, setPayingId] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
     fetchSummary();
   }, []);
 
+  // These endpoints live in payment.routes.ts, which is mounted at /payments.
   const fetchSummary = async () => {
     try {
-      const res = await api.get('/delivery/summary');
+      setLoading(true);
+      setLoadFailed(false);
+      const res = await api.get('/payments/delivery/summary');
       setSummary(res.data.data);
     } catch (error) {
       console.error('Failed to fetch summary', error);
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -27,7 +32,7 @@ export default function SettlementsPage() {
   const handlePay = async (liabilityId: string) => {
     try {
       setPayingId(liabilityId);
-      const res = await api.post('/delivery/settle', { liabilityId });
+      const res = await api.post('/payments/delivery/settle', { liabilityId });
       if (res.data.success && res.data.data.paymentUrl) {
         window.location.href = res.data.data.paymentUrl;
       }
@@ -43,6 +48,24 @@ export default function SettlementsPage() {
     return (
       <div className="flex items-center justify-center h-full min-h-[60vh]">
         <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  // Without this, a failed request showed "All Settled!", which hides money the partner still owes.
+  if (loadFailed) {
+    return (
+      <div className="p-4 md:p-8 max-w-5xl mx-auto">
+        <div className="bg-white rounded-3xl p-12 border border-red-100 shadow-sm text-center">
+          <h3 className="text-xl font-bold text-gray-800 mb-2">Couldn&apos;t load your settlements</h3>
+          <p className="text-gray-500 font-medium max-w-md mx-auto mb-6">Please check your connection and try again.</p>
+          <button
+            onClick={fetchSummary}
+            className="bg-[#1B5E20] hover:bg-[#144716] text-white font-bold py-3 px-6 rounded-xl transition-colors"
+          >
+            Try again
+          </button>
+        </div>
       </div>
     );
   }
