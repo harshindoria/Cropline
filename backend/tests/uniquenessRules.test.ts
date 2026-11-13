@@ -13,16 +13,17 @@ import prisma from '../src/config/db';
 import { getOrderById } from '../src/controller/order.controller';
 import { initiateOrderPayment } from '../src/controller/payment.controller';
 import { submitReview } from '../src/controller/review.controller';
-import { issueRazorpayRefund } from '../src/services/payment.service';
+import { fetchRazorpayOrderPayments, issueRazorpayRefund } from '../src/services/payment.service';
 import {
   applyProcessedRefund,
   markPaymentFailed,
   markPaymentSucceeded,
+  reconcileUnconfirmedPayments,
   refundFullPayment,
 } from '../src/services/paymentRecord.service';
 import { makeCatalog, makeUser, resetDatabase } from './helpers';
 
-vi.mock('../src/services/payment.service', () => ({ issueRazorpayRefund: vi.fn() }));
+vi.mock('../src/services/payment.service', () => ({ issueRazorpayRefund: vi.fn(), fetchRazorpayOrderPayments: vi.fn() }));
 vi.mock('../src/sockets/socket.handler', () => ({ disconnectUser: vi.fn(), getIO: vi.fn() }));
 vi.mock('../src/services/deliveryAssignment.service', () => ({ broadcastDeliveryOffer: vi.fn() }));
 
@@ -95,6 +96,7 @@ const jobData = (orderId: string, deliveryPartnerId: string) => ({
 beforeEach(async () => {
   await resetDatabase();
   vi.mocked(issueRazorpayRefund).mockReset();
+  vi.mocked(fetchRazorpayOrderPayments).mockReset();
 });
 
 afterAll(() => prisma.$disconnect());
@@ -409,5 +411,105 @@ describe('starting a payment', () => {
     const result = await initiate(OrderStatus.PENDING);
     expect(result.status).toBe(200);
     expect(result.body.data.providerOrderId).toMatch(/^order_/);
+  });
+});
+
+describe('payment reconciliation', () => {
+  // The job skips payments younger than 5 minutes, so tests run it as if 10 minutes have passed.
+  const later = () => new Date(Date.now() + 10 * 60 * 1000);
+
+  const makeUnconfirmed = async (orderStatus: OrderStatus = OrderStatus.PENDING, status: PaymentStatus = PaymentStatus.PENDING) => {
+    const order = await makeOrder((await makeUser()).id, (await makeUser()).id, orderStatus);
+    return prisma.paymentRecord.create({
+      data: { orderId: order.id, provider: 'RAZORPAY', providerOrderId: `order_${order.id}`, amount: 120, status },
+    });
+  };
+  const load = (id: string) => prisma.paymentRecord.findUniqueOrThrow({ where: { id } });
+  const razorpayHas = (byOrder: Record<string, { id: string; status: string; error_description?: string }[]>) =>
+    vi.mocked(fetchRazorpayOrderPayments).mockImplementation(async (id) => byOrder[id] ?? []);
+
+  it('confirms a payment Razorpay captured but nobody told us about', async () => {
+    const record = await makeUnconfirmed();
+    razorpayHas({ [record.providerOrderId!]: [{ id: 'pay_lost', status: 'captured' }] });
+
+    expect(await reconcileUnconfirmedPayments(later())).toMatchObject({ checked: 1, confirmed: 1 });
+
+    const after = await load(record.id);
+    expect(after.status).toBe(PaymentStatus.SUCCESS);
+    expect(after.providerPaymentId).toBe('pay_lost');
+  });
+
+  it('refunds a lost payment whose order was cancelled', async () => {
+    const record = await makeUnconfirmed(OrderStatus.CANCELLED);
+    razorpayHas({ [record.providerOrderId!]: [{ id: 'pay_lost', status: 'captured' }] });
+    vi.mocked(issueRazorpayRefund).mockResolvedValue({ id: 'rfnd_lost', amount: 12000, status: 'pending' } as any);
+
+    await reconcileUnconfirmedPayments(later());
+
+    expect(issueRazorpayRefund).toHaveBeenCalledWith('pay_lost', undefined, expect.anything());
+    expect((await load(record.id)).status).toBe(PaymentStatus.REFUNDED);
+  });
+
+  it('picks a captured payment over earlier failed attempts', async () => {
+    const record = await makeUnconfirmed(OrderStatus.PENDING, PaymentStatus.FAILED);
+    razorpayHas({
+      [record.providerOrderId!]: [
+        { id: 'pay_failed', status: 'failed', error_description: 'Card declined' },
+        { id: 'pay_ok', status: 'captured' },
+      ],
+    });
+
+    await reconcileUnconfirmedPayments(later());
+
+    expect((await load(record.id)).status).toBe(PaymentStatus.SUCCESS);
+  });
+
+  it('records failed attempts when nothing was captured', async () => {
+    const record = await makeUnconfirmed();
+    razorpayHas({ [record.providerOrderId!]: [{ id: 'pay_failed', status: 'failed', error_description: 'Card declined' }] });
+
+    expect(await reconcileUnconfirmedPayments(later())).toMatchObject({ checked: 1, failed: 1 });
+
+    expect((await load(record.id)).status).toBe(PaymentStatus.FAILED);
+    const attempt = await prisma.paymentAttempt.findUniqueOrThrow({ where: { providerPaymentId: 'pay_failed' } });
+    expect(attempt.failureReason).toBe('Card declined');
+  });
+
+  it('leaves an abandoned checkout pending', async () => {
+    const record = await makeUnconfirmed();
+    razorpayHas({});
+
+    await reconcileUnconfirmedPayments(later());
+
+    expect((await load(record.id)).status).toBe(PaymentStatus.PENDING);
+  });
+
+  it('leaves fresh, confirmed and too-old payments to others', async () => {
+    const fresh = await makeUnconfirmed();
+    const paid = await makeUnconfirmed(OrderStatus.PENDING, PaymentStatus.SUCCESS);
+    razorpayHas({});
+
+    // Fresh: checked as of now, so it is under 5 minutes old.
+    await reconcileUnconfirmedPayments(new Date());
+    // Too old: checked as of 4 days later.
+    await reconcileUnconfirmedPayments(new Date(Date.now() + 4 * 24 * 60 * 60 * 1000));
+
+    expect(fetchRazorpayOrderPayments).not.toHaveBeenCalled();
+    expect((await load(fresh.id)).status).toBe(PaymentStatus.PENDING);
+    expect((await load(paid.id)).status).toBe(PaymentStatus.SUCCESS);
+  });
+
+  it('keeps going when one payment cannot be checked', async () => {
+    const broken = await makeUnconfirmed();
+    const fine = await makeUnconfirmed();
+    vi.mocked(fetchRazorpayOrderPayments).mockImplementation(async (id) => {
+      if (id === broken.providerOrderId) throw new Error('Razorpay timeout');
+      return [{ id: 'pay_fine', status: 'captured' }];
+    });
+
+    expect(await reconcileUnconfirmedPayments(later())).toMatchObject({ checked: 1, confirmed: 1, errors: 1 });
+
+    expect((await load(broken.id)).status).toBe(PaymentStatus.PENDING);
+    expect((await load(fine.id)).status).toBe(PaymentStatus.SUCCESS);
   });
 });

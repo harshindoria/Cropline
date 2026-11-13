@@ -1,6 +1,6 @@
 import prisma from '../config/db';
 import { DeliveryJobStatus, OrderStatus, PaymentStatus } from '@prisma/client';
-import { refundFullPayment } from './paymentRecord.service';
+import { reconcileUnconfirmedPayments, refundFullPayment } from './paymentRecord.service';
 import { expireStaleOffers, releaseDeliveryJob, retryBroadcastWithExpandedRadius } from './deliveryAssignment.service';
 
 // A partner who accepts a job must reach the farm within this time, or the job goes to someone else.
@@ -96,9 +96,22 @@ export async function processRetryDeliveryAssignments() {
   }
 }
 
+export async function processPaymentReconciliation() {
+  const summary = await reconcileUnconfirmedPayments();
+  if (summary.confirmed || summary.failed || summary.errors) {
+    console.log('[CRON] Payment reconciliation:', summary);
+  }
+}
+
 export function startCronJobs() {
     // Run every 10 minutes to check if any order has crossed the 2-hour threshold
     setInterval(() => {
         processRetryDeliveryAssignments().catch(console.error);
     }, 10 * 60 * 1000);
+
+    // Catch payments whose checkout callback and webhook were both lost. Kept on its own timer so
+    // a failure in the delivery job can't stop it.
+    setInterval(() => {
+        processPaymentReconciliation().catch(console.error);
+    }, 5 * 60 * 1000);
 }

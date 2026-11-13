@@ -8,7 +8,7 @@ import {
   RoleAccessStatus,
 } from '@prisma/client';
 import prisma from '../config/db';
-import { issueRazorpayRefund } from './payment.service';
+import { fetchRazorpayOrderPayments, issueRazorpayRefund } from './payment.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -210,3 +210,59 @@ export const applyProcessedRefund = (entity: { id: string; payment_id: string; a
 
     if (!alreadyRecorded) await alertAdminsIfDelivered(tx, record.orderId, paiseToRupees(entity.amount));
   });
+
+// Leave a fresh payment to the checkout and webhook first, so the job doesn't race them.
+const RECONCILE_MIN_AGE_MS = 5 * 60 * 1000;
+// Razorpay can complete a slow payment some time after checkout says it failed, but not for days.
+const RECONCILE_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+// Abandoned checkouts also stay PENDING, so a run is capped. The newest are checked first, because
+// a buyer who just paid matters more than a checkout left days ago.
+const RECONCILE_BATCH = 200;
+
+/**
+ * The backup for a missed confirmation. The browser's /verify call and the webhook can both be
+ * lost (a closed tab, a checkout that timed out while the bank page finished, a webhook that
+ * can't reach the server), and then a captured payment stays PENDING here forever, and is never
+ * refunded if the order was cancelled. This asks Razorpay what really happened to each
+ * unconfirmed payment and records it through the same functions the webhook uses.
+ */
+export const reconcileUnconfirmedPayments = async (now = new Date()) => {
+  const records = await prisma.paymentRecord.findMany({
+    where: {
+      providerOrderId: { not: null },
+      status: { in: [PaymentStatus.PENDING, PaymentStatus.FAILED] },
+      updatedAt: { lte: new Date(now.getTime() - RECONCILE_MIN_AGE_MS) },
+      createdAt: { gte: new Date(now.getTime() - RECONCILE_MAX_AGE_MS) },
+    },
+    orderBy: { updatedAt: 'desc' },
+    take: RECONCILE_BATCH,
+    select: { id: true, providerOrderId: true },
+  });
+
+  const summary = { checked: 0, confirmed: 0, failed: 0, errors: 0 };
+  for (const record of records) {
+    const providerOrderId = record.providerOrderId!;
+    try {
+      const payments = await fetchRazorpayOrderPayments(providerOrderId);
+      summary.checked += 1;
+
+      const captured = payments.find((p) => p.status === 'captured');
+      if (captured) {
+        // Also refunds it if the order was cancelled, and alerts the admins if that refund fails.
+        await markPaymentSucceeded(providerOrderId, captured.id);
+        summary.confirmed += 1;
+        continue;
+      }
+
+      for (const payment of payments.filter((p) => p.status === 'failed')) {
+        await markPaymentFailed(providerOrderId, payment.id, payment.error_description ?? undefined);
+        summary.failed += 1;
+      }
+    } catch (error) {
+      // One bad record must not stop the rest. It is tried again on the next run.
+      summary.errors += 1;
+      console.error(`[CRON] Could not reconcile payment ${record.id}:`, error);
+    }
+  }
+  return summary;
+};

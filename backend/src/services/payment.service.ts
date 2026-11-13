@@ -131,6 +131,17 @@ export const fetchRazorpayPaymentStatus = async (paymentId: string) => {
 };
 
 /**
+ * Every payment attempt Razorpay has for one of our Razorpay orders, with its status
+ * ('created', 'authorized', 'captured', 'refunded' or 'failed').
+ */
+export const fetchRazorpayOrderPayments = async (
+  providerOrderId: string,
+): Promise<{ id: string; status: string; error_description?: string | null }[]> => {
+  const { items } = await razorpay.orders.fetchPayments(providerOrderId);
+  return items.map((p: any) => ({ id: p.id, status: p.status, error_description: p.error_description }));
+};
+
+/**
  * 5. CANCEL EXPIRED PAYMENT LINK (Cleanup Task)
  * Agar delivery boy ne settlement link generate kiya par pay nahi kiya, 
  * toh usey system se clean/cancel karne ke liye.
