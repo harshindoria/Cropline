@@ -740,3 +740,49 @@ describe('orders nobody acted on', () => {
     expect(await stockOf(order.cropId)).toBe(160);
   });
 });
+
+describe('paying online for an order that is already paid', () => {
+  // A cash order the delivery partner has delivered and collected cash for.
+  const cashPaidOrder = async () => {
+    const buyer = await makeUser();
+    const order = await makeOrder((await makeUser()).id, buyer.id, OrderStatus.DELIVERED);
+    const record = await prisma.paymentRecord.create({
+      data: { orderId: order.id, provider: 'CASH_COD', providerOrderId: `order_${order.id}`, amount: 120, status: PaymentStatus.SUCCESS },
+    });
+    return { buyer, order, record };
+  };
+
+  it('refunds the online payment, keeps the order paid, and tells the buyer once', async () => {
+    const { buyer, record } = await cashPaidOrder();
+    vi.mocked(issueRazorpayRefund).mockResolvedValue({ id: 'rfnd_extra', amount: 12000, status: 'pending' } as any);
+
+    // The buyer's open payment window completed just after they paid cash.
+    expect(await markPaymentSucceeded(record.providerOrderId!, 'pay_extra')).toBe('REFUNDED_DUPLICATE');
+
+    // The webhook reports the same payment again. Razorpay now has the refund.
+    vi.mocked(fetchRazorpayRefunds).mockResolvedValue([{ id: 'rfnd_extra', amount: 12000, status: 'pending' }]);
+    expect(await markPaymentSucceeded(record.providerOrderId!, 'pay_extra')).toBe('REFUNDED_DUPLICATE');
+
+    expect(issueRazorpayRefund).toHaveBeenCalledTimes(1);
+    expect(issueRazorpayRefund).toHaveBeenCalledWith('pay_extra', undefined, expect.anything());
+    const after = await prisma.paymentRecord.findUniqueOrThrow({ where: { id: record.id } });
+    expect(after.status).toBe(PaymentStatus.SUCCESS);
+    expect(after.providerPaymentId).toBeNull();
+    const attempt = await prisma.paymentAttempt.findUniqueOrThrow({ where: { providerPaymentId: 'pay_extra' } });
+    expect(attempt.status).toBe(PaymentStatus.REFUNDED);
+    expect(await prisma.notification.count({ where: { userId: buyer.id, title: 'Extra payment refunded' } })).toBe(1);
+  });
+
+  it('lets a buyer start an online payment for a cash order that is out for delivery', async () => {
+    const buyer = await makeUser();
+    const order = await makeOrder((await makeUser()).id, buyer.id, OrderStatus.IN_DELIVERY);
+    await prisma.order.update({ where: { id: order.id }, data: { paymentType: PaymentType.CASH } });
+    await prisma.paymentRecord.create({
+      data: { orderId: order.id, provider: 'CASH_COD', providerOrderId: `order_${order.id}`, amount: 120 },
+    });
+
+    const result = await call({ params: { orderId: order.id }, user: buyer }, initiateOrderPayment);
+
+    expect(result.status).toBe(200);
+  });
+});

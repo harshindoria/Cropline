@@ -297,6 +297,15 @@ export const verifyOrderPayment = async (req: Request, res: Response): Promise<v
       return;
     }
 
+    if (outcome === 'REFUNDED_DUPLICATE') {
+      res.status(409).json({
+        success: false,
+        code: 'ALREADY_PAID_REFUNDED',
+        message: 'This order was already paid, so this payment has been refunded in full.',
+      });
+      return;
+    }
+
     res.status(200).json({ success: true, message: 'Payment verified successfully' });
   } catch (error) {
     console.error('Error verifying payment:', error);

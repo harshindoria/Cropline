@@ -65,7 +65,6 @@ export default function ActiveDeliveries() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [cashCollectedChecked, setCashCollectedChecked] = useState(false);
-  const [collectionMethod, setCollectionMethod] = useState<'CASH' | 'UPI'>('CASH');
 
   useEffect(() => {
     if (!loading && (!user || user.activeRole !== 'DELIVERY')) {
@@ -131,7 +130,6 @@ export default function ActiveDeliveries() {
     setPhotoFile(null);
     setPhotoPreview(null);
     setCashCollectedChecked(false);
-    setCollectionMethod('CASH');
   };
 
   const submitPickup = async () => {
@@ -635,33 +633,13 @@ export default function ActiveDeliveries() {
                       Collect ₹{selectedJob.totalBuyerPrice} from Buyer
                     </div>
                     
-                    {/* Payment Method Toggle */}
-                    <div className="flex bg-gray-200 p-1 rounded-lg">
-                      <button 
-                        onClick={() => setCollectionMethod('CASH')}
-                        className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${collectionMethod === 'CASH' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500'}`}
-                      >
-                        Cash
-                      </button>
-                      <button 
-                        onClick={() => setCollectionMethod('UPI')}
-                        className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-colors ${collectionMethod === 'UPI' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500'}`}
-                      >
-                        Online (UPI QR)
-                      </button>
+                    {/* The buyer pays online in their own app, so the money reaches CropLine and not a
+                        personal UPI ID, and this job then shows as paid. */}
+                    <div className="bg-white p-3 rounded-lg border border-gray-100 text-xs text-gray-600 space-y-1">
+                      <p className="font-bold text-gray-700">Buyer wants to pay online?</p>
+                      <p>Ask them to open this order in their CropLine app and tap <span className="font-bold">Pay online instead of cash</span>. Then tap <span className="font-bold">Check if Buyer Paid Online</span> below.</p>
+                      <p>Do not take UPI payments on your own number.</p>
                     </div>
-
-                    {collectionMethod === 'UPI' && (
-                      <div className="flex flex-col items-center bg-white p-4 rounded-xl border border-gray-100">
-                        <p className="text-xs font-bold text-gray-500 mb-2">Have the buyer scan this QR</p>
-                        <img 
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`upi://pay?pa=${user?.phone || 'driver'}@upi&pn=${user?.name || 'Driver'}&am=${selectedJob.totalBuyerPrice}&cu=INR`)}`} 
-                          alt="UPI QR Code" 
-                          className="w-32 h-32 mb-2"
-                        />
-                        <p className="text-[10px] text-gray-400 text-center">Money goes directly to your bank account.</p>
-                      </div>
-                    )}
 
                     <label className="flex items-center gap-2 p-3 bg-white rounded-lg border border-orange-100 cursor-pointer shadow-sm">
                       <input 

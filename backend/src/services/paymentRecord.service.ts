@@ -30,7 +30,7 @@ const saveAttempt = (
     update: { status, failureReason },
   });
 
-export type PaymentOutcome = 'NOT_FOUND' | 'PAID' | 'REFUNDED_CANCELLED_ORDER';
+export type PaymentOutcome = 'NOT_FOUND' | 'PAID' | 'REFUNDED_CANCELLED_ORDER' | 'REFUNDED_DUPLICATE';
 
 // Checkout and the webhook both report the same payment, so this must be safe to run twice.
 //
@@ -49,15 +49,23 @@ export const markPaymentSucceeded = async (providerOrderId: string, providerPaym
       SELECT status, "buyerId" FROM "Order" WHERE id = ${record.orderId} FOR UPDATE`;
 
     await saveAttempt(tx, record, providerPaymentId, PaymentStatus.SUCCESS);
-    await tx.paymentRecord.updateMany({
+    const marked = await tx.paymentRecord.updateMany({
       where: { id: record.id, status: { in: [PaymentStatus.PENDING, PaymentStatus.FAILED] } },
       data: { status: PaymentStatus.SUCCESS, providerPaymentId, capturedAt: new Date() },
     });
-    return { record, order };
+    // The order was already paid some other way: in cash at the door, or by an earlier payment.
+    // This one is a second payment for the same order.
+    const duplicate = marked.count === 0 && record.providerPaymentId !== providerPaymentId;
+    return { record, order, duplicate };
   });
 
   if (!result) return 'NOT_FOUND';
-  const { record, order } = result;
+  const { record, order, duplicate } = result;
+
+  if (duplicate) {
+    await refundDuplicatePayment(record, providerPaymentId, order?.buyerId);
+    return 'REFUNDED_DUPLICATE';
+  }
   if (order?.status !== OrderStatus.CANCELLED) return 'PAID';
 
   // The payment is saved as SUCCESS before the refund is asked for, so a crash in between leaves a
@@ -75,6 +83,46 @@ export const markPaymentSucceeded = async (providerOrderId: string, providerPaym
     });
   }
   return 'REFUNDED_CANCELLED_ORDER';
+};
+
+/**
+ * Returns a second payment for an order that was already paid, for example when the buyer paid cash
+ * at the door while an online payment they had started was still going through. The order keeps
+ * its first payment. Safe to repeat: a payment Razorpay has already refunded is left alone.
+ */
+const refundDuplicatePayment = async (
+  record: { id: string; orderId: string; amount: Prisma.Decimal },
+  providerPaymentId: string,
+  buyerId?: string,
+) => {
+  const alreadyRefunded = (await fetchRazorpayRefunds(providerPaymentId)).some((r) => r.status !== 'failed');
+  if (!alreadyRefunded) {
+    try {
+      await issueRazorpayRefund(providerPaymentId, undefined, { reason: 'Order was already paid' });
+    } catch (error) {
+      await alertAdminsRefundFailed(record.id, error).catch((alertError) =>
+        console.error(`Could not alert admins about duplicate payment ${providerPaymentId}:`, alertError),
+      );
+      throw error;
+    }
+  }
+
+  // The attempt is kept, marked as the one that was refunded. The buyer is told when the refund is issued.
+  await prisma.paymentAttempt.updateMany({
+    where: { providerPaymentId },
+    data: { status: PaymentStatus.REFUNDED },
+  });
+  if (!alreadyRefunded && buyerId) {
+    await prisma.notification.create({
+      data: {
+        userId: buyerId,
+        alertLevel: 'WARNING',
+        title: 'Extra payment refunded',
+        body: `Your order was already paid, so your online payment of ₹${record.amount} has been refunded in full.`,
+        data: { orderId: record.orderId },
+      },
+    });
+  }
 };
 
 // A buyer can fail and then retry, so a late failure must not undo a payment that succeeded.

@@ -131,6 +131,13 @@ export default function OrderDetailPage() {
     return { label: status };
   })();
 
+  // A cash order can be paid online instead, any time before it is delivered. The delivery partner
+  // then sees it as paid and collects no cash.
+  const canPayCashOrderOnline =
+    order.paymentType === 'CASH' &&
+    !['CANCELLED', 'DELIVERED', 'COMPLETED', 'DISPUTED'].includes(order.status) &&
+    (!order.paymentRecord || order.paymentRecord.status === 'PENDING' || order.paymentRecord.status === 'FAILED');
+
   const handlePayNow = async () => {
     setProcessing(true);
     try {
@@ -139,7 +146,13 @@ export default function OrderDetailPage() {
         email: user?.email,
         contact: user?.phone,
       });
-      if (result === "PAID") alert("Payment successful! Your order has been sent to the farmer.");
+      if (result === "PAID") {
+        alert(
+          order.paymentType === 'CASH'
+            ? "Payment successful! You do not need to pay the delivery partner."
+            : "Payment successful! Your order has been sent to the farmer.",
+        );
+      }
     } catch (err) {
       console.error("Payment error:", err);
       alert(apiErrorMessage(err, err instanceof Error ? err.message : "Payment could not be completed."));
@@ -482,6 +495,17 @@ export default function OrderDetailPage() {
                 Your order reaches the farmer once it is paid. An order left unpaid for 30 minutes is cancelled.
               </p>
             </div>
+          )}
+
+          {canPayCashOrderOnline && (
+            <button
+              onClick={handlePayNow}
+              disabled={processing}
+              className="w-full py-4 bg-white border-2 border-[#1B5E20] text-[#1B5E20] hover:bg-green-50 rounded-xl font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {processing ? <RefreshCw size={18} className="animate-spin" /> : <CreditCard size={18} />}
+              Pay online instead of cash
+            </button>
           )}
 
           {order.status === 'PENDING' && (
