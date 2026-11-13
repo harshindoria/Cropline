@@ -171,6 +171,8 @@ export const issueRazorpayRefund = async (
     return refund;
   } catch (error) {
     console.error('Error issuing Razorpay refund:', error);
-    throw new Error('Failed to issue refund via Razorpay');
+    // Keep Razorpay's own reason, so the admin alert can say why the refund failed.
+    const description = (error as { error?: { description?: string } })?.error?.description;
+    throw new Error(`Failed to issue refund via Razorpay: ${description ?? 'unknown error'}`);
   }
 };

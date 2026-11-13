@@ -1,4 +1,12 @@
-import { OrderStatus, PaymentStatus, Prisma, RefundStatus, Role, RoleAccessStatus } from '@prisma/client';
+import {
+  NotificationAlertLevel,
+  OrderStatus,
+  PaymentStatus,
+  Prisma,
+  RefundStatus,
+  Role,
+  RoleAccessStatus,
+} from '@prisma/client';
 import prisma from '../config/db';
 import { issueRazorpayRefund } from './payment.service';
 
@@ -82,7 +90,16 @@ export const refundFullPayment = async (
 ): Promise<void> => {
   if (!record.providerPaymentId) throw new Error(`Payment ${record.id} has no Razorpay payment to refund`);
 
-  const refund = await issueRazorpayRefund(record.providerPaymentId, undefined, { reason });
+  let refund;
+  try {
+    refund = await issueRazorpayRefund(record.providerPaymentId, undefined, { reason });
+  } catch (error) {
+    // The caller's transaction is about to roll back, so the alert is written outside it.
+    await alertAdminsRefundFailed(record.id, error).catch((alertError) =>
+      console.error(`Could not alert admins about the failed refund of payment ${record.id}:`, alertError),
+    );
+    throw error;
+  }
   const now = new Date();
   const processed = refund.status === 'processed';
   const status = processed ? RefundStatus.PROCESSED : RefundStatus.PENDING;
@@ -106,24 +123,57 @@ export const refundFullPayment = async (
   });
 };
 
+type AdminAlert = {
+  alertLevel: NotificationAlertLevel;
+  title: string;
+  body: string;
+  data: Prisma.InputJsonObject;
+};
+
+const notifyAdmins = async (db: Pick<Tx, 'userRoleAccess' | 'notification'>, alert: AdminAlert) => {
+  const admins = await db.userRoleAccess.findMany({
+    where: { role: Role.ADMIN, status: RoleAccessStatus.ACTIVE },
+    select: { userId: true },
+  });
+  await db.notification.createMany({ data: admins.map(({ userId }) => ({ userId, ...alert })) });
+};
+
 // The farmer and partner were already paid for a delivered order. Taking that back is a business
 // decision, so this only tells the admins and leaves every wallet as it is.
 const alertAdminsIfDelivered = async (tx: Tx, orderId: string, amount: Prisma.Decimal) => {
   const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { status: true } });
   if (order.status !== OrderStatus.DELIVERED && order.status !== OrderStatus.COMPLETED) return;
 
-  const admins = await tx.userRoleAccess.findMany({
-    where: { role: Role.ADMIN, status: RoleAccessStatus.ACTIVE },
-    select: { userId: true },
+  await notifyAdmins(tx, {
+    alertLevel: NotificationAlertLevel.WARNING,
+    title: 'Refund on a delivered order',
+    body: `₹${amount} was refunded on delivered order ${orderId}. The farmer and partner earnings were not changed, so please review it.`,
+    data: { orderId },
   });
-  await tx.notification.createMany({
-    data: admins.map(({ userId }) => ({
-      userId,
-      alertLevel: 'WARNING' as const,
-      title: 'Refund on a delivered order',
-      body: `₹${amount} was refunded on delivered order ${orderId}. The farmer and partner earnings were not changed, so please review it.`,
-      data: { orderId },
-    })),
+};
+
+/**
+ * Tells the admins that Razorpay refused a refund, so a buyer's money is still held. Every caller
+ * retries a failed refund (the webhook, the cron, the buyer pressing cancel again), so this sends
+ * one alert per payment rather than one per attempt.
+ */
+const alertAdminsRefundFailed = async (paymentRecordId: string, error: unknown) => {
+  const alreadyAlerted = await prisma.notification.findFirst({
+    where: { data: { path: ['refundFailedFor'], equals: paymentRecordId } },
+    select: { id: true },
+  });
+  if (alreadyAlerted) return;
+
+  const record = await prisma.paymentRecord.findUniqueOrThrow({
+    where: { id: paymentRecordId },
+    select: { orderId: true, amount: true },
+  });
+  const cause = error instanceof Error ? error.message : String(error);
+  await notifyAdmins(prisma, {
+    alertLevel: NotificationAlertLevel.CRITICAL,
+    title: 'Refund failed: buyer money is held',
+    body: `Razorpay refused to refund ₹${record.amount} for order ${record.orderId} (${cause}). The buyer's money is still with us. Refund it from the Razorpay dashboard, or fix the cause so the next retry succeeds.`,
+    data: { orderId: record.orderId, refundFailedFor: paymentRecordId },
   });
 };
 

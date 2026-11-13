@@ -7,6 +7,7 @@ import {
   PaymentStatus,
   PaymentType,
   ReviewTargetType,
+  Role,
 } from '@prisma/client';
 import prisma from '../src/config/db';
 import { getOrderById } from '../src/controller/order.controller';
@@ -343,6 +344,39 @@ describe('payment attempts and refunds', () => {
     vi.mocked(issueRazorpayRefund).mockResolvedValue({ id: 'rfnd_retry', amount: 12000, status: 'pending' } as any);
     expect(await markPaymentSucceeded(record.providerOrderId!, 'pay_late')).toBe('REFUNDED_CANCELLED_ORDER');
     expect((await load(record.id)).status).toBe(PaymentStatus.REFUNDED);
+  });
+
+  it('alerts each admin once when Razorpay keeps refusing a refund, however often it is retried', async () => {
+    const admins = [
+      await makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN }),
+      await makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN }),
+    ];
+    const record = await makeRecord({}, OrderStatus.CANCELLED);
+    vi.mocked(issueRazorpayRefund).mockRejectedValue(new Error('Failed to issue refund via Razorpay: invalid request sent'));
+
+    // The webhook retries, and so would the cron and the buyer.
+    await expect(markPaymentSucceeded(record.providerOrderId!, 'pay_late')).rejects.toThrow('invalid request sent');
+    await expect(markPaymentSucceeded(record.providerOrderId!, 'pay_late')).rejects.toThrow('invalid request sent');
+
+    const alerts = await prisma.notification.findMany({ where: { title: 'Refund failed: buyer money is held' } });
+    expect(alerts.map((a) => a.userId).sort()).toEqual(admins.map((a) => a.id).sort());
+    expect(alerts[0].alertLevel).toBe('CRITICAL');
+    expect(alerts[0].body).toContain('₹120');
+    expect(alerts[0].body).toContain('invalid request sent');
+    expect(alerts[0].data).toEqual({ orderId: record.orderId, refundFailedFor: record.id });
+
+    // The alert survives, but the payment itself stays unconfirmed so a retry can still refund it.
+    expect((await load(record.id)).status).toBe(PaymentStatus.PENDING);
+  });
+
+  it('sends no refund alert when the refund works', async () => {
+    await makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN });
+    const record = await makeRecord({}, OrderStatus.CANCELLED);
+    vi.mocked(issueRazorpayRefund).mockResolvedValue({ id: 'rfnd_ok', amount: 12000, status: 'pending' } as any);
+
+    await markPaymentSucceeded(record.providerOrderId!, 'pay_late');
+
+    expect(await prisma.notification.count({ where: { title: 'Refund failed: buyer money is held' } })).toBe(0);
   });
 });
 
