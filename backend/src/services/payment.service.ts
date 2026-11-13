@@ -141,6 +141,14 @@ export const fetchRazorpayOrderPayments = async (
   return items.map((p: any) => ({ id: p.id, status: p.status, error_description: p.error_description }));
 };
 
+export type RazorpayRefund = { id: string; amount: number; status: string };
+
+/** Every refund Razorpay already has for a payment ('pending', 'processed' or 'failed'). */
+export const fetchRazorpayRefunds = async (providerPaymentId: string): Promise<RazorpayRefund[]> => {
+  const { items } = await razorpay.payments.fetchMultipleRefund(providerPaymentId);
+  return items.map((r: any) => ({ id: r.id, amount: Number(r.amount), status: r.status }));
+};
+
 /**
  * 5. CANCEL EXPIRED PAYMENT LINK (Cleanup Task)
  * Agar delivery boy ne settlement link generate kiya par pay nahi kiya, 

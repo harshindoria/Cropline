@@ -8,7 +8,12 @@ import {
   RoleAccessStatus,
 } from '@prisma/client';
 import prisma from '../config/db';
-import { fetchRazorpayOrderPayments, issueRazorpayRefund } from './payment.service';
+import {
+  fetchRazorpayOrderPayments,
+  fetchRazorpayRefunds,
+  issueRazorpayRefund,
+  RazorpayRefund,
+} from './payment.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -31,14 +36,15 @@ export type PaymentOutcome = 'NOT_FOUND' | 'PAID' | 'REFUNDED_CANCELLED_ORDER';
 //
 // A buyer can still be on the Razorpay screen when their order is cancelled, so money can arrive
 // for a cancelled order. That money is refunded here, because nothing else would ever return it.
-export const markPaymentSucceeded = (providerOrderId: string, providerPaymentId: string): Promise<PaymentOutcome> =>
-  prisma.$transaction(async (tx) => {
+// If that refund fails this throws, so the webhook retries, and the reconciliation job also retries it.
+export const markPaymentSucceeded = async (providerOrderId: string, providerPaymentId: string): Promise<PaymentOutcome> => {
+  const result = await prisma.$transaction(async (tx) => {
     const record = await tx.paymentRecord.findUnique({ where: { providerOrderId } });
-    if (!record) return 'NOT_FOUND';
+    if (!record) return null;
 
     // Locks the order until this transaction ends. A cancellation that is already running finishes
-    // first and we see CANCELLED; one that starts later waits for us. Checkout and the webhook for
-    // the same payment also queue here, so only one of them can issue the refund.
+    // first and we see CANCELLED. One that starts later waits for us, then sees this payment as
+    // SUCCESS when it decides whether to refund.
     const [order] = await tx.$queryRaw<{ status: OrderStatus; buyerId: string }[]>`
       SELECT status, "buyerId" FROM "Order" WHERE id = ${record.orderId} FOR UPDATE`;
 
@@ -47,25 +53,29 @@ export const markPaymentSucceeded = (providerOrderId: string, providerPaymentId:
       where: { id: record.id, status: { in: [PaymentStatus.PENDING, PaymentStatus.FAILED] } },
       data: { status: PaymentStatus.SUCCESS, providerPaymentId, capturedAt: new Date() },
     });
-
-    if (order?.status !== OrderStatus.CANCELLED) return 'PAID';
-
-    // Refund only a payment that is still held. Once refunded it is REFUNDED, so a repeat call does nothing.
-    const current = await tx.paymentRecord.findUniqueOrThrow({ where: { id: record.id } });
-    if (current.status === PaymentStatus.SUCCESS) {
-      await refundFullPayment(tx, current, 'Payment received after the order was cancelled');
-      await tx.notification.create({
-        data: {
-          userId: order.buyerId,
-          alertLevel: 'WARNING',
-          title: 'Payment refunded',
-          body: `Your order was cancelled before your payment of ₹${current.amount} arrived, so we have refunded it in full.`,
-          data: { orderId: record.orderId },
-        },
-      });
-    }
-    return 'REFUNDED_CANCELLED_ORDER';
+    return { record, order };
   });
+
+  if (!result) return 'NOT_FOUND';
+  const { record, order } = result;
+  if (order?.status !== OrderStatus.CANCELLED) return 'PAID';
+
+  // The payment is saved as SUCCESS before the refund is asked for, so a crash in between leaves a
+  // paid, cancelled order that the reconciliation job finds and refunds.
+  const outcome = await refundPayment(record.id, 'Payment received after the order was cancelled');
+  if (outcome === 'REFUNDED') {
+    await prisma.notification.create({
+      data: {
+        userId: order.buyerId,
+        alertLevel: 'WARNING',
+        title: 'Payment refunded',
+        body: `Your order was cancelled before your payment of ₹${record.amount} arrived, so we have refunded it in full.`,
+        data: { orderId: record.orderId },
+      },
+    });
+  }
+  return 'REFUNDED_CANCELLED_ORDER';
+};
 
 // A buyer can fail and then retry, so a late failure must not undo a payment that succeeded.
 export const markPaymentFailed = (providerOrderId: string, providerPaymentId: string, failureReason?: string) =>
@@ -82,45 +92,95 @@ export const markPaymentFailed = (providerOrderId: string, providerPaymentId: st
 
 const paiseToRupees = (paise: number | string) => new Prisma.Decimal(paise).div(100);
 
-/** Refunds the whole payment through Razorpay and records it. The webhook later confirms the same refund. */
-export const refundFullPayment = async (
-  tx: Tx,
-  record: { id: string; providerPaymentId: string | null },
-  reason: string,
-): Promise<void> => {
-  if (!record.providerPaymentId) throw new Error(`Payment ${record.id} has no Razorpay payment to refund`);
+const REFUND_STATUS: Record<string, RefundStatus> = {
+  processed: RefundStatus.PROCESSED,
+  failed: RefundStatus.FAILED,
+};
 
-  let refund;
-  try {
-    refund = await issueRazorpayRefund(record.providerPaymentId, undefined, { reason });
-  } catch (error) {
-    // The caller's transaction is about to roll back, so the alert is written outside it.
-    await alertAdminsRefundFailed(record.id, error).catch((alertError) =>
-      console.error(`Could not alert admins about the failed refund of payment ${record.id}:`, alertError),
-    );
-    throw error;
+/** Saves Razorpay's refunds and marks the payment REFUNDED. Returns true only for the call that marked it. */
+const saveRefunds = (paymentRecordId: string, refunds: RazorpayRefund[], reason: string) =>
+  prisma.$transaction(async (tx) => {
+    const now = new Date();
+    for (const refund of refunds) {
+      const status = REFUND_STATUS[refund.status] ?? RefundStatus.PENDING;
+      await tx.refund.upsert({
+        where: { providerRefundId: refund.id },
+        create: {
+          paymentRecordId,
+          providerRefundId: refund.id,
+          amount: paiseToRupees(refund.amount),
+          status,
+          reason,
+          processedAt: status === RefundStatus.PROCESSED ? now : null,
+        },
+        // The webhook may have saved it first, without a reason.
+        update: { reason },
+      });
+    }
+    const marked = await tx.paymentRecord.updateMany({
+      where: { id: paymentRecordId, status: PaymentStatus.SUCCESS },
+      data: { status: PaymentStatus.REFUNDED, refundedAt: now },
+    });
+    return marked.count === 1;
+  });
+
+export type RefundOutcome = 'REFUNDED' | 'ALREADY_REFUNDED' | 'NOTHING_TO_REFUND';
+
+/**
+ * Refunds a captured payment in full and records it. Call it after the cancellation has been
+ * committed, never inside a transaction: a Razorpay refund can't be rolled back, so it must not
+ * sit inside work that can be.
+ *
+ * Safe to call again after any failure. It first asks Razorpay for refunds this payment already
+ * has, so a refund that went through but wasn't saved is saved now instead of being asked for
+ * twice. If Razorpay refuses, the admins are alerted and this throws; the payment stays SUCCESS on
+ * a cancelled order, which the reconciliation job keeps retrying.
+ */
+export const refundPayment = async (paymentRecordId: string, reason: string): Promise<RefundOutcome> => {
+  const record = await prisma.paymentRecord.findUnique({ where: { id: paymentRecordId } });
+  if (!record?.providerPaymentId) return 'NOTHING_TO_REFUND';
+  if (record.status === PaymentStatus.REFUNDED) return 'ALREADY_REFUNDED';
+  if (record.status !== PaymentStatus.SUCCESS) return 'NOTHING_TO_REFUND';
+
+  const paymentId = record.providerPaymentId;
+  const existingRefunds = async () => (await fetchRazorpayRefunds(paymentId)).filter((r) => r.status !== 'failed');
+
+  let refunds = await existingRefunds();
+  if (refunds.length === 0) {
+    try {
+      refunds = [await issueRazorpayRefund(paymentId, undefined, { reason }) as RazorpayRefund];
+    } catch (error) {
+      // Another caller may have refunded it a moment ago, which makes Razorpay refuse this one.
+      refunds = await existingRefunds().catch(() => []);
+      if (refunds.length === 0) {
+        await alertAdminsRefundFailed(record.id, error).catch((alertError) =>
+          console.error(`Could not alert admins about the failed refund of payment ${record.id}:`, alertError),
+        );
+        throw error;
+      }
+    }
   }
-  const now = new Date();
-  const processed = refund.status === 'processed';
-  const status = processed ? RefundStatus.PROCESSED : RefundStatus.PENDING;
-  const processedAt = processed ? now : null;
 
-  await tx.refund.upsert({
-    where: { providerRefundId: refund.id },
-    create: {
-      paymentRecordId: record.id,
-      providerRefundId: refund.id,
-      amount: paiseToRupees(refund.amount ?? 0),
-      status,
-      reason,
-      processedAt,
-    },
-    update: { reason },
-  });
-  await tx.paymentRecord.update({
-    where: { id: record.id },
-    data: { status: PaymentStatus.REFUNDED, refundedAt: now },
-  });
+  return (await saveRefunds(record.id, refunds, reason)) ? 'REFUNDED' : 'ALREADY_REFUNDED';
+};
+
+/**
+ * Refunds an order's payment after the order was cancelled, if it was paid. Never throws: the order
+ * is already cancelled, and a refund that fails here has alerted the admins and is retried by the
+ * reconciliation job.
+ */
+export const refundOrderPayment = async (
+  orderId: string,
+  reason: string,
+): Promise<RefundOutcome | 'REFUND_FAILED'> => {
+  const record = await prisma.paymentRecord.findUnique({ where: { orderId }, select: { id: true } });
+  if (!record) return 'NOTHING_TO_REFUND';
+  try {
+    return await refundPayment(record.id, reason);
+  } catch (error) {
+    console.error(`Refund for cancelled order ${orderId} failed and will be retried:`, error);
+    return 'REFUND_FAILED';
+  }
 };
 
 type AdminAlert = {
@@ -239,7 +299,7 @@ export const reconcileUnconfirmedPayments = async (now = new Date()) => {
     select: { id: true, providerOrderId: true },
   });
 
-  const summary = { checked: 0, confirmed: 0, failed: 0, errors: 0 };
+  const summary = { checked: 0, confirmed: 0, failed: 0, refunded: 0, errors: 0 };
   for (const record of records) {
     const providerOrderId = record.providerOrderId!;
     try {
@@ -262,6 +322,24 @@ export const reconcileUnconfirmedPayments = async (now = new Date()) => {
       // One bad record must not stop the rest. It is tried again on the next run.
       summary.errors += 1;
       console.error(`[CRON] Could not reconcile payment ${record.id}:`, error);
+    }
+  }
+
+  // A cancelled order whose payment is still held: its refund failed or never ran. There is no age
+  // limit, because this money must always go back. refundPayment checks Razorpay first, so a run
+  // that overlaps a cancellation's own refund can't refund twice.
+  const unrefunded = await prisma.paymentRecord.findMany({
+    where: { status: PaymentStatus.SUCCESS, order: { status: OrderStatus.CANCELLED } },
+    orderBy: { updatedAt: 'desc' },
+    take: RECONCILE_BATCH,
+    select: { id: true },
+  });
+  for (const record of unrefunded) {
+    try {
+      if ((await refundPayment(record.id, 'Order was cancelled')) === 'REFUNDED') summary.refunded += 1;
+    } catch (error) {
+      summary.errors += 1;
+      console.error(`[CRON] Could not refund payment ${record.id} of a cancelled order:`, error);
     }
   }
   return summary;

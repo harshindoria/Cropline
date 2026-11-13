@@ -8,7 +8,8 @@ import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
 import { broadcastDeliveryOffer } from '../services/deliveryAssignment.service';
 import { newOrderOtps, withVisibleOtp } from '../services/orderOtp.service';
-import { refundFullPayment } from '../services/paymentRecord.service';
+import { refundOrderPayment } from '../services/paymentRecord.service';
+import { claimCancellation, refundMessage } from '../services/orderCancellation.service';
 import { ACTIVE_JOB, withCurrentJob } from '../utils/deliveryJob';
 
 // ── ZOD SCHEMA ──────────────────────────────────────────────────────────────
@@ -304,29 +305,11 @@ export const rejectOrder = async (req: Request<{ id: string }>, res: Response): 
       return;
     }
 
-    await prisma.$transaction(async (tx) => {
-      // 1. Restore the crop stock
-      await tx.crop.update({
-        where: { id: order.cropId },
-        data: { quantityRemainingKg: { increment: order.quantityKg } }
-      });
+    const claimed = await prisma.$transaction(async (tx) => {
+      // 1. Cancel the order and restore its stock, only if it is still PENDING
+      if (!(await claimCancellation(tx, order, [OrderStatus.PENDING], reason || 'Cancelled by farmer'))) return false;
 
-      // 2. Mark Order as Cancelled
-      await tx.order.update({
-        where: { id },
-        data: {
-          status: OrderStatus.CANCELLED,
-          cancellationReason: reason || 'Cancelled by farmer'
-        }
-      });
-
-      // 3. 💡 FIX 3: Handle Refund Scenario for Pre-paid Orders
-      if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS && order.paymentRecord.providerPaymentId) {
-        // Call Razorpay Refund API
-        await refundFullPayment(tx, order.paymentRecord, 'Order rejected by farmer');
-      }
-      
-      // 4. Notify the buyer about the rejection
+      // 2. Notify the buyer about the rejection
       await tx.notification.create({
         data: {
           userId: order.buyerId,
@@ -335,11 +318,20 @@ export const rejectOrder = async (req: Request<{ id: string }>, res: Response): 
           data: { orderId: id }
         }
       });
+      return true;
     });
+
+    if (!claimed) {
+      res.status(409).json({ success: false, message: 'This order has already changed. Please refresh and try again.' });
+      return;
+    }
+
+    // 3. Refund a prepaid order, now that the cancellation is saved
+    const refund = await refundOrderPayment(id, 'Order rejected by farmer');
 
     res.status(200).json({
       success: true,
-      message: 'Order rejected. Stock has been restored successfully.',
+      message: refundMessage(refund, 'Order rejected.'),
     });
 
   } catch (error) {
@@ -441,29 +433,18 @@ const autoRejectExpiredOrders = async () => {
       include: { paymentRecord: true }
     });
 
-    if (expiredOrders.length === 0) return;
-
-    await prisma.$transaction(async (tx) => {
-      for (const order of expiredOrders) {
-        // Restore stock
-        await tx.crop.update({
-          where: { id: order.cropId },
-          data: { quantityRemainingKg: { increment: order.quantityKg } }
-        });
-        // Cancel order
-        await tx.order.update({
-          where: { id: order.id },
-          data: {
-            status: OrderStatus.CANCELLED,
-            cancellationReason: 'Auto-rejected after 6 hours without farmer acceptance'
-          }
-        });
-        // Process refund DB state
-        if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS && order.paymentRecord.providerPaymentId) {
-          await refundFullPayment(tx, order.paymentRecord, 'Order auto-rejected (timeout)');
-        }
+    // Each order on its own, so one failure can't undo the others. The refund runs after its
+    // cancellation is saved, outside any transaction.
+    for (const order of expiredOrders) {
+      try {
+        const claimed = await prisma.$transaction((tx) =>
+          claimCancellation(tx, order, [OrderStatus.PENDING], 'Auto-rejected after 6 hours without farmer acceptance'),
+        );
+        if (claimed) await refundOrderPayment(order.id, 'Order auto-rejected (timeout)');
+      } catch (error) {
+        console.error(`Auto-reject error for order ${order.id}:`, error);
       }
-    });
+    }
   } catch (error) {
     console.error("Auto-reject error:", error);
   }
@@ -559,26 +540,19 @@ export const cancelOrder = async (req: Request<{ id: string }>, res: Response): 
       return;
     }
 
-    await prisma.$transaction(async (tx) => {
-      // 1. Restore reserved stock
-      await tx.crop.update({
-        where: { id: order.cropId },
-        data: { quantityRemainingKg: { increment: order.quantityKg } }
-      });
+    // 1. Cancel the order and restore its stock, only if it is still PENDING
+    const claimed = await prisma.$transaction((tx) =>
+      claimCancellation(tx, order, [OrderStatus.PENDING], 'Buyer cancelled'),
+    );
+    if (!claimed) {
+      res.status(400).json({ success: false, message: 'Cannot cancel order at this stage' });
+      return;
+    }
 
-      // 2. Cancel the order
-      await tx.order.update({
-        where: { id: req.params.id },
-        data: { status: OrderStatus.CANCELLED, cancellationReason: 'Buyer cancelled' }
-      });
+    // 2. If payment was captured, refund it now that the cancellation is saved
+    const refund = await refundOrderPayment(order.id, 'Order cancelled by buyer');
 
-      // 3. If payment was captured, mark for refund
-      if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS && order.paymentRecord.providerPaymentId) {
-        await refundFullPayment(tx, order.paymentRecord, 'Order cancelled by buyer');
-      }
-    });
-
-    res.json({ success: true, message: 'Order cancelled and stock restored' });
+    res.json({ success: true, message: refundMessage(refund, 'Order cancelled.') });
   } catch (error) {
     console.error('Cancel Order Error:', error);
     res.status(500).json({ success: false, message: 'Failed to cancel order' });

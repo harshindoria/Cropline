@@ -1,6 +1,7 @@
 import prisma from '../config/db';
 import { DeliveryJobStatus, OrderStatus, PaymentStatus } from '@prisma/client';
-import { reconcileUnconfirmedPayments, refundFullPayment } from './paymentRecord.service';
+import { reconcileUnconfirmedPayments, refundOrderPayment } from './paymentRecord.service';
+import { claimCancellation } from './orderCancellation.service';
 import { expireStaleOffers, releaseDeliveryJob, retryBroadcastWithExpandedRadius } from './deliveryAssignment.service';
 
 // A partner who accepts a job must reach the farm within this time, or the job goes to someone else.
@@ -57,22 +58,16 @@ export async function processRetryDeliveryAssignments() {
   for (const order of abandonedOrders) {
     try {
       console.log(`[CRON] No driver found in 4hrs for order ${order.id}. Cancelling...`);
-      await prisma.$transaction(async (tx) => {
-        await tx.order.update({
-          where: { id: order.id },
-          data: {
-            status: OrderStatus.CANCELLED,
-            cancellationReason: 'No delivery partner could be found within the time limit.'
-          }
-        });
-        await tx.crop.update({
-          where: { id: order.cropId },
-          data: { quantityRemainingKg: { increment: order.quantityKg } }
-        });
-        if (order.paymentRecord && order.paymentRecord.status === PaymentStatus.SUCCESS && order.paymentRecord.providerPaymentId) {
-          // Actual refund call to Razorpay
-          await refundFullPayment(tx, order.paymentRecord, 'Order auto-cancelled: No delivery partner found');
-        }
+      const claimed = await prisma.$transaction(async (tx) => {
+        // Only if it is still searching. A partner may have accepted it since the query above.
+        const cancelled = await claimCancellation(
+          tx,
+          order,
+          [OrderStatus.DELIVERY_SEARCHING],
+          'No delivery partner could be found within the time limit.',
+        );
+        if (!cancelled) return false;
+
         await tx.notification.create({
           data: {
             userId: order.farmerId,
@@ -89,7 +84,11 @@ export async function processRetryDeliveryAssignments() {
             data: { orderId: order.id }
           }
         });
+        return true;
       });
+
+      // Refund after the cancellation is saved. A failure is alerted and retried by the reconciliation job.
+      if (claimed) await refundOrderPayment(order.id, 'Order auto-cancelled: No delivery partner found');
     } catch (error) {
       console.error(`[CRON] Error cancelling order ${order.id}:`, error);
     }
@@ -98,7 +97,7 @@ export async function processRetryDeliveryAssignments() {
 
 export async function processPaymentReconciliation() {
   const summary = await reconcileUnconfirmedPayments();
-  if (summary.confirmed || summary.failed || summary.errors) {
+  if (summary.confirmed || summary.failed || summary.refunded || summary.errors) {
     console.log('[CRON] Payment reconciliation:', summary);
   }
 }
