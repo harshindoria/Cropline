@@ -473,3 +473,51 @@ export const reconcileUnconfirmedPayments = async (now = new Date()) => {
   }
   return summary;
 };
+
+type DisputeEvent = { id: string; payment_id: string; amount?: number; reason_code?: string | null };
+
+/**
+ * Records what happened to a dispute (chargeback) the buyer's bank raised on a payment, and tells
+ * the admins, who have to answer it in the Razorpay dashboard. The order's own status is left
+ * alone: a dispute doesn't change where the order is, and overwriting it would break its delivery.
+ */
+export const applyDispute = async (outcome: 'created' | 'won' | 'lost', entity: DisputeEvent) => {
+  const record = await prisma.paymentRecord.findUnique({
+    where: { providerPaymentId: entity.payment_id },
+    select: { id: true, orderId: true, amount: true },
+  });
+  if (!record) return;
+
+  // One alert per dispute and outcome, however often the webhook repeats.
+  const key = `${entity.id}:${outcome}`;
+  const alreadyHandled = await prisma.notification.findFirst({
+    where: { data: { path: ['disputeEvent'], equals: key } },
+    select: { id: true },
+  });
+  if (alreadyHandled) return;
+
+  await prisma.paymentRecord.update({
+    where: { id: record.id },
+    data: { disputedAt: outcome === 'won' ? null : new Date() },
+  });
+
+  const amount = entity.amount ? paiseToRupees(entity.amount) : record.amount;
+  const alerts = {
+    created: {
+      alertLevel: NotificationAlertLevel.CRITICAL,
+      title: 'Payment disputed by the buyer\'s bank',
+      body: `A dispute for ₹${amount} was raised on order ${record.orderId}${entity.reason_code ? ` (${entity.reason_code})` : ''}. Answer it in the Razorpay dashboard before its deadline, or the money is taken back.`,
+    },
+    won: {
+      alertLevel: NotificationAlertLevel.SUCCESS,
+      title: 'Payment dispute won',
+      body: `The dispute for ₹${amount} on order ${record.orderId} was decided in our favour. No money was taken back.`,
+    },
+    lost: {
+      alertLevel: NotificationAlertLevel.CRITICAL,
+      title: 'Payment dispute lost',
+      body: `The dispute for ₹${amount} on order ${record.orderId} was lost, and Razorpay has returned the money to the buyer. The farmer and partner earnings were not changed, so please review it.`,
+    },
+  };
+  await notifyAdmins(prisma, { ...alerts[outcome], data: { orderId: record.orderId, disputeEvent: key } });
+};

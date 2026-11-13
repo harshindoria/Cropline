@@ -8,7 +8,13 @@ import {
 } from '../services/payment.service';
 import crypto from 'crypto';
 import { applySettlementPayment } from '../services/cashSettlement.service';
-import { applyFailedRefund, applyProcessedRefund, markPaymentFailed, markPaymentSucceeded } from '../services/paymentRecord.service';
+import {
+  applyDispute,
+  applyFailedRefund,
+  applyProcessedRefund,
+  markPaymentFailed,
+  markPaymentSucceeded,
+} from '../services/paymentRecord.service';
 import { OrderStatus } from '@prisma/client';
 
 // Orders that are finished one way or another, so no new payment may start for them.
@@ -106,19 +112,17 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
       // D. THE ENTERPRISE GUARDRAILS
       // ---------------------------------------------------------
       case 'payment.dispute.created': {
-        const disputeEntity = payload.dispute.entity;
-        const paymentId = disputeEntity.payment_id;
+        await applyDispute('created', payload.dispute.entity);
+        break;
+      }
 
-        const paymentRecord = await prisma.paymentRecord.findFirst({
-          where: { providerPaymentId: paymentId }
-        });
+      case 'payment.dispute.won': {
+        await applyDispute('won', payload.dispute.entity);
+        break;
+      }
 
-        if (paymentRecord && paymentRecord.orderId) {
-          await prisma.order.update({
-            where: { id: paymentRecord.orderId },
-            data: { status: 'DISPUTED' }
-          });
-        }
+      case 'payment.dispute.lost': {
+        await applyDispute('lost', payload.dispute.entity);
         break;
       }
 

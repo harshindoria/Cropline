@@ -9,9 +9,11 @@ export const getTransactionsOverview = async (req: Request, res: Response): Prom
     today.setHours(0, 0, 0, 0);
 
     const [onlineSumRes, cashPendingSumRes, settlementsPendingSumRes, failedTxCount] = await Promise.all([
+      // Only payments that came in through Razorpay. A cash order's record is also marked SUCCESS
+      // on delivery, but that money is counted under cash, not here.
       prisma.paymentRecord.aggregate({
         _sum: { amount: true },
-        where: { status: 'SUCCESS' }
+        where: { status: 'SUCCESS', providerPaymentId: { not: null } }
       }),
       prisma.cashLiability.aggregate({
         _sum: { amount: true },
@@ -47,7 +49,9 @@ export const getTransactionsOverview = async (req: Request, res: Response): Prom
 
 export const getOnlinePayments = async (req: Request, res: Response): Promise<void> => {
   try {
+    // Online payments only: orders placed as online, and cash orders the buyer ended up paying online.
     const payments = await prisma.paymentRecord.findMany({
+      where: { OR: [{ provider: 'RAZORPAY' }, { providerPaymentId: { not: null } }] },
       orderBy: { createdAt: 'desc' },
       include: {
         order: {

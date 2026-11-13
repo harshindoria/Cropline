@@ -72,7 +72,12 @@ export const createRazorpayPaymentLink = async (
         email: false,
       },
       reminder_enable: true,
-      notes: notes
+      notes: notes,
+      // After paying, Razorpay sends the partner back to their settlements page.
+      ...(process.env.FRONTEND_URL && {
+        callback_url: `${process.env.FRONTEND_URL}/dashboard/delivery/settlements`,
+        callback_method: 'get',
+      }),
     };
 
     const paymentLink = await razorpay.paymentLink.create(options);

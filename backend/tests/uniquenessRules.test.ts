@@ -15,6 +15,7 @@ import { initiateOrderPayment } from '../src/controller/payment.controller';
 import { submitReview } from '../src/controller/review.controller';
 import { fetchRazorpayOrderPayments, fetchRazorpayRefunds, issueRazorpayRefund } from '../src/services/payment.service';
 import {
+  applyDispute,
   applyFailedRefund,
   applyProcessedRefund,
   markPaymentFailed,
@@ -784,5 +785,49 @@ describe('paying online for an order that is already paid', () => {
     const result = await call({ params: { orderId: order.id }, user: buyer }, initiateOrderPayment);
 
     expect(result.status).toBe(200);
+  });
+});
+
+describe('payment disputes', () => {
+  const paidDeliveredOrder = async () => {
+    const order = await makeOrder((await makeUser()).id, (await makeUser()).id, OrderStatus.DELIVERED);
+    const record = await prisma.paymentRecord.create({
+      data: {
+        orderId: order.id, provider: 'RAZORPAY', providerOrderId: `order_${order.id}`,
+        providerPaymentId: 'pay_1', amount: 120, status: PaymentStatus.SUCCESS,
+      },
+    });
+    return { order, record };
+  };
+  const dispute = { id: 'disp_1', payment_id: 'pay_1', amount: 12000, reason_code: 'goods_not_received' };
+  const load = (id: string) => prisma.paymentRecord.findUniqueOrThrow({ where: { id } });
+
+  it('marks the payment disputed, leaves the order status alone, and alerts admins once', async () => {
+    const admin = await makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN });
+    const { order, record } = await paidDeliveredOrder();
+
+    await applyDispute('created', dispute);
+    await applyDispute('created', dispute);
+
+    expect((await load(record.id)).disputedAt).not.toBeNull();
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe(OrderStatus.DELIVERED);
+    const alerts = await prisma.notification.findMany({ where: { userId: admin.id } });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].alertLevel).toBe('CRITICAL');
+    expect(alerts[0].body).toContain('goods_not_received');
+  });
+
+  it('clears the dispute when it is won, and keeps it when it is lost', async () => {
+    const admin = await makeUser({ roles: [Role.ADMIN], activeRole: Role.ADMIN });
+    const { record } = await paidDeliveredOrder();
+
+    await applyDispute('created', dispute);
+    await applyDispute('won', dispute);
+    expect((await load(record.id)).disputedAt).toBeNull();
+
+    await applyDispute('created', { ...dispute, id: 'disp_2' });
+    await applyDispute('lost', { ...dispute, id: 'disp_2' });
+    expect((await load(record.id)).disputedAt).not.toBeNull();
+    expect(await prisma.notification.count({ where: { userId: admin.id, title: 'Payment dispute lost' } })).toBe(1);
   });
 });

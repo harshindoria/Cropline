@@ -199,6 +199,22 @@ describe('cash order delivered', () => {
     expect(result.body.data.pendingSettlementsCount).toBe(2);
   });
 
+  it('counts cash paid at the door as cash, not as an online payment', async () => {
+    const cash = await setUp(PaymentType.CASH, 'PENDING');
+    await deliver(cash.job.id, cash.partner);
+    // A second order that really was paid online.
+    const online = await setUp(PaymentType.ONLINE, 'PENDING');
+    await prisma.paymentRecord.update({
+      where: { orderId: online.order.id },
+      data: { status: 'SUCCESS', providerPaymentId: 'pay_online' },
+    });
+
+    const result = await call(getTransactionsOverview, {});
+
+    expect(result.body.data.onlinePayments).toBe(1010);
+    expect(result.body.data.cashPendingDeposit).toBe(1010);
+  });
+
   it('releases everything when admin verifies the deposit, and only once', async () => {
     const { job, order, farmer, partner } = await setUp(PaymentType.CASH, 'PENDING');
     await deliver(job.id, partner);

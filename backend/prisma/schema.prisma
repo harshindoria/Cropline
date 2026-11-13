@@ -549,6 +549,7 @@ model PaymentRecord {
   authorizedAt      DateTime?     @db.Timestamptz(3)
   capturedAt        DateTime?     @db.Timestamptz(3)
   refundedAt        DateTime?     @db.Timestamptz(3) // Set only once the full amount has been refunded.
+  disputedAt        DateTime?     @db.Timestamptz(3) // Set while the buyer's bank has an open or lost dispute (chargeback) on this payment.
   createdAt         DateTime      @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
 
