@@ -96,20 +96,26 @@ export const verifyRazorpayWebhookSignature = (
   rawBody: Buffer | string,
   signature: string,
   secret: string
-): boolean => {
-  try {
-    // HMAC SHA256 algorithm ka use karke apne secret se lock banate hain
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(rawBody)
-      .digest('hex');
+): boolean => hmacMatches(rawBody, signature, secret);
 
-    // Agar hamara banaya lock aur Razorpay ka bheja lock match ho gaya, toh request real hai
-    return expectedSignature === signature;
-  } catch (error) {
-    console.error('Webhook signature verification failed:', error);
-    return false;
-  }
+/**
+ * Checks the signature Razorpay Checkout hands the browser after a payment. It proves that this
+ * payment really was made for this Razorpay order.
+ */
+export const verifyRazorpayCheckoutSignature = (
+  providerOrderId: string,
+  providerPaymentId: string,
+  signature: string,
+): boolean => hmacMatches(`${providerOrderId}|${providerPaymentId}`, signature, process.env.RAZORPAY_KEY_SECRET ?? '');
+
+// Refuses a missing secret: an HMAC keyed with '' is one anybody can compute, so an unset
+// environment variable would let anyone forge a paid order. Compares in constant time, so the
+// response time doesn't leak how much of a guessed signature was right.
+const hmacMatches = (data: Buffer | string, signature: unknown, secret: string): boolean => {
+  if (!secret || typeof signature !== 'string' || !signature) return false;
+  const expected = crypto.createHmac('sha256', secret).update(data).digest();
+  const given = Buffer.from(signature, 'hex');
+  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
 };
 
 /**

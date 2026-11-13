@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 import {
   verifyRazorpayWebhookSignature,
+  verifyRazorpayCheckoutSignature,
   createRazorpayPaymentLink,
   createRazorpayOrder
 } from '../services/payment.service';
@@ -25,6 +26,7 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<void
   try {
     const signature = req.headers['x-razorpay-signature'] as string;
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET || '';
+    if (!secret) console.error('[Webhook] RAZORPAY_WEBHOOK_SECRET is not set, so every webhook is rejected.');
 
     const rawBody = req.rawBody;
 
@@ -252,17 +254,29 @@ export const getDriverOutstandingSummary = async (req: Request, res: Response): 
 // ============================================================================
 export const verifyOrderPayment = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orderId } = req.params;
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const orderId = req.params.orderId as string;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body ?? {};
 
-    const secret = process.env.RAZORPAY_KEY_SECRET || '';
+    if (typeof razorpay_order_id !== 'string' || typeof razorpay_payment_id !== 'string') {
+      res.status(400).json({ success: false, message: 'Payment details are missing.' });
+      return;
+    }
 
-    const generated_signature = crypto
-      .createHmac('sha256', secret)
-      .update(razorpay_order_id + "|" + razorpay_payment_id)
-      .digest('hex');
+    // The payment must be for this order, and the order must be this buyer's.
+    const record = await prisma.paymentRecord.findUnique({
+      where: { orderId },
+      select: { providerOrderId: true, order: { select: { buyerId: true } } },
+    });
+    if (!record || record.order.buyerId !== req.user!.id) {
+      res.status(404).json({ success: false, message: 'Order not found' });
+      return;
+    }
+    if (record.providerOrderId !== razorpay_order_id) {
+      res.status(400).json({ success: false, message: 'This payment does not belong to this order.' });
+      return;
+    }
 
-    if (generated_signature !== razorpay_signature) {
+    if (!verifyRazorpayCheckoutSignature(razorpay_order_id, razorpay_payment_id, razorpay_signature)) {
       res.status(400).json({ success: false, message: 'Invalid payment signature' });
       return;
     }

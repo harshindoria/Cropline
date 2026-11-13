@@ -7,6 +7,7 @@ import { DeliveryType, PaymentStatus, PaymentType } from '@prisma/client';
 import prisma from '../src/config/db';
 import { parseJsonBody } from '../src/middleware/body.middleware';
 import paymentRoutes from '../src/routes/payment.routes';
+import { verifyOrderPayment } from '../src/controller/payment.controller';
 import { makeCatalog, makeUser, resetDatabase } from './helpers';
 
 // The real payment service is used, so only the Razorpay SDK it builds at import time is replaced.
@@ -73,9 +74,10 @@ const makePendingPayment = async () => {
       paymentType: PaymentType.ONLINE,
     },
   });
-  return prisma.paymentRecord.create({
+  const record = await prisma.paymentRecord.create({
     data: { orderId: order.id, provider: 'RAZORPAY', providerOrderId: `order_${order.id}`, amount: 120 },
   });
+  return Object.assign(record, { buyer });
 };
 
 // Razorpay signs the exact bytes it sends. The spacing here differs from JSON.stringify's output,
@@ -123,5 +125,101 @@ describe('Razorpay webhook over HTTP', () => {
     const res = await send(signed.replace('pay_1', 'pay_2'), sign(signed));
 
     expect(res.status).toBe(400);
+  });
+});
+
+describe('Razorpay signatures with a missing secret', () => {
+  it('rejects a webhook signed with an empty key when the webhook secret is not set', async () => {
+    const record = await makePendingPayment();
+    const body = capturedEvent(record.providerOrderId!);
+    vi.stubEnv('RAZORPAY_WEBHOOK_SECRET', '');
+
+    const res = await send(body, createHmac('sha256', '').update(body).digest('hex'));
+    vi.stubEnv('RAZORPAY_WEBHOOK_SECRET', SECRET);
+
+    expect(res.status).toBe(400);
+    expect((await prisma.paymentRecord.findUniqueOrThrow({ where: { id: record.id } })).status).toBe(PaymentStatus.PENDING);
+  });
+});
+
+describe('confirming a payment from checkout', () => {
+  const KEY_SECRET = 'key_test_secret';
+  const checkoutSignature = (orderId: string, paymentId: string, secret = KEY_SECRET) =>
+    createHmac('sha256', secret).update(`${orderId}|${paymentId}`).digest('hex');
+
+  const verify = async (orderId: string, user: { id: string }, body: Record<string, unknown>) => {
+    let status = 200;
+    let json: any;
+    const res = { status(code: number) { status = code; return this; }, json(data: unknown) { json = data; return this; } };
+    await verifyOrderPayment({ params: { orderId }, user, body } as any, res as any);
+    return { status, body: json };
+  };
+  const statusOf = async (id: string) => (await prisma.paymentRecord.findUniqueOrThrow({ where: { id } })).status;
+
+  beforeEach(() => vi.stubEnv('RAZORPAY_KEY_SECRET', KEY_SECRET));
+
+  it('confirms a correctly signed payment for the buyer\'s own order', async () => {
+    const record = await makePendingPayment();
+
+    const result = await verify(record.orderId, record.buyer, {
+      razorpay_order_id: record.providerOrderId,
+      razorpay_payment_id: 'pay_1',
+      razorpay_signature: checkoutSignature(record.providerOrderId!, 'pay_1'),
+    });
+
+    expect(result.status).toBe(200);
+    expect(await statusOf(record.id)).toBe(PaymentStatus.SUCCESS);
+  });
+
+  it('hides another buyer\'s order', async () => {
+    const record = await makePendingPayment();
+    const stranger = await makeUser();
+
+    const result = await verify(record.orderId, stranger, {
+      razorpay_order_id: record.providerOrderId,
+      razorpay_payment_id: 'pay_1',
+      razorpay_signature: checkoutSignature(record.providerOrderId!, 'pay_1'),
+    });
+
+    expect(result.status).toBe(404);
+    expect(await statusOf(record.id)).toBe(PaymentStatus.PENDING);
+  });
+
+  it('refuses a genuine payment that was made for a different order', async () => {
+    const paidFor = await makePendingPayment();
+    const other = await makePendingPayment();
+
+    const result = await verify(other.orderId, other.buyer, {
+      razorpay_order_id: paidFor.providerOrderId,
+      razorpay_payment_id: 'pay_1',
+      razorpay_signature: checkoutSignature(paidFor.providerOrderId!, 'pay_1'),
+    });
+
+    expect(result.status).toBe(400);
+    expect(await statusOf(other.id)).toBe(PaymentStatus.PENDING);
+    expect(await statusOf(paidFor.id)).toBe(PaymentStatus.PENDING);
+  });
+
+  it('refuses a signature made with an empty key when the key secret is not set', async () => {
+    const record = await makePendingPayment();
+    vi.stubEnv('RAZORPAY_KEY_SECRET', '');
+
+    const result = await verify(record.orderId, record.buyer, {
+      razorpay_order_id: record.providerOrderId,
+      razorpay_payment_id: 'pay_1',
+      razorpay_signature: checkoutSignature(record.providerOrderId!, 'pay_1', ''),
+    });
+
+    expect(result.status).toBe(400);
+    expect(await statusOf(record.id)).toBe(PaymentStatus.PENDING);
+  });
+
+  it('refuses a missing or malformed signature', async () => {
+    const record = await makePendingPayment();
+    const base = { razorpay_order_id: record.providerOrderId, razorpay_payment_id: 'pay_1' };
+
+    expect((await verify(record.orderId, record.buyer, base)).status).toBe(400);
+    expect((await verify(record.orderId, record.buyer, { ...base, razorpay_signature: 'not-hex' })).status).toBe(400);
+    expect(await statusOf(record.id)).toBe(PaymentStatus.PENDING);
   });
 });

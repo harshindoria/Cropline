@@ -30,6 +30,18 @@ import { startCronJobs } from './services/cron.service';
 
 dotenv.config();
 
+// Without these, payments can't be taken or trusted: a missing secret means signatures can't be
+// checked, so every payment confirmation and webhook is rejected. Fail at start-up in production
+// rather than at the first payment.
+const missingPaymentEnv = ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET'].filter(
+  (name) => !process.env[name],
+);
+if (missingPaymentEnv.length > 0) {
+  const message = `Missing payment settings: ${missingPaymentEnv.join(', ')}`;
+  if (process.env.NODE_ENV === 'production') throw new Error(message);
+  console.warn(`⚠️  ${message}. Payments will not work until they are set.`);
+}
+
 const app = express();
 
 // 2. HTTP Server manually banaya aur Express (app) ko uske andar daala
