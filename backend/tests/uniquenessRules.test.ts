@@ -22,6 +22,7 @@ import {
   reconcileUnconfirmedPayments,
   refundPayment,
 } from '../src/services/paymentRecord.service';
+import { expireStaleOrders } from '../src/services/orderCancellation.service';
 import { makeCatalog, makeUser, resetDatabase } from './helpers';
 
 vi.mock('../src/services/payment.service', () => ({
@@ -663,5 +664,79 @@ describe('refund progress', () => {
     const after = await load(record.id);
     expect(after.status).toBe(PaymentStatus.REFUNDED);
     expect(after.refundedAt).not.toBeNull();
+  });
+});
+
+describe('orders nobody acted on', () => {
+  const minutesLater = (minutes: number) => new Date(Date.now() + minutes * 60 * 1000);
+
+  // A PENDING online order of 10 kg. Its crop has 150 kg left, so cancelling it gives 160.
+  const pendingOrder = async (payment: PaymentStatus | null, paymentType: PaymentType = PaymentType.ONLINE) => {
+    const farmer = await makeUser();
+    const buyer = await makeUser();
+    const order = await makeOrder(farmer.id, buyer.id, OrderStatus.PENDING);
+    await prisma.crop.update({ where: { id: order.cropId }, data: { quantityRemainingKg: 150 } });
+    await prisma.order.update({ where: { id: order.id }, data: { paymentType } });
+    if (payment) {
+      await prisma.paymentRecord.create({
+        data: {
+          orderId: order.id, provider: 'RAZORPAY', providerOrderId: `order_${order.id}`, amount: 120, status: payment,
+          providerPaymentId: payment === PaymentStatus.SUCCESS ? `pay_${order.id}` : null,
+        },
+      });
+    }
+    return { farmer, buyer, order };
+  };
+  const orderStatus = async (id: string) => (await prisma.order.findUniqueOrThrow({ where: { id } })).status;
+  const stockOf = async (cropId: string) =>
+    Number((await prisma.crop.findUniqueOrThrow({ where: { id: cropId } })).quantityRemainingKg);
+
+  it('cancels an online order left unpaid for 30 minutes, returns its stock and tells the buyer', async () => {
+    const { buyer, order } = await pendingOrder(PaymentStatus.PENDING);
+
+    expect(await expireStaleOrders(minutesLater(29))).toMatchObject({ unpaid: 0 });
+    expect(await orderStatus(order.id)).toBe(OrderStatus.PENDING);
+
+    expect(await expireStaleOrders(minutesLater(31))).toMatchObject({ unpaid: 1 });
+    expect(await orderStatus(order.id)).toBe(OrderStatus.CANCELLED);
+    expect(await stockOf(order.cropId)).toBe(160);
+    expect(await prisma.notification.count({ where: { userId: buyer.id, title: 'Order cancelled: not paid ⏰' } })).toBe(1);
+    expect(issueRazorpayRefund).not.toHaveBeenCalled();
+  });
+
+  it('leaves a paid order and a cash order waiting for the farmer', async () => {
+    const paid = await pendingOrder(PaymentStatus.SUCCESS);
+    const cash = await pendingOrder(PaymentStatus.PENDING, PaymentType.CASH);
+
+    expect(await expireStaleOrders(minutesLater(31))).toMatchObject({ unpaid: 0, unanswered: 0 });
+
+    expect(await orderStatus(paid.order.id)).toBe(OrderStatus.PENDING);
+    expect(await orderStatus(cash.order.id)).toBe(OrderStatus.PENDING);
+  });
+
+  it('cancels and refunds a paid order the farmer never answered, and tells both sides', async () => {
+    const { farmer, buyer, order } = await pendingOrder(PaymentStatus.SUCCESS);
+    await prisma.order.update({ where: { id: order.id }, data: { farmerResponseDeadline: minutesLater(60) } });
+    vi.mocked(issueRazorpayRefund).mockResolvedValue({ id: 'rfnd_late', amount: 12000, status: 'pending' } as any);
+
+    expect(await expireStaleOrders(minutesLater(59))).toMatchObject({ unanswered: 0 });
+    expect(await expireStaleOrders(minutesLater(61))).toMatchObject({ unanswered: 1 });
+
+    expect(await orderStatus(order.id)).toBe(OrderStatus.CANCELLED);
+    expect(await stockOf(order.cropId)).toBe(160);
+    expect(issueRazorpayRefund).toHaveBeenCalledTimes(1);
+    const record = await prisma.paymentRecord.findUniqueOrThrow({ where: { orderId: order.id } });
+    expect(record.status).toBe(PaymentStatus.REFUNDED);
+    expect(await prisma.notification.count({ where: { userId: buyer.id, title: 'Order cancelled: farmer did not respond' } })).toBe(1);
+    expect(await prisma.notification.count({ where: { userId: farmer.id, title: 'Order cancelled: no response ⏰' } })).toBe(1);
+  });
+
+  it('does not cancel an order twice when the job runs again', async () => {
+    const { order } = await pendingOrder(PaymentStatus.PENDING);
+
+    await expireStaleOrders(minutesLater(31));
+    expect(await expireStaleOrders(minutesLater(40))).toMatchObject({ unpaid: 0, unanswered: 0, errors: 0 });
+
+    expect(await stockOf(order.cropId)).toBe(160);
   });
 });

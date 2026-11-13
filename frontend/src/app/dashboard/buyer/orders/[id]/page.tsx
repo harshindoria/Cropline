@@ -479,7 +479,7 @@ export default function OrderDetailPage() {
                 Pay ₹{order.totalBuyerPrice} Now
               </button>
               <p className="text-xs text-gray-500 text-center">
-                Your order reaches the farmer once it is paid.
+                Your order reaches the farmer once it is paid. An order left unpaid for 30 minutes is cancelled.
               </p>
             </div>
           )}

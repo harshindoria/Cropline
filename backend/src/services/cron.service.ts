@@ -1,7 +1,7 @@
 import prisma from '../config/db';
 import { DeliveryJobStatus, OrderStatus, PaymentStatus } from '@prisma/client';
 import { reconcileUnconfirmedPayments, refundOrderPayment } from './paymentRecord.service';
-import { claimCancellation } from './orderCancellation.service';
+import { claimCancellation, expireStaleOrders } from './orderCancellation.service';
 import { expireStaleOffers, releaseDeliveryJob, retryBroadcastWithExpandedRadius } from './deliveryAssignment.service';
 
 // A partner who accepts a job must reach the farm within this time, or the job goes to someone else.
@@ -99,6 +99,12 @@ export async function processPaymentReconciliation() {
   const summary = await reconcileUnconfirmedPayments();
   if (summary.confirmed || summary.failed || summary.refundsUpdated || summary.refunded || summary.errors) {
     console.log('[CRON] Payment reconciliation:', summary);
+  }
+
+  // After reconciliation, so an order that was really paid is confirmed before it can expire as unpaid.
+  const expired = await expireStaleOrders();
+  if (expired.unpaid || expired.unanswered || expired.errors) {
+    console.log('[CRON] Expired orders:', expired);
   }
 }
 

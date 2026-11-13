@@ -9,7 +9,7 @@ import { randomUUID } from 'crypto';
 import { broadcastDeliveryOffer } from '../services/deliveryAssignment.service';
 import { newOrderOtps, withVisibleOtp } from '../services/orderOtp.service';
 import { refundOrderPayment } from '../services/paymentRecord.service';
-import { claimCancellation, refundMessage } from '../services/orderCancellation.service';
+import { claimCancellation, FARMER_RESPONSE_MS, refundMessage } from '../services/orderCancellation.service';
 import { ACTIVE_JOB, withCurrentJob } from '../utils/deliveryJob';
 
 // ── ZOD SCHEMA ──────────────────────────────────────────────────────────────
@@ -149,7 +149,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     const deliveryPlatformFee = deliveryFee.mul(deliveryCommissionRate).toDecimalPlaces(2);
     const deliveryPartnerPayout = deliveryFee.minus(deliveryPlatformFee);
     const totalBuyerPrice = farmerEarnings.plus(platformFee).plus(deliveryFee).toDecimalPlaces(2);
-    const farmerResponseDeadline = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const farmerResponseDeadline = new Date(Date.now() + FARMER_RESPONSE_MS);
 
     const newOrder = await prisma.$transaction(async tx => {
       const reserved = await tx.crop.updateMany({
@@ -243,12 +243,18 @@ export const confirmOrder = async (req: Request<{ id: string }>, res: Response):
       return;
     }
 
-    let updatedOrder = await prisma.order.update({
+    // Confirm only if it is still PENDING. It may have been cancelled (and refunded) a moment ago,
+    // and confirming it then would leave a confirmed order with no stock and no payment.
+    const confirmed = await prisma.order.updateMany({
+      where: { id, status: OrderStatus.PENDING },
+      data: { status: OrderStatus.CONFIRMED, farmerAcceptedAt: new Date() },
+    });
+    if (confirmed.count !== 1) {
+      res.status(409).json({ success: false, message: 'This order has already changed. Please refresh and try again.' });
+      return;
+    }
+    const updatedOrder = await prisma.order.findUniqueOrThrow({
       where: { id },
-      data: {
-        status: OrderStatus.CONFIRMED,
-        farmerAcceptedAt: new Date()
-      },
       include: { crop: { include: { catalog: true } } }
     });
 
@@ -422,37 +428,8 @@ export const markReady = async (req: Request<{ id: string }>, res: Response): Pr
   }
 };
 
-const autoRejectExpiredOrders = async () => {
-  try {
-    const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
-    const expiredOrders = await prisma.order.findMany({
-      where: {
-        status: OrderStatus.PENDING,
-        createdAt: { lt: sixHoursAgo }
-      },
-      include: { paymentRecord: true }
-    });
-
-    // Each order on its own, so one failure can't undo the others. The refund runs after its
-    // cancellation is saved, outside any transaction.
-    for (const order of expiredOrders) {
-      try {
-        const claimed = await prisma.$transaction((tx) =>
-          claimCancellation(tx, order, [OrderStatus.PENDING], 'Auto-rejected after 6 hours without farmer acceptance'),
-        );
-        if (claimed) await refundOrderPayment(order.id, 'Order auto-rejected (timeout)');
-      } catch (error) {
-        console.error(`Auto-reject error for order ${order.id}:`, error);
-      }
-    }
-  } catch (error) {
-    console.error("Auto-reject error:", error);
-  }
-};
-
 export const getOrders = async (req: Request, res: Response): Promise<void> => {
   try {
-    await autoRejectExpiredOrders();
     const orders = await prisma.order.findMany({
       where: {
         OR: [
@@ -487,7 +464,6 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
 
 export const getOrderById = async (req: Request, res: Response): Promise<void> => {
   try {
-    await autoRejectExpiredOrders();
     const order = await prisma.order.findUnique({
       where: { id: req.params.id as string },
       include: {
