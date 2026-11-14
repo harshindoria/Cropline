@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { cropForBuyer, currentMarkupRate } from '../utils/buyerView';
 import prisma from '../config/db';
 import { UnknownCropError, primaryCropsRelation, primaryCropsSelect, primaryCropsText } from '../utils/primaryCrops';
 import { sanitizeUser } from '../utils/helper';
@@ -437,10 +438,11 @@ export const getFarmerPublicProfile = async (req: Request, res: Response): Promi
     const { farmerProfile, ...farmerDetails } = farmerRow;
     const farmer = { ...farmerDetails, ...farmerProfile, primaryCrops: primaryCropsText(farmerProfile?.primaryCrops) };
 
-    const activeCrops = await prisma.crop.findMany({
+    const markupRate = await currentMarkupRate();
+    const activeCrops = (await prisma.crop.findMany({
       where: { farmerId, status: 'ACTIVE' },
       include: { catalog: true }
-    });
+    })).map((crop) => cropForBuyer(crop, markupRate));
 
     const allReviews = await prisma.review.findMany({
       where: { targetId: farmerId, targetType: 'FARMER' },

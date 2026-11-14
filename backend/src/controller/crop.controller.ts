@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import { z } from 'zod'
+import { cropForBuyer } from '../utils/buyerView';
 import prisma from '../config/db'
 import { uploadToCloudinary } from '../utils/cloudinaryUpload'
 import { CropCategory, Prisma, CropStatus, OrderStatus, Role, RoleAccessStatus } from '@prisma/client'
@@ -305,8 +306,7 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
     const priceMap = new Map(avgPrices.map(p => [p.catalogId, p._avg.basePricePerKg ? Math.floor(Number(p._avg.basePricePerKg) * markupMultiplier) : null]));
 
     const cropsWithFreshness = finalCrops.map((crop) => ({
-      ...crop,
-      buyerPricePerKg: crop.basePricePerKg ? Math.floor(Number(crop.basePricePerKg) * markupMultiplier) : null,
+      ...cropForBuyer(crop, cropMarkupRate),
       cropName: crop.catalog?.englishName,
       hindiName: crop.catalog?.hindiName,
       category: crop.catalog?.category,
@@ -396,8 +396,9 @@ export const getCropById = async (req : Request<{id : string}>, res : Response) 
     res.status(200).json({
       success : true,
       data : {
-        ...crop,
-        buyerPricePerKg: crop.basePricePerKg ? Math.floor(Number(crop.basePricePerKg) * markupMultiplier) : null,
+        ...(req.user?.id === crop.farmerId
+          ? { ...crop, buyerPricePerKg: cropForBuyer(crop, cropMarkupRate).buyerPricePerKg }
+          : cropForBuyer(crop, cropMarkupRate)),
         // Frontend convenience ke liye flat fields
         cropName: crop.catalog.englishName,
         hindiName: crop.catalog.hindiName,

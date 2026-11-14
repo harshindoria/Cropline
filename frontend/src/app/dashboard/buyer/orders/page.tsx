@@ -154,7 +154,7 @@ export default function BuyerOrdersPage() {
                       </div>
                       
                       <div className="text-sm font-semibold text-gray-500 mb-1">
-                        {order.quantityKg} kg × ₹{(Number(order.basePricePerKg) * (1 + Number(order.cropMarkupRate || 0.20))).toFixed(2)}/kg
+                        {order.quantityKg} kg × ₹{Number(order.pricePerKg).toFixed(2)}/kg
                       </div>
                       
                       <div className="flex items-center justify-between mt-2">

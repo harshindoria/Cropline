@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../config/db';
 import { Role, OrderStatus, DeliveryType, PaymentType, Prisma, CropStatus, PaymentStatus, DeliveryOfferStatus, DeliveryJobStatus } from '@prisma/client';
 import { calculateDeliveryFee } from '../utils/feeUtils';
+import { orderForBuyer, orderForViewer } from '../utils/buyerView';
 import { haversineDistance } from '../utils/geoUtils';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
@@ -190,7 +191,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     res.status(201).json({
       success: true,
       message: 'Order placed successfully',
-      data: newOrder
+      data: orderForBuyer(newOrder)
     });
 
   } catch (error) {
@@ -456,7 +457,7 @@ export const getOrders = async (req: Request, res: Response): Promise<void> => {
       },
       orderBy: { createdAt: 'desc' }
     });
-    res.json({ success: true, orders: orders.map((order) => withVisibleOtp(withCurrentJob(order), req.user!.id)) });
+    res.json({ success: true, orders: orders.map((order) => orderForViewer(withVisibleOtp(withCurrentJob(order), req.user!.id), req.user!.id)) });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch orders' });
   }
@@ -485,7 +486,7 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
       res.status(403).json({ success: false, message: 'Unauthorized' });
       return;
     }
-    const { deliveryJob, ...details } = withVisibleOtp(withCurrentJob(order), req.user!.id);
+    const { deliveryJob, ...details } = orderForViewer(withVisibleOtp(withCurrentJob(order), req.user!.id), req.user!.id);
     const partner = deliveryJob?.deliveryPartner;
     res.json({
       success: true,

@@ -1,12 +1,12 @@
 import Link from "next/link";
-import type { Crop, CropCategory, CropListing, CropNameSource } from "@/types/api";
+import type { BuyerCrop, CropCategory, CropListing, CropNameSource } from "@/types/api";
 import { Leaf, Heart, MapPin, Plus, Minus } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { haversineDistance } from "@/lib/location";
 
 interface CropCardProps {
   // A marketplace listing, or a crop on a farmer's profile with the farmer filled in.
-  crop: Crop & { cropName?: string; category?: CropCategory; marketPrice?: number | null; farmer?: Partial<NonNullable<CropListing["farmer"]>> };
+  crop: BuyerCrop & { cropName?: string; category?: CropCategory; marketPrice?: number | null; farmer?: Partial<NonNullable<CropListing["farmer"]>> };
   categories: { name: string; emoji: string }[];
   getCropName: (crop: CropNameSource) => string;
   cart: Record<string, number>;
@@ -72,8 +72,8 @@ export default function CropCard({
         
         <div className="mt-auto pt-4 flex items-end justify-between">
           <div>
-            <p className="text-base font-black text-[#212121]">₹{(Number(crop.basePricePerKg) * 1.2).toFixed(2).replace(/\.00$/, '')} <span className="text-[10px] text-gray-500 font-normal">/ kg</span></p>
-            <p className="text-[10px] font-bold text-[#2E7D32] mt-0.5">Avg Market: ₹{crop.marketPrice ? Math.floor(Number(crop.marketPrice)) : Math.floor(Number(crop.basePricePerKg) * 1.2)}/kg</p>
+            <p className="text-base font-black text-[#212121]">₹{Number(crop.buyerPricePerKg).toFixed(2).replace(/\.00$/, '')} <span className="text-[10px] text-gray-500 font-normal">/ kg</span></p>
+            <p className="text-[10px] font-bold text-[#2E7D32] mt-0.5">Avg Market: ₹{crop.marketPrice ? Math.floor(Number(crop.marketPrice)) : Math.floor(Number(crop.buyerPricePerKg))}/kg</p>
           </div>
           <div className="flex flex-col items-end gap-2">
             {distanceKm !== null && (

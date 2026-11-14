@@ -185,6 +185,7 @@ export const getCropTrends = async (req: Request, res: Response): Promise<void> 
       },
       select: {
         basePricePerKg: true,
+        cropMarkupRate: true,
         createdAt: true
       }
     });
@@ -194,7 +195,7 @@ export const getCropTrends = async (req: Request, res: Response): Promise<void> 
     orders.forEach(o => {
       const monthName = new Date(o.createdAt).toLocaleString('en-US', { month: 'short' });
       const current = monthlyGroups.get(monthName) || { sum: 0, count: 0 };
-      current.sum += Number(o.basePricePerKg);
+      current.sum += Number(o.basePricePerKg) * (1 + Number(o.cropMarkupRate));
       current.count += 1;
       monthlyGroups.set(monthName, current);
     });

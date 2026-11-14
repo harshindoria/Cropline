@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { cropForBuyer, currentMarkupRate } from '../utils/buyerView';
 import prisma from '../config/db';
 import { haversineDistance } from '../utils/geoUtils';
 import { Role, RoleAccessStatus, CropStatus } from '@prisma/client';
@@ -104,6 +105,7 @@ export const getSuppliers = async (req: Request, res: Response): Promise<void> =
     });
 
     // Post-process for distance filtering
+    const markupRate = await currentMarkupRate();
     let processedFarmers = farmers.map(farmer => {
       let distanceKm = null;
       if (lat && lng && farmer.latitude && farmer.longitude) {
@@ -121,6 +123,7 @@ export const getSuppliers = async (req: Request, res: Response): Promise<void> =
 
       return {
         ...farmer,
+        crops: farmer.crops.map((crop) => cropForBuyer(crop, markupRate)),
         farmArea: farmer.farmerProfile?.farmArea ?? null,
         distanceKm,
         categories: Array.from(categories)

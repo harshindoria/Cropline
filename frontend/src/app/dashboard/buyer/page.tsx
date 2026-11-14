@@ -248,7 +248,7 @@ function BuyerDashboardContent() {
   for (const [id, qty] of Object.entries(cart)) {
     const crop = cartCrops[id];
     if (!crop) continue;
-    const cost = Number(crop.basePricePerKg) * 1.20 * qty;
+    const cost = Number(crop.buyerPricePerKg) * qty;
     const discount = crop.offer && qty >= Number(crop.offer.minQuantityKg)
       ? (cost * Number(crop.offer.discountPercentage)) / 100
       : 0;
@@ -986,7 +986,7 @@ function BuyerDashboardContent() {
                       <div key={id} className="flex justify-between items-center border-b border-gray-50 pb-3">
                         <div>
                           <p className="text-sm font-bold text-[#212121]">{getCropName(crop)}</p>
-                          <p className="text-xs text-[#2E7D32] font-semibold">₹{(Number(crop.basePricePerKg) * 1.20).toFixed(2)}/kg × {qty}kg</p>
+                          <p className="text-xs text-[#2E7D32] font-semibold">₹{Number(crop.buyerPricePerKg).toFixed(2)}/kg × {qty}kg</p>
                         </div>
                         <div className="flex items-center gap-3">
                           <button onClick={() => removeFromCart(id)} className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-50"><Minus size={12} /></button>

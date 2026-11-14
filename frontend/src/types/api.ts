@@ -54,8 +54,11 @@ export type CropNameSource = {
   catalog?: { englishName: string; hindiName: string } | null;
 };
 
+// A crop as buyers get it from the server: their price per kg, never the farmer's.
+export type BuyerCrop = Omit<Crop, "basePricePerKg"> & { buyerPricePerKg: number };
+
 // A crop in the buyer's marketplace (GET /crops).
-export type CropListing = Crop & {
+export type CropListing = BuyerCrop & {
   farmer?: {
     id: string;
     name: string | null;
@@ -65,7 +68,6 @@ export type CropListing = Crop & {
     ratingCount: number;
     isVerified: boolean;
   };
-  buyerPricePerKg: number | null;
   cropName: string;
   hindiName: string;
   category: CropCategory;
@@ -129,13 +131,17 @@ export type Order = {
   farmerId: string;
   buyerId: string;
   quantityKg: Decimal;
-  basePricePerKg: Decimal;
-  farmerEarnings: Decimal;
-  cropMarkupRate: Decimal;
-  platformFee: Decimal;
+  // Sent to the farmer only. The buyer never gets the farmer's price or the platform's cut.
+  basePricePerKg?: Decimal;
+  farmerEarnings?: Decimal;
+  cropMarkupRate?: Decimal;
+  platformFee?: Decimal;
+  deliveryPlatformFee?: Decimal;
+  deliveryPartnerPayout?: Decimal;
+  // Sent to the buyer only: what they pay per kg.
+  pricePerKg?: number;
   deliveryFee: Decimal;
-  deliveryPlatformFee: Decimal;
-  deliveryPartnerPayout: Decimal;
+  // The farmer gets the discount on their price; the buyer gets it in buyer prices.
   discountAmount: Decimal;
   totalBuyerPrice: Decimal;
   deliveryType: "DELIVERY" | "SELF_PICKUP";
@@ -204,7 +210,7 @@ export type FarmerPublicProfile = {
   farmingType: string | null;
   soilType: string | null;
   waterSource: string | null;
-  activeCrops: Crop[];
+  activeCrops: BuyerCrop[];
   reviews: {
     distribution: Record<number, number>;
     totalCount: number;
@@ -330,7 +336,7 @@ export type OrderSocketEvent = {
 };
 
 // One crop's page (GET /crops/:id).
-export type CropDetail = Crop & {
+export type CropDetail = BuyerCrop & {
   farmer?: {
     id: string;
     name: string | null;
@@ -342,7 +348,6 @@ export type CropDetail = Crop & {
     isVerified: boolean;
     createdAt: string;
   };
-  buyerPricePerKg: number | null;
   cropName: string;
   hindiName: string;
   marketPrice: number | null;

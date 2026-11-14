@@ -133,8 +133,7 @@ export default function CropDetailPage() {
   const latestReviews = (farmerReviews?.textReviews || []).slice(0, 3);
 
   // Calculations
-  const farmerBasePrice = Number(crop.basePricePerKg) || 0;
-  const basePrice = farmerBasePrice * 1.20;
+  const basePrice = Number(crop.buyerPricePerKg) || 0;
   const marketPrice = crop.marketPrice ? Math.floor(Number(crop.marketPrice)) : Math.floor(basePrice);
   const quantityKg = quantity;
   const cropCost = basePrice * quantityKg;
@@ -347,7 +346,7 @@ export default function CropDetailPage() {
               
               {basePrice < marketPrice && (
                 <div className="ml-auto bg-[#1B5E20] text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-sm">
-                  ₹{marketPrice - basePrice}/kg Cheaper!
+                  ₹{(marketPrice - basePrice).toFixed(2).replace(/\.00$/, '')}/kg Cheaper!
                 </div>
               )}
             </div>
