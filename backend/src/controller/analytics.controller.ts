@@ -173,8 +173,9 @@ export const getCropTrends = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const tenMonthsAgo = new Date();
-    tenMonthsAgo.setMonth(tenMonthsAgo.getMonth() - 9); // past 10 months total including current
+    // The 1st of the month 9 months back: 10 whole months including this one.
+    const today = new Date();
+    const tenMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 9, 1);
 
     // Fetch order history of this crop catalog
     const orders = await prisma.order.findMany({
@@ -190,41 +191,29 @@ export const getCropTrends = async (req: Request, res: Response): Promise<void> 
       }
     });
 
-    // Group actual orders by month
+    // Group actual orders by month (keyed by year and month, so the same month a year apart never mixes).
+    const monthKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}`;
     const monthlyGroups = new Map<string, { sum: number, count: number }>();
     orders.forEach(o => {
-      const monthName = new Date(o.createdAt).toLocaleString('en-US', { month: 'short' });
-      const current = monthlyGroups.get(monthName) || { sum: 0, count: 0 };
+      const key = monthKey(new Date(o.createdAt));
+      const current = monthlyGroups.get(key) || { sum: 0, count: 0 };
       current.sum += Number(o.basePricePerKg) * (1 + Number(o.cropMarkupRate));
       current.count += 1;
-      monthlyGroups.set(monthName, current);
+      monthlyGroups.set(key, current);
     });
 
-    // Generate trend array for past 10 months
-    const trends = [];
-    const basePrice = 30; // default baseline price per kg fallback
-
+    // One entry per month for the past 10 months. A month with no sales has no price
+    // (null), so the chart shows a gap instead of a made-up number.
+    const trends: { month: string; avgPrice: number | null }[] = [];
+    const now = new Date();
     for (let i = 9; i >= 0; i--) {
-      const d = new Date();
-      d.setMonth(d.getMonth() - i);
-      const monthName = d.toLocaleString('en-US', { month: 'short' });
-
-      if (monthlyGroups.has(monthName)) {
-        const group = monthlyGroups.get(monthName)!;
-        trends.push({
-          month: monthName,
-          avgPrice: Math.round((group.sum / group.count) * 10) / 10
-        });
-      } else {
-        // Fallback: Generate structured seasonal mock data based on seasonality and random walk
-        // e.g. tomatoes are cheaper in winter (Nov-Feb) and costlier in summer (Jun-Aug)
-        const seasonalFactor = Math.sin((d.getMonth() / 12) * Math.PI * 2); // cyclical factor [-1, 1]
-        const mockPrice = basePrice + (seasonalFactor * 8) + (Math.random() * 2 - 1);
-        trends.push({
-          month: monthName,
-          avgPrice: Math.round(mockPrice * 10) / 10
-        });
-      }
+      // Day 1, so stepping back never skips a short month.
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const group = monthlyGroups.get(monthKey(d));
+      trends.push({
+        month: d.toLocaleString('en-US', { month: 'short' }),
+        avgPrice: group ? Math.round((group.sum / group.count) * 10) / 10 : null,
+      });
     }
 
     res.status(200).json({

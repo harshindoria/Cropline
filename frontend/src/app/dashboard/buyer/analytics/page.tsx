@@ -16,7 +16,8 @@ type SpendTrend = { month: string; spent: number; volume: number };
 type CategoryShare = { category: string; value: number };
 type TopFarmer = { name: string | null; orders: number; spent: number };
 // GET /analytics/crop-trends
-type PriceTrend = { month: string; avgPrice: number };
+// avgPrice is null for a month with no sales.
+type PriceTrend = { month: string; avgPrice: number | null };
 
 export default function BuyerAnalytics() {
   const { user, loading } = useAuth();
@@ -124,6 +125,15 @@ export default function BuyerAnalytics() {
   // --- SVG Line Chart Generator for Crop Trends (10 Months) ---
   const renderCropTrendChart = () => {
     if (cropTrendData.length === 0) return null;
+    if (cropTrendData.every(d => d.avgPrice === null)) {
+      return (
+        <div className="w-full h-full flex flex-col items-center justify-center text-center">
+          <TrendingUp className="text-gray-200 mb-2" size={36} />
+          <p className="text-sm font-bold text-gray-500">No sales of this crop in the last 10 months</p>
+          <p className="text-xs text-gray-400 font-medium mt-1">Prices appear here once buyers order it.</p>
+        </div>
+      );
+    }
 
     const width = 500;
     const height = 220;
@@ -135,16 +145,19 @@ export default function BuyerAnalytics() {
     const chartWidth = width - paddingLeft - paddingRight;
     const chartHeight = height - paddingTop - paddingBottom;
 
-    const prices = cropTrendData.map(d => d.avgPrice);
-    const maxVal = Math.max(...prices, 40) * 1.1;
+    // Only months with real sales get a point; the line joins them across empty months.
+    const prices = cropTrendData.flatMap(d => (d.avgPrice === null ? [] : [d.avgPrice]));
+    const maxVal = Math.max(...prices) * 1.1;
     const minVal = Math.max(0, Math.min(...prices) * 0.9);
-    const range = maxVal - minVal;
+    const range = maxVal - minVal || 1;
 
-    const points = cropTrendData.map((d, index) => {
-      const x = paddingLeft + (index / (cropTrendData.length - 1)) * chartWidth;
-      const y = paddingTop + chartHeight - ((d.avgPrice - minVal) / range) * chartHeight;
-      return { x, y, ...d };
-    });
+    const xFor = (index: number) => paddingLeft + (index / (cropTrendData.length - 1)) * chartWidth;
+    const points = cropTrendData.flatMap((d, index) => d.avgPrice === null ? [] : [{
+      x: xFor(index),
+      y: paddingTop + chartHeight - ((d.avgPrice - minVal) / range) * chartHeight,
+      month: d.month,
+      avgPrice: d.avgPrice,
+    }]);
 
     let pathD = `M ${points[0].x} ${points[0].y}`;
     for (let i = 1; i < points.length; i++) {
@@ -184,7 +197,7 @@ export default function BuyerAnalytics() {
         })}
 
         {/* Shaded Area */}
-        <path d={areaD} fill="url(#crop-trend-gradient)" />
+        {points.length > 1 && <path d={areaD} fill="url(#crop-trend-gradient)" />}
 
         {/* Trend Line */}
         <path d={pathD} fill="none" stroke="#1B5E20" strokeWidth="3" strokeLinecap="round" />
@@ -202,13 +215,14 @@ export default function BuyerAnalytics() {
               </text>
             </g>
 
-            {/* X Axis labels */}
-            {index % 2 === 0 && (
-              <text x={p.x} y={height - 8} textAnchor="middle" className="text-[10px] font-bold text-gray-400">
-                {p.month}
-              </text>
-            )}
           </g>
+        ))}
+
+        {/* X axis: every other month, whether or not it had sales */}
+        {cropTrendData.map((d, index) => index % 2 === 0 && (
+          <text key={d.month + index} x={xFor(index)} y={height - 8} textAnchor="middle" className="text-[10px] font-bold text-gray-400">
+            {d.month}
+          </text>
         ))}
       </svg>
     );
@@ -410,7 +424,7 @@ export default function BuyerAnalytics() {
                 <h2 className="text-base font-black text-[#212121] flex items-center gap-2">
                   <TrendingUp className="text-[#1B5E20]" size={20} /> Crop Price trends
                 </h2>
-                <p className="text-xs text-gray-500 font-semibold mt-0.5">Average platform market price per kg (last 10 months)</p>
+                <p className="text-xs text-gray-500 font-semibold mt-0.5">Average price buyers paid per kg (last 10 months)</p>
               </div>
 
               {/* Crop Selector Dropdown */}
