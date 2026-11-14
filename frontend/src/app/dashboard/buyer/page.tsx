@@ -2,9 +2,10 @@
 
 import { useAuth, Role } from "@/context/AuthContext";
 import { apiErrorBody, apiErrorMessage } from "@/lib/apiError";
-import type { CropListing, CropNameSource, OrderSocketEvent } from "@/types/api";
+import type { CropListing, CropNameSource, Order, OrderSocketEvent } from "@/types/api";
+import { statusStyle } from "@/lib/orderStatus";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import api from "@/lib/axios";
 import {
   Search, MapPin, Bell, ChevronDown, Leaf, LayoutDashboard, Store,
@@ -384,11 +385,33 @@ function BuyerDashboardContent() {
     }
   }, [user, loading, router]);
 
+  // The buyer's latest orders, shown in the right-hand column.
+  const [recentOrders, setRecentOrders] = useState<Order[] | null>(null);
+  const loadRecentOrders = useCallback(async () => {
+    try {
+      const res = await api.get("/orders");
+      if (res.data.success) {
+        const mine: Order[] = (res.data.orders || []).filter((o: Order) => o.buyerId === user?.id);
+        setRecentOrders(mine.slice(0, 3));
+      }
+    } catch (err) {
+      console.error("Failed to fetch orders", err);
+      setRecentOrders([]);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (user?.activeRole !== "BUYER") return;
+    const load = async () => { await loadRecentOrders(); };
+    load();
+  }, [user?.activeRole, loadRecentOrders]);
+
   // Socket Event Listeners for Buyer
   useEffect(() => {
     if (!socket) return;
 
     const handleOrderAssigned = (data: OrderSocketEvent) => {
+      loadRecentOrders();
       toast.success("Order Update", {
         description: data.message || "Your order status has been updated.",
         duration: 5000,
@@ -406,7 +429,7 @@ function BuyerDashboardContent() {
       socket.off("order:assigned", handleOrderAssigned);
       socket.off("order:picked_up", handleOrderAssigned);
     };
-  }, [socket, router]);
+  }, [socket, router, loadRecentOrders]);
 
   // Wait until the buyer stops typing before asking the server.
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -836,21 +859,99 @@ function BuyerDashboardContent() {
         {activeSidebarTab === "Dashboard" && (
           <div className="w-full xl:w-80 space-y-4 shrink-0">
 
-            {/* My Orders Widget */}
-            <div
-              onClick={() => router.push("/dashboard/buyer/orders")}
-              className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-center justify-between cursor-pointer hover:border-green-200 transition-colors group"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-[#F1F8E9] flex items-center justify-center shrink-0">
-                  <Package className="w-6 h-6 text-[#2E7D32]" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-[#212121]">My Orders</h3>
-                  <p className="text-[11px] text-gray-500 font-semibold mt-0.5">View your orders<br />and track delivery</p>
-                </div>
+            {/* Recent Orders */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-5 pt-5 pb-3">
+                <h3 className="text-sm font-bold text-[#212121] flex items-center gap-2">
+                  <Package className="w-4 h-4 text-[#2E7D32]" /> Recent Orders
+                </h3>
+                <Link href="/dashboard/buyer/orders" className="text-xs font-bold text-[#1B5E20] hover:underline">
+                  View all
+                </Link>
               </div>
-              <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-[#1B5E20] transition-colors" />
+
+              {recentOrders === null ? (
+                <div className="px-5 pb-5 space-y-3">
+                  {[0, 1, 2].map(i => (
+                    <div key={i} className="h-12 rounded-xl bg-gray-100 animate-pulse" />
+                  ))}
+                </div>
+              ) : recentOrders.length === 0 ? (
+                <div className="px-5 pb-6 pt-2 text-center">
+                  <div className="text-3xl mb-2">🧺</div>
+                  <p className="text-sm font-bold text-[#212121]">No orders yet</p>
+                  <p className="text-xs text-gray-500 font-medium mt-1 mb-4">Fresh crops straight from farmers are waiting for you.</p>
+                  <button
+                    onClick={() => setActiveSidebarTab("Marketplace")}
+                    className="bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors"
+                  >
+                    Start shopping
+                  </button>
+                </div>
+              ) : (
+                <ul className="divide-y divide-gray-50">
+                  {recentOrders.map(order => {
+                    const status = statusStyle(order.status);
+                    return (
+                      <li key={order.id}>
+                        <Link
+                          href={`/dashboard/buyer/orders/${order.id}`}
+                          className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors group"
+                        >
+                          <div className="w-10 h-10 rounded-xl bg-[#F1F8E9] flex items-center justify-center shrink-0 text-lg">🌾</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-[#212121] truncate">
+                              {order.crop ? getCropName(order.crop) : "Crop"}
+                            </p>
+                            <p className="text-[11px] text-gray-400 font-semibold">
+                              {Number(order.quantityKg)} kg · {new Date(order.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-sm font-black text-[#1B5E20]">₹{Number(order.totalBuyerPrice).toFixed(0)}</p>
+                            <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider ${status.bg} ${status.color}`}>
+                              {status.label}
+                            </span>
+                          </div>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            {/* Delivery location */}
+            <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+              <h3 className="text-sm font-bold text-[#212121] flex items-center gap-2 mb-3">
+                <MapPin className="w-4 h-4 text-[#2E7D32]" /> Delivering to
+              </h3>
+              {user.district ? (
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-sm font-semibold text-gray-600 leading-snug">
+                    {[user.village, user.district, user.state].filter(Boolean).join(", ")}
+                    {user.pincode ? ` - ${user.pincode}` : ""}
+                  </p>
+                  <button
+                    onClick={handleOpenLocationModal}
+                    className="text-xs font-bold text-[#1B5E20] hover:underline shrink-0"
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500 font-medium mb-3">
+                    Add your address to see delivery fees and farmers near you.
+                  </p>
+                  <button
+                    onClick={handleOpenLocationModal}
+                    className="w-full bg-[#F1F8E9] hover:bg-[#E3F2D5] text-[#1B5E20] py-2 rounded-lg text-xs font-bold transition-colors"
+                  >
+                    Set your location
+                  </button>
+                </>
+              )}
             </div>
 
           </div>
