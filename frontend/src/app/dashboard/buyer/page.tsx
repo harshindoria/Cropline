@@ -8,8 +8,8 @@ import { useState, useEffect, useRef, Suspense } from "react";
 import api from "@/lib/axios";
 import {
   Search, MapPin, Bell, ChevronDown, Leaf, LayoutDashboard, Store,
-  BarChart2, Package, Users, Truck, User as UserIcon, Heart,
-  ChevronRight, Gift, Headphones, ShieldCheck, Clock, ThumbsUp, Plus, Minus, CheckCircle2, Loader2
+  BarChart2, Package, Users, Truck, User as UserIcon,
+  ChevronRight, ShieldCheck, Clock, ThumbsUp, Plus, Minus, CheckCircle2, Loader2
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
@@ -20,7 +20,7 @@ import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 import CropCard from "./components/CropCard";
 import LocationSelector, { LocationValue } from "@/components/LocationSelector";
-import { getGpsOrSavedLocation, reverseGeocode } from "@/lib/location";
+import { getGpsOrSavedLocation, reverseGeocode, haversineDistance, calculateDeliveryFee, Coordinates } from "@/lib/location";
 import { payForOrder } from "@/lib/razorpayCheckout";
 
 // Mock Categories
@@ -85,6 +85,8 @@ function BuyerDashboardContent() {
 
   // Cart logic
   const [cart, setCart] = useState<Record<string, number>>({});
+  // The basket keeps its own copy of each crop, so changing page or category does not drop it.
+  const [cartCrops, setCartCrops] = useState<Record<string, CropListing>>({});
   const [showCart, setShowCart] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"COD" | "ONLINE">("ONLINE");
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
@@ -196,41 +198,96 @@ function BuyerDashboardContent() {
     );
   };
 
-  const addToCart = (cropId: string, minOrder: number = 5) => {
-    const crop = crops.find(c => c.id === cropId);
-    if (crop?.farmerId === user?.id) {
+  // Same rules as the crop page: start at the farmer's minimum order, then 1 kg at a time,
+  // never more than the farmer has left.
+  const addToCart = (cropId: string) => {
+    const crop = crops.find(c => c.id === cropId) ?? cartCrops[cropId];
+    if (!crop) return;
+    if (crop.farmerId === user?.id) {
       alert("You cannot buy your own crop!");
       return;
     }
-    setCart(prev => ({
-      ...prev,
-      [cropId]: prev[cropId] ? prev[cropId] + minOrder : minOrder
-    }));
+    const minOrder = Number(crop.minOrderKg) || 1;
+    const stock = Number(crop.quantityRemainingKg);
+    const next = cart[cropId] ? cart[cropId] + 1 : minOrder;
+    if (next > stock) {
+      alert(`Only ${stock} kg of this crop is left.`);
+      return;
+    }
+    setCartCrops(prev => ({ ...prev, [cropId]: crop }));
+    setCart(prev => ({ ...prev, [cropId]: next }));
   };
 
-  const removeFromCart = (cropId: string, minOrder: number = 5) => {
+  // Going below the minimum order takes the crop out of the basket.
+  const removeFromCart = (cropId: string) => {
+    const minOrder = Number(cartCrops[cropId]?.minOrderKg) || 1;
     setCart(prev => {
       const copy = { ...prev };
-      if (copy[cropId] <= minOrder) {
+      if (copy[cropId] - 1 < minOrder) {
         delete copy[cropId];
       } else {
-        copy[cropId] -= minOrder;
+        copy[cropId] -= 1;
       }
       return copy;
     });
   };
 
-  const totalCartPrice = Object.entries(cart).reduce((sum, [id, qty]) => {
-    const crop = crops.find(c => c.id === id);
-    return sum + (crop ? (Number(crop.basePricePerKg) * 1.20 || 0) * qty : 0);
-  }, 0);
+  // The delivery location is found once when the basket opens. The fee shown and the
+  // orders placed both use it, so the buyer pays the fee they saw.
+  const [deliveryCoords, setDeliveryCoords] = useState<Coordinates | null>(null);
+  useEffect(() => {
+    if (!showCart) return;
+    getGpsOrSavedLocation(user).then(setDeliveryCoords).catch(() => setDeliveryCoords(null));
+  }, [showCart, user]);
+
+  // Same sums the server charges: crop price minus the farmer's bulk discount,
+  // plus a delivery fee per crop.
+  let totalCartPrice = 0;
+  let totalDeliveryFee = 0;
+  for (const [id, qty] of Object.entries(cart)) {
+    const crop = cartCrops[id];
+    if (!crop) continue;
+    const cost = Number(crop.basePricePerKg) * 1.20 * qty;
+    const discount = crop.offer && qty >= Number(crop.offer.minQuantityKg)
+      ? (cost * Number(crop.offer.discountPercentage)) / 100
+      : 0;
+    totalCartPrice += cost - discount;
+    if (deliveryCoords) {
+      totalDeliveryFee += calculateDeliveryFee(
+        haversineDistance(deliveryCoords.lat, deliveryCoords.lng, Number(crop.farmLatitude), Number(crop.farmLongitude)),
+        qty
+      );
+    }
+  }
 
   // Each crop becomes its own order, and one Razorpay payment can only pay for one order.
   // Until the backend can charge several orders together, online checkout takes one crop at a time.
   const onlineNeedsOneCrop = paymentMethod === "ONLINE" && Object.keys(cart).length > 1;
 
+  // A ref, not only state, so a fast double click can't start a second checkout
+  // before the button re-renders as disabled.
+  const placingOrderRef = useRef(false);
+  const [placingOrder, setPlacingOrder] = useState(false);
+
   const handleCheckout = async () => {
+    if (placingOrderRef.current) return;
+    placingOrderRef.current = true;
+    setPlacingOrder(true);
+    try {
+      await placeOrders();
+    } finally {
+      placingOrderRef.current = false;
+      setPlacingOrder(false);
+    }
+  };
+
+  const placeOrders = async () => {
     if (Object.keys(cart).length === 0) return;
+    if (!deliveryCoords) {
+      alert("We need your location to deliver. Allow location access, or save your location on your profile.");
+      return;
+    }
+    const coords = deliveryCoords;
 
     // Checked before any order is created, so nothing is left behind unpaid.
     if (onlineNeedsOneCrop) {
@@ -245,10 +302,8 @@ function BuyerDashboardContent() {
 
       // We will place orders sequentially
       for (const [cropId, quantityKg] of Object.entries(cart)) {
-        const crop = crops.find(c => c.id === cropId);
+        const crop = cartCrops[cropId];
         if (!crop) continue;
-
-        const coords = await getGpsOrSavedLocation(user);
 
         const orderRes = await api.post("/orders", {
           cropId: crop.id,
@@ -353,9 +408,16 @@ function BuyerDashboardContent() {
     };
   }, [socket, router]);
 
+  // Wait until the buyer stops typing before asking the server.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   useEffect(() => {
     setPage(1);
-  }, [activeSidebarTab]);
+  }, [activeSidebarTab, selectedCategory, debouncedSearch, sortBy]);
 
   useEffect(() => {
     const fetchCrops = async () => {
@@ -368,6 +430,9 @@ function BuyerDashboardContent() {
         if (isDistanceFilterEnabled && user?.latitude && user?.longitude) {
           endpoint += `&lat=${user.latitude}&lng=${user.longitude}&radius=${maxDistance}`;
         }
+
+        if (debouncedSearch.trim()) endpoint += `&search=${encodeURIComponent(debouncedSearch.trim())}`;
+        endpoint += `&sort=${sortBy}`;
 
         const res = await api.get(endpoint);
         if (res.data.success) {
@@ -383,7 +448,7 @@ function BuyerDashboardContent() {
     if (user && user.activeRole === "BUYER") {
       fetchCrops();
     }
-  }, [user, selectedCategory, page, activeSidebarTab, isDistanceFilterEnabled, maxDistance]);
+  }, [user, selectedCategory, page, activeSidebarTab, isDistanceFilterEnabled, maxDistance, debouncedSearch, sortBy]);
 
   if (loading || !user) {
     return (
@@ -393,25 +458,9 @@ function BuyerDashboardContent() {
     );
   }
 
-  // Client-side search filtering
-  let displayedCrops = crops.filter(c => {
-    if (c.farmerId === user?.id) return false;
-    const query = searchQuery.toLowerCase();
-    const name = (c.cropName || c.catalog?.englishName || "").toLowerCase();
-    const hindiName = (c.catalog?.hindiName || "").toLowerCase();
-    const farmerName = (c.farmer?.name || "").toLowerCase();
-    return name.includes(query) || hindiName.includes(query) || farmerName.includes(query);
-  });
+  const displayedCrops = crops.filter(c => c.farmerId !== user?.id);
 
-  if (sortBy === "price_asc") {
-    displayedCrops.sort((a, b) => (Number(a.basePricePerKg) || 0) - (Number(b.basePricePerKg) || 0));
-  } else if (sortBy === "price_desc") {
-    displayedCrops.sort((a, b) => (Number(b.basePricePerKg) || 0) - (Number(a.basePricePerKg) || 0));
-  } else if (sortBy === "rating") {
-    displayedCrops.sort((a, b) => (Number(b.farmer?.rating) || 0) - (Number(a.farmer?.rating) || 0));
-  }
-
-  const locationStr = user.district ? `${user.district}, ${user.state}` : "Jaipur, Rajasthan";
+  const locationStr = user.district ? `${user.district}, ${user.state}` : "Set your location";
 
   return (
     <>
@@ -545,10 +594,10 @@ function BuyerDashboardContent() {
                 </div>
               </div>
 
-              {/* Popular Near You */}
+              {/* Latest crops */}
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-bold text-[#212121]">Popular Near You</h2>
+                  <h2 className="text-lg font-bold text-[#212121]">Fresh Crops</h2>
                   <div className="flex items-center gap-2">
                     <select
                       value={sortBy}
@@ -558,7 +607,6 @@ function BuyerDashboardContent() {
                       <option value="newest">Newest</option>
                       <option value="price_asc">Price: Low to High</option>
                       <option value="price_desc">Price: High to Low</option>
-                      <option value="rating">Highest Rated</option>
                     </select>
                     <button onClick={() => setActiveSidebarTab("Marketplace")} className="text-sm font-bold text-[#1B5E20] hover:underline ml-2">View All</button>
                   </div>
@@ -634,11 +682,8 @@ function BuyerDashboardContent() {
                     placeholder="Search crops by name, category, or farmer name..."
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    className="w-full bg-transparent border-none py-3 pl-12 pr-28 text-sm font-medium outline-none focus:ring-0 text-[#212121]"
+                    className="w-full bg-transparent border-none py-3 pl-12 pr-4 text-sm font-medium outline-none focus:ring-0 text-[#212121]"
                   />
-                  <div className="absolute right-1.5 top-1.5 bottom-1.5 bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-6 rounded-lg flex items-center justify-center text-xs font-bold cursor-pointer transition-colors shadow">
-                    Search
-                  </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <span className="text-xs font-bold text-gray-500">Sort by:</span>
@@ -650,7 +695,6 @@ function BuyerDashboardContent() {
                     <option value="newest">Newest</option>
                     <option value="price_asc">Price: Low to High</option>
                     <option value="price_desc">Price: High to Low</option>
-                    <option value="rating">Highest Rated</option>
                   </select>
                 </div>
               </div>
@@ -677,50 +721,24 @@ function BuyerDashboardContent() {
                       <span>{cat.name}</span>
                     </button>
                   ))}
-                  <button className="px-5 py-2 rounded-xl text-sm font-bold transition-all border bg-white text-gray-600 border-gray-200 hover:bg-gray-50 flex items-center gap-2 shrink-0">
-                    More <ChevronDown className="w-4 h-4" />
-                  </button>
                 </div>
               </div>
 
-              {/* Advanced Filters */}
-              <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 mb-8">
-                <div className="flex flex-wrap gap-4 flex-1">
-                  <div className="space-y-1.5 flex-1 min-w-[150px]">
-                    <label className="text-xs font-bold text-gray-500">Price Range</label>
-                    <div className="relative">
-                      <select className="w-full text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none appearance-none">
-                        <option>Min price - Max price</option>
-                      </select>
-                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    </div>
-                  </div>
-                  <div className="space-y-1.5 flex-1 min-w-[150px]">
-                    <label className="text-xs font-bold text-gray-500">Location</label>
-                    <div className="relative">
-                      <select className="w-full text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none appearance-none">
-                        <option>All Locations</option>
-                      </select>
-                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    </div>
-                  </div>
-                  <div className="space-y-1.5 flex-1 min-w-[150px]">
-                    <label className="text-xs font-bold text-gray-500">Delivery Type</label>
-                    <div className="relative">
-                      <select className="w-full text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none appearance-none">
-                        <option>All Types</option>
-                      </select>
-                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    </div>
-                  </div>
-                </div>
-
+              {/* Nearby filter */}
+              <div className="flex justify-end mb-8">
                 <div className="flex items-center gap-4 bg-white border border-gray-200 rounded-xl p-2.5 shrink-0 shadow-sm">
                   <div className="flex items-center gap-3">
                     <input
                       type="checkbox"
                       checked={isDistanceFilterEnabled}
-                      onChange={(e) => setIsDistanceFilterEnabled(e.target.checked)}
+                      onChange={(e) => {
+                        if (e.target.checked && !(user?.latitude && user?.longitude)) {
+                          alert("Save your location first to see farmers near you.");
+                          handleOpenLocationModal();
+                          return;
+                        }
+                        setIsDistanceFilterEnabled(e.target.checked);
+                      }}
                       className="w-5 h-5 accent-[#1B5E20] border-gray-300 rounded cursor-pointer"
                     />
                     <div>
@@ -835,52 +853,6 @@ function BuyerDashboardContent() {
               <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-[#1B5E20] transition-colors" />
             </div>
 
-            {/* Favourites Widget */}
-            <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-center justify-between cursor-pointer hover:border-green-200 transition-colors group">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-[#FFF8E1] flex items-center justify-center shrink-0">
-                  <Heart className="w-6 h-6 text-[#FFB300] fill-[#FFB300]" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-[#212121]">Favourites</h3>
-                  <p className="text-[11px] text-gray-500 font-semibold mt-0.5">Your saved crops<br />and farmers</p>
-                </div>
-              </div>
-              <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-[#1B5E20] transition-colors" />
-            </div>
-
-            {/* Refer & Earn */}
-            <div className="bg-gradient-to-br from-[#f2f8f2] to-[#e8f5e9] rounded-2xl p-5 border border-green-50 shadow-sm relative overflow-hidden">
-              <div className="relative z-10 w-2/3">
-                <h3 className="text-sm font-bold text-[#1B5E20] mb-1">Refer & Earn</h3>
-                <p className="text-[11px] text-gray-600 font-semibold leading-relaxed mb-4">
-                  Invite your friends and earn exciting rewards!
-                </p>
-                <button className="bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors">
-                  Refer Now
-                </button>
-              </div>
-              <div className="absolute right-0 bottom-0 top-0 w-1/3 flex items-center justify-center pr-2">
-                <Gift className="w-16 h-16 text-[#4CAF50] opacity-80" strokeWidth={1.5} />
-              </div>
-            </div>
-
-            {/* Need Help? (Replacing Free Delivery) */}
-            <div className="bg-gradient-to-br from-[#fafafa] to-[#f5f5f5] rounded-2xl p-5 border border-gray-100 shadow-sm relative overflow-hidden">
-              <div className="relative z-10 w-2/3">
-                <h3 className="text-sm font-bold text-[#212121] mb-1">Need Help?</h3>
-                <p className="text-[11px] text-gray-500 font-semibold leading-relaxed mb-4">
-                  We&apos;re here to support you 24x7
-                </p>
-                <button className="bg-[#1B5E20] hover:bg-[#2E7D32] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors">
-                  Contact Support
-                </button>
-              </div>
-              <div className="absolute right-2 bottom-0 top-0 w-1/3 flex items-center justify-center">
-                <Headphones className="w-16 h-16 text-[#2E7D32] opacity-80" strokeWidth={1.5} />
-              </div>
-            </div>
-
           </div>
         )}
       </div>
@@ -907,7 +879,7 @@ function BuyerDashboardContent() {
               ) : (
                 <div className="space-y-4 py-4 max-h-[50vh] overflow-y-auto pr-1">
                   {Object.entries(cart).map(([id, qty]) => {
-                    const crop = crops.find(c => c.id === id);
+                    const crop = cartCrops[id];
                     if (!crop) return null;
                     return (
                       <div key={id} className="flex justify-between items-center border-b border-gray-50 pb-3">
@@ -932,16 +904,16 @@ function BuyerDashboardContent() {
                 <div className="space-y-3 bg-gray-50 p-4 rounded-2xl">
                   <div className="flex justify-between text-xs font-bold text-gray-400 uppercase">
                     <span>Subtotal</span>
-                    <span>₹{totalCartPrice}</span>
+                    <span>₹{totalCartPrice.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-xs font-bold text-gray-400 uppercase">
                     <span>Est. Delivery Fee</span>
-                    <span>₹40</span>
+                    <span>{deliveryCoords ? `₹${totalDeliveryFee.toFixed(2)}` : "Needs your location"}</span>
                   </div>
                   <div className="h-px bg-gray-200" />
                   <div className="flex justify-between text-sm font-extrabold text-[#212121]">
                     <span>Total Amount</span>
-                    <span>₹{totalCartPrice + 40}</span>
+                    <span>₹{(totalCartPrice + totalDeliveryFee).toFixed(2)}</span>
                   </div>
                 </div>
 
@@ -972,10 +944,12 @@ function BuyerDashboardContent() {
 
                 <button
                   onClick={handleCheckout}
-                  disabled={onlineNeedsOneCrop}
+                  disabled={onlineNeedsOneCrop || placingOrder}
                   className="w-full bg-[#1B5E20] hover:bg-[#2E7D32] text-white py-4 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 shadow-md disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[#1B5E20]"
                 >
-                  Confirm Order & Checkout <ChevronRight size={16} />
+                  {placingOrder
+                    ? <><Loader2 size={16} className="animate-spin" /> Placing order...</>
+                    : <>Confirm Order & Checkout <ChevronRight size={16} /></>}
                 </button>
               </div>
             )}

@@ -182,7 +182,7 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
   try {
     const {
       category, maxPrice, maxFreshnessDays, selfPickup, preHarvest,
-      lat, lng, radius, sort, page, limit,
+      lat, lng, radius, sort, page, limit, search,
     } = req.query
 
     // ── Where clause ─────────────────────────────────────────────────────────
@@ -213,6 +213,16 @@ export const getCrops = async (req: Request, res: Response): Promise<void> => {
       where.harvestDate = { gte: cutoffDate }
     }
     if (selfPickup === 'true') where.selfPickupEnabled = true
+
+    // Search by crop name (English or Hindi) or farmer name.
+    if (typeof search === 'string' && search.trim()) {
+      const q = search.trim()
+      where.OR = [
+        { catalog: { englishName: { contains: q, mode: 'insensitive' } } },
+        { catalog: { hindiName: { contains: q, mode: 'insensitive' } } },
+        { farmer: { name: { contains: q, mode: 'insensitive' } } },
+      ]
+    }
 
     // ── Pagination ────────────────────────────────────────────────────────────
     const pageNum  = Math.max(Number(page) || 1, 1)
