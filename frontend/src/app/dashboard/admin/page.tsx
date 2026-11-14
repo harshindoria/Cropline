@@ -20,25 +20,6 @@ import ComplaintsTab from "./components/ComplaintsTab";
 import TransactionsTab from "./components/TransactionsTab";
 import CropCatalogTab from "./components/CropCatalogTab";
 
-// Mock Data for tabs other than applications
-const MOCK_METRICS = {
-  totalRevenue: "₹1,24,500",
-  activeUsers: 1245,
-  pendingApps: 14,
-  disputes: 3
-};
-
-const MOCK_USERS = [
-  { id: "U101", name: "Harsh Indoria", role: "ADMIN", status: "ACTIVE", joined: "Jan 2024" },
-  { id: "U102", name: "Ramesh Yadav", role: "BUYER", status: "ACTIVE", joined: "Feb 2024" },
-  { id: "U103", name: "Vikram Singh", role: "FARMER", status: "BLOCKED", joined: "Mar 2024" },
-];
-
-const MOCK_COMPLAINTS = [
-  { id: "C01", from: "Priya (Buyer)", against: "Vikram (Farmer)", reason: "Quality issue with Tomatoes", status: "OPEN" },
-  { id: "C02", from: "Ramesh (Buyer)", against: "Suresh (Delivery)", reason: "Late delivery by 2 hours", status: "RESOLVED" },
-];
-
 // Remove mock notifications, we will use real ones
 
 type RoleApplication = {
@@ -465,7 +446,7 @@ export default function AdminDashboard() {
                       )}
                     </div>
                     
-                    <button className="w-full mt-4 text-left text-sm font-bold text-green-600 hover:text-green-700 flex justify-between items-center">
+                    <button onClick={() => setActiveTab("notifications")} className="w-full mt-4 text-left text-sm font-bold text-green-600 hover:text-green-700 flex justify-between items-center">
                       View all notifications <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
@@ -835,7 +816,7 @@ export default function AdminDashboard() {
                         </span>
                       </div>
                     </div>
-                    <button className="w-full mt-4 py-2 border border-[#1B5E20] text-[#1B5E20] font-bold text-sm rounded-xl hover:bg-[#1B5E20] hover:text-white transition-colors flex items-center justify-center gap-2">
+                    <button onClick={() => setActiveTab("complaints")} className="w-full mt-4 py-2 border border-[#1B5E20] text-[#1B5E20] font-bold text-sm rounded-xl hover:bg-[#1B5E20] hover:text-white transition-colors flex items-center justify-center gap-2">
                       View Complaints &rarr;
                     </button>
                   </div>
@@ -884,9 +865,6 @@ export default function AdminDashboard() {
                       <p className="text-xs text-gray-400 text-center mt-10">No recent activities</p>
                     )}
                   </div>
-                  <button className="w-full mt-6 py-2 border border-gray-200 text-gray-600 font-bold text-sm rounded-xl hover:bg-gray-50 transition-colors">
-                    View All Activities
-                  </button>
                 </div>
 
                 {/* Quick Actions */}
@@ -1012,51 +990,6 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* USERS TAB */}
-          {activeTab === "users" && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-[#FAFBFA]">
-                  <h3 className="font-bold text-lg text-gray-800">User Directory</h3>
-                  <button className="text-sm font-bold text-[#1B5E20] hover:text-[#2E7D32]">Export CSV</button>
-                </div>
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-500 uppercase tracking-wider">
-                      <th className="p-4 pl-6">User</th>
-                      <th className="p-4">Role</th>
-                      <th className="p-4">Joined</th>
-                      <th className="p-4">Status</th>
-                      <th className="p-4 text-right pr-6">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {MOCK_USERS.map(u => (
-                      <tr key={u.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="p-4 pl-6 font-bold text-gray-800">{u.name}</td>
-                        <td className="p-4">
-                          <span className="text-xs font-bold px-2 py-1 rounded bg-gray-100 text-gray-600">{u.role}</span>
-                        </td>
-                        <td className="p-4 text-sm font-semibold text-gray-500">{u.joined}</td>
-                        <td className="p-4">
-                          <span className={`text-xs font-bold px-2 py-1 rounded-full ${u.status === "ACTIVE" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-                            {u.status}
-                          </span>
-                        </td>
-                        <td className="p-4 pr-6 text-right">
-                          <button className="text-sm font-bold text-gray-400 hover:text-red-600 transition-colors flex items-center gap-1 justify-end w-full">
-                            <Ban size={14} /> Block
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* COMPLAINTS TAB */}
           {activeTab === "complaints" && (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full flex flex-col">
                <ComplaintsTab />

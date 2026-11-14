@@ -516,7 +516,7 @@ export default function FarmersTab() {
                     {/* Actions */}
                     <td className="py-3 px-6" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-1">
-                        <button
+                        <button onClick={() => toggleRow(farmer.id)}
                           title="View Profile"
                           className="p-1.5 text-gray-400 hover:text-[#1B5E20] hover:bg-green-50 rounded-lg transition-colors"
                         >

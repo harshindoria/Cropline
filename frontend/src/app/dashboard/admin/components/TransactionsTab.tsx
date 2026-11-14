@@ -275,9 +275,6 @@ export default function TransactionsTab() {
               className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 focus:outline-none focus:border-[#1B5E20] focus:ring-1 focus:ring-[#1B5E20] transition-shadow"
             />
           </div>
-          <button className="p-2.5 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-500 transition-colors shrink-0">
-            <Filter className="w-4 h-4" />
-          </button>
         </div>
       </div>
 

@@ -24,7 +24,7 @@ export default function DeliveryProfile() {
   const [error, setError] = useState('');
   
   // Modal states
-  const [editModal, setEditModal] = useState<'personal' | 'vehicle' | 'document' | null>(null);
+  const [editModal, setEditModal] = useState<'personal' | 'vehicle' | 'document' | 'bank' | null>(null);
   const [docTypeToEdit, setDocTypeToEdit] = useState<'aadhaar' | 'dl' | 'rc' | null>(null);
   // Every field in the edit forms is text.
   const [formData, setFormData] = useState<Record<string, string>>({});
@@ -74,7 +74,7 @@ export default function DeliveryProfile() {
     }
   };
 
-  const openModal = (type: 'personal' | 'vehicle' | 'document', docType?: 'aadhaar' | 'dl' | 'rc') => {
+  const openModal = (type: 'personal' | 'vehicle' | 'document' | 'bank', docType?: 'aadhaar' | 'dl' | 'rc') => {
     setEditModal(type);
     if (docType) setDocTypeToEdit(docType);
     
@@ -98,6 +98,14 @@ export default function DeliveryProfile() {
         vehicleType: profileData?.vehicleType || '',
         vehicleNumber: profileData?.vehicleNumber || '',
         vehicleColor: profileData?.vehicleColor || '',
+      });
+    } else if (type === 'bank') {
+      // The account number is never shown in full, so it starts empty and is only sent if typed.
+      setFormData({
+        bankName: profileData?.bankName || '',
+        accountHolderName: profileData?.accountHolderName || '',
+        bankIfsc: profileData?.bankIfsc || '',
+        bankAccount: '',
       });
     } else if (type === 'document' && docType) {
       const existingBase64 = profileData?.[`${docType}Url`] || '';
@@ -137,6 +145,9 @@ export default function DeliveryProfile() {
           pincode: locationData.pincode,
         } : {})
       };
+      if (editModal === 'bank' && !payload.bankAccount) {
+        delete payload.bankAccount;
+      }
       if (payload.dob) {
         payload.dob = new Date(payload.dob).toISOString();
       } else {
@@ -288,9 +299,6 @@ export default function DeliveryProfile() {
                     {/* Placeholder for avatar, using a default icon if no image */}
                     <User size={60} className="text-[#1B5E20]" />
                   </div>
-                  <button className="absolute bottom-0 right-0 w-10 h-10 bg-white border border-gray-200 rounded-full flex items-center justify-center shadow-sm text-gray-600 hover:text-green-600 transition-colors">
-                    <Camera size={18} />
-                  </button>
                 </div>
 
                 {/* Identity Info */}
@@ -494,9 +502,6 @@ export default function DeliveryProfile() {
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-base font-black text-[#212121]">Documents</h3>
-                <button className="text-sm font-bold text-green-700 hover:underline flex items-center gap-1">
-                  View All <ChevronRight size={14} />
-                </button>
               </div>
 
               <div className="space-y-4">
@@ -587,7 +592,7 @@ export default function DeliveryProfile() {
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm relative">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-base font-black text-[#212121]">Bank & Payout</h3>
-                <button className="text-sm font-bold text-green-700 hover:underline">Manage</button>
+                <button onClick={() => openModal('bank')} className="text-sm font-bold text-green-700 hover:underline">Manage</button>
               </div>
 
               <div className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group">
@@ -609,23 +614,7 @@ export default function DeliveryProfile() {
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
               <h3 className="text-base font-black text-[#212121] mb-6">Quick Actions</h3>
               
-              <div className="flex justify-between">
-                
-                <button className="flex flex-col items-center gap-2 group">
-                  <div className="w-12 h-12 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 group-hover:bg-gray-50 group-hover:text-[#212121] transition-colors">
-                    <Lock size={18} />
-                  </div>
-                  <span className="text-[10px] font-bold text-gray-500 text-center leading-tight">Change<br/>Password</span>
-                </button>
-
-
-                <button className="flex flex-col items-center gap-2 group">
-                  <div className="w-12 h-12 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 group-hover:bg-gray-50 group-hover:text-[#212121] transition-colors">
-                    <Headphones size={18} />
-                  </div>
-                  <span className="text-[10px] font-bold text-gray-500 text-center leading-tight"><br/>Support</span>
-                </button>
-
+              <div className="flex">
                 <button onClick={logout} className="flex flex-col items-center gap-2 group">
                   <div className="w-12 h-12 rounded-full border border-red-100 bg-red-50 flex items-center justify-center text-red-500 group-hover:bg-red-100 transition-colors">
                     <LogOut size={18} />
@@ -731,6 +720,41 @@ export default function DeliveryProfile() {
               <div>
                 <label className="text-xs font-bold text-gray-500">Vehicle Color</label>
                 <input type="text" placeholder="e.g. Black" value={formData.vehicleColor || ''} onChange={e => setFormData({...formData, vehicleColor: e.target.value})} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100" />
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 rounded-b-3xl">
+              <button onClick={closeModal} className="px-5 py-2.5 rounded-xl font-bold text-gray-600 hover:bg-gray-200 transition-colors">Cancel</button>
+              <button onClick={handleSave} disabled={isSaving} className="px-5 py-2.5 bg-[#1B5E20] hover:bg-green-800 text-white rounded-xl font-bold transition-colors disabled:opacity-50">
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editModal === 'bank' && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+              <h2 className="text-lg font-black text-[#212121]">Bank & Payout</h2>
+              <button onClick={closeModal} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><X size={20}/></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-xs font-bold text-gray-500">Account Holder Name</label>
+                <input type="text" value={formData.accountHolderName || ''} onChange={e => setFormData({...formData, accountHolderName: e.target.value})} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">Bank Name</label>
+                <input type="text" placeholder="e.g. State Bank of India" value={formData.bankName || ''} onChange={e => setFormData({...formData, bankName: e.target.value})} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">Account Number</label>
+                <input type="text" inputMode="numeric" placeholder={p.bankAccount ? "Leave empty to keep the current account" : "Enter account number"} value={formData.bankAccount || ''} onChange={e => setFormData({...formData, bankAccount: e.target.value.replace(/\D/g, '')})} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100 font-mono" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">IFSC Code</label>
+                <input type="text" placeholder="e.g. SBIN0001234" maxLength={11} value={formData.bankIfsc || ''} onChange={e => setFormData({...formData, bankIfsc: e.target.value.toUpperCase()})} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100 font-mono" />
               </div>
             </div>
             <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 rounded-b-3xl">

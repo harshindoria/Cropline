@@ -213,6 +213,10 @@ export default function DeliveryDashboard() {
     );
   };
 
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
+  const nearbyCount = nearbyActivity.within5 + nearbyActivity.within10;
+
   return (
     <>
       {/* Top Header */}
@@ -243,13 +247,15 @@ export default function DeliveryDashboard() {
           <div className="bg-gradient-to-r from-[#E8F5E9] to-[#C8E6C9] rounded-3xl p-8 relative overflow-hidden border border-green-100/50 shadow-sm">
             <div className="relative z-10 max-w-lg">
               <h1 className="text-3xl font-black text-[#1B5E20] mb-2 flex items-center gap-2">
-                Good Morning, {user.name?.split(' ')[0] || "Harsh"}! 👋
+                {greeting}{user.name ? `, ${user.name.split(' ')[0]}` : ""}! 👋
               </h1>
               <p className="text-[#2E7D32] font-medium mb-6">
-                You're online and ready to deliver. <br/>
-                <span className="font-bold">8 delivery requests</span> available near you.
+                {isOnline ? "You're online and ready to deliver." : "You're offline. Go online to get delivery requests."} <br/>
+                <span className="font-bold">
+                  {nearbyCount} delivery {nearbyCount === 1 ? "request" : "requests"}
+                </span> available near you.
               </p>
-              <button className="bg-[#1B5E20] text-white px-6 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-[#2E7D32] transition-colors flex items-center gap-2">
+              <button onClick={() => router.push("/dashboard/delivery/available")} className="bg-[#1B5E20] text-white px-6 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-[#2E7D32] transition-colors flex items-center gap-2">
                 View Available Deliveries <ArrowRight size={16} />
               </button>
             </div>
@@ -463,7 +469,7 @@ export default function DeliveryDashboard() {
                   <p className="text-[11px] font-bold text-gray-400">High Priority</p>
                 </div>
               </div>
-              <button className="mt-auto w-full text-center text-xs font-black text-[#1B5E20] hover:underline flex justify-center items-center gap-1 group">
+              <button onClick={() => router.push("/dashboard/delivery/available")} className="mt-auto w-full text-center text-xs font-black text-[#1B5E20] hover:underline flex justify-center items-center gap-1 group">
                 View Available Deliveries <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
               </button>
             </div>
@@ -493,9 +499,6 @@ export default function DeliveryDashboard() {
                 )}
               </div>
 
-              <button className="mt-auto w-full text-center text-xs font-black text-[#1B5E20] hover:underline flex justify-center items-center gap-1 group">
-                View All Updates <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-              </button>
             </div>
 
           </div>

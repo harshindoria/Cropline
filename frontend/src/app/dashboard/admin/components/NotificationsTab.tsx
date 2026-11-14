@@ -342,9 +342,6 @@ export default function NotificationsTab() {
               <Calendar className="w-4 h-4 text-gray-400" />
               <span>Last 7 Days</span>
             </div>
-            <button className="p-2 border border-gray-200 rounded-lg text-gray-500 hover:bg-gray-50">
-              <Filter className="w-4 h-4" />
-            </button>
           </div>
         </div>
 

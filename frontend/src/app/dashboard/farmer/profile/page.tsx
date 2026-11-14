@@ -305,9 +305,6 @@ export default function FarmerProfile() {
                 <div className="w-32 h-32 bg-[#E8F5E9] rounded-full flex items-center justify-center overflow-hidden border-4 border-white shadow-sm">
                    <img src="https://images.unsplash.com/photo-1595825833444-24e7cb15944d?auto=format&fit=crop&q=80&w=200&h=200" alt="Avatar" className="w-full h-full object-cover" />
                 </div>
-                <button className="absolute bottom-0 right-0 w-10 h-10 bg-white border border-gray-200 rounded-full flex items-center justify-center shadow-sm text-gray-600 hover:text-green-600 transition-colors">
-                  <Camera size={18} />
-                </button>
               </div>
 
               {/* Identity Info */}

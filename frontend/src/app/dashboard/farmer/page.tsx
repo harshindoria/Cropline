@@ -368,7 +368,7 @@ function FarmerDashboardContent() {
                 <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-xl py-2 z-50">
                   <div className="px-4 py-2 border-b border-gray-50 mb-1"><p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Switch Role</p></div>
                   <button onClick={() => handleRoleSwitch("BUYER")} className="w-full text-left px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50">🛒 Buyer</button>
-                  <button className="w-full text-left px-4 py-2 text-sm font-bold text-[#1B5E20] bg-green-50/50 flex items-center justify-between">🌾 Farmer <CheckCircle2 className="w-3.5 h-3.5 text-[#1B5E20]" /></button>
+                  <button onClick={() => setShowRoleDropdown(false)} className="w-full text-left px-4 py-2 text-sm font-bold text-[#1B5E20] bg-green-50/50 flex items-center justify-between">🌾 Farmer <CheckCircle2 className="w-3.5 h-3.5 text-[#1B5E20]" /></button>
                   <button onClick={() => handleRoleSwitch("DELIVERY")} className="w-full text-left px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50">🛵 Delivery Boy</button>
                   {user.roles.includes("ADMIN") && <button onClick={() => handleRoleSwitch("ADMIN")} className="w-full text-left px-4 py-2 text-sm font-bold text-emerald-600 hover:bg-emerald-50 border-t border-gray-50 mt-1 pt-2">🛡️ Admin</button>}
                   <div className="border-t border-gray-50 mt-2 pt-2"><button onClick={logout} className="w-full text-left px-4 py-2 text-sm font-bold text-red-500 hover:bg-red-50">Logout</button></div>

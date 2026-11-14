@@ -201,20 +201,6 @@ export default function SuppliersDirectory() {
 
             {/* Filter Pills */}
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 shadow-sm">
-                  <LayoutGrid size={16} className="text-gray-500" /> All Categories <ChevronDown size={14} className="text-gray-400" />
-                </button>
-                <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 shadow-sm">
-                  <Leaf size={16} className="text-gray-500" /> All Crops <ChevronDown size={14} className="text-gray-400" />
-                </button>
-                <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 shadow-sm">
-                  <BadgeCheck size={16} className="text-gray-500" /> All Status <ChevronDown size={14} className="text-gray-400" />
-                </button>
-                <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 shadow-sm">
-                  <SlidersHorizontal size={16} className="text-gray-500" /> More Filters
-                </button>
-              </div>
 
               <div className="flex items-center gap-3">
                 <div className="relative">
@@ -368,30 +354,8 @@ export default function SuppliersDirectory() {
           {!loadingData && suppliers.length > 0 && (
             <div className="flex flex-col sm:flex-row items-center justify-between pt-6 border-t border-gray-100 gap-4">
               <p className="text-sm font-semibold text-gray-600">
-                Showing 1 to {Math.min(12, suppliers.length)} of {totalFarmers || 236} farmers
+                Showing {suppliers.length} {suppliers.length === 1 ? "farmer" : "farmers"}
               </p>
-              
-              <div className="flex items-center gap-2">
-                <button className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50">
-                  <ChevronLeft size={16} />
-                </button>
-                <button className="w-9 h-9 flex items-center justify-center rounded-lg bg-[#1B5E20] text-white font-bold text-sm shadow-sm">
-                  1
-                </button>
-                <button className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 font-bold text-sm hover:bg-gray-50">
-                  2
-                </button>
-                <button className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 font-bold text-sm hover:bg-gray-50">
-                  3
-                </button>
-                <span className="w-9 h-9 flex items-center justify-center text-gray-400">...</span>
-                <button className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 font-bold text-sm hover:bg-gray-50">
-                  20
-                </button>
-                <button className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
-                  <ChevronRight size={16} />
-                </button>
-              </div>
             </div>
           )}
 

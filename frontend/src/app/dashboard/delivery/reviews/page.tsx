@@ -14,6 +14,8 @@ export default function DeliveryReviews() {
   const [reviewsData, setReviewsData] = useState<MyReviews | null>(null);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState('');
+  const [reviewSort, setReviewSort] = useState<'recent' | 'highest' | 'lowest'>('recent');
+  const [visibleCount, setVisibleCount] = useState(5);
 
   useEffect(() => {
     if (!loading && (!user || user.activeRole !== 'DELIVERY')) {
@@ -56,6 +58,13 @@ export default function DeliveryReviews() {
   }
 
   const { averageRating = 0, totalCount = 0, distribution = {1:0, 2:0, 3:0, 4:0, 5:0}, textReviews = [] } = reviewsData || {};
+  const sortedReviews = [...textReviews].sort((a, b) =>
+    reviewSort === 'highest' ? b.rating - a.rating
+    : reviewSort === 'lowest' ? a.rating - b.rating
+    : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  const SORT_LABELS = { recent: 'Most Recent', highest: 'Highest Rating', lowest: 'Lowest Rating' } as const;
+  const nextSort = { recent: 'highest', highest: 'lowest', lowest: 'recent' } as const;
   
   // Calculate positive ratings % (4 and 5 stars)
   const positiveCount = (distribution[4] || 0) + (distribution[5] || 0);
@@ -193,8 +202,11 @@ export default function DeliveryReviews() {
             <div className="flex-1 bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
               <div className="flex flex-wrap items-center justify-between mb-8 gap-4">
                 <h3 className="text-lg font-black text-[#212121]">Customer Reviews</h3>
-                <button className="flex items-center gap-2 px-4 py-2 bg-gray-50 text-sm font-bold text-gray-600 rounded-xl border border-gray-200">
-                  Most Recent <ChevronDown size={16} />
+                <button
+                  onClick={() => setReviewSort(nextSort[reviewSort])}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-50 hover:bg-gray-100 text-sm font-bold text-gray-600 rounded-xl border border-gray-200"
+                >
+                  {SORT_LABELS[reviewSort]} <ChevronDown size={16} />
                 </button>
               </div>
 
@@ -205,7 +217,7 @@ export default function DeliveryReviews() {
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {textReviews.map((review) => {
+                  {sortedReviews.slice(0, visibleCount).map((review) => {
                     const initials = review.reviewer?.name 
                       ? review.reviewer.name.substring(0, 1).toUpperCase()
                       : '?';
@@ -240,9 +252,9 @@ export default function DeliveryReviews() {
                     );
                   })}
                   
-                  {textReviews.length >= 5 && (
+                  {sortedReviews.length > visibleCount && (
                      <div className="flex justify-center mt-6">
-                       <button className="flex items-center gap-2 px-6 py-3 bg-gray-50 text-sm font-bold text-gray-700 rounded-xl hover:bg-gray-100 transition-colors">
+                       <button onClick={() => setVisibleCount(c => c + 5)} className="flex items-center gap-2 px-6 py-3 bg-gray-50 text-sm font-bold text-gray-700 rounded-xl hover:bg-gray-100 transition-colors">
                          Load More Reviews <ChevronDown size={16} />
                        </button>
                      </div>
@@ -306,9 +318,6 @@ export default function DeliveryReviews() {
                   </div>
                 </div>
 
-                <button className="w-full mt-8 py-3 text-sm font-bold text-[#1B5E20] border-2 border-[#1B5E20] rounded-xl hover:bg-green-50 transition-colors flex items-center justify-center gap-2">
-                  View Full Guide <span>→</span>
-                </button>
               </div>
 
             </div>

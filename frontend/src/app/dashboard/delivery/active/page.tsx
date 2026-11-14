@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import { MapPin, Navigation, Camera, CheckCircle2, AlertCircle, Package, Clock, Wallet, ShoppingBag, Waypoints, Calendar, TrendingUp, Headset, PhoneCall, ShieldCheck, TriangleAlert, IndianRupee } from 'lucide-react';
+import { MapPin, Navigation, Camera, CheckCircle2, AlertCircle, Package, Clock, Wallet, ShoppingBag, Waypoints, Calendar, TrendingUp, PhoneCall, ShieldCheck, TriangleAlert, IndianRupee } from 'lucide-react';
 import Image from 'next/image';
 import api from '@/lib/axios';
 import { apiErrorMessage } from '@/lib/apiError';
@@ -65,6 +65,46 @@ export default function ActiveDeliveries() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [cashCollectedChecked, setCashCollectedChecked] = useState(false);
+
+  // "Report an Issue": files a complaint about the buyer or farmer on one of the partner's deliveries.
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportJobId, setReportJobId] = useState('');
+  const [reportAgainst, setReportAgainst] = useState<'buyer' | 'farmer'>('buyer');
+  const [reportReason, setReportReason] = useState('Other');
+  const [reportDetails, setReportDetails] = useState('');
+  const [submittingReport, setSubmittingReport] = useState(false);
+
+  const openReportModal = () => {
+    if (inProgressJobs.length === 0) {
+      alert("You have no active delivery to report an issue about.");
+      return;
+    }
+    setReportJobId(inProgressJobs[0].jobId);
+    setReportAgainst('buyer');
+    setReportReason('Other');
+    setReportDetails('');
+    setShowReportModal(true);
+  };
+
+  const handleSubmitReport = async () => {
+    const job = inProgressJobs.find(j => j.jobId === reportJobId);
+    if (!job) return;
+    setSubmittingReport(true);
+    try {
+      await api.post('/complaints', {
+        orderId: job.orderId,
+        accusedId: reportAgainst === 'buyer' ? job.buyer.id : job.farmer.id,
+        reason: reportReason,
+        description: reportDetails.trim() || undefined,
+      });
+      alert("Your report has been sent. Our team will review it.");
+      setShowReportModal(false);
+    } catch (err) {
+      alert(apiErrorMessage(err, "Could not send your report."));
+    } finally {
+      setSubmittingReport(false);
+    }
+  };
 
   useEffect(() => {
     if (!loading && (!user || user.activeRole !== 'DELIVERY')) {
@@ -352,9 +392,18 @@ export default function ActiveDeliveries() {
 
                       {/* Right: Actions */}
                       <div className="flex flex-col gap-3 min-w-[140px]">
-                        <button className="w-full bg-green-50 hover:bg-green-100 text-[#1B5E20] py-2.5 rounded-xl font-bold text-sm transition-colors text-center border border-green-200 shadow-sm">
-                          View Details
-                        </button>
+                        <a
+                          href={`https://www.google.com/maps/dir/?api=1&destination=${
+                            job.status === 'PICKED_UP'
+                              ? `${job.dropLocation.latitude},${job.dropLocation.longitude}`
+                              : `${job.pickupLocation.latitude},${job.pickupLocation.longitude}`
+                          }`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full bg-green-50 hover:bg-green-100 text-[#1B5E20] py-2.5 rounded-xl font-bold text-sm transition-colors text-center border border-green-200 shadow-sm"
+                        >
+                          Directions
+                        </a>
                         
                         {job.status === 'ASSIGNED' && (
                           <button 
@@ -432,7 +481,7 @@ export default function ActiveDeliveries() {
             <div className="flex justify-center mt-8">
                <div className="bg-[#F1F8E9] rounded-2xl px-6 py-3 flex items-center gap-4 border border-green-100">
                  <span className="text-sm font-bold text-gray-600">Can't complete a delivery?</span>
-                 <button className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl text-sm font-bold text-red-600 border border-red-100 shadow-sm hover:bg-red-50 transition-colors">
+                 <button onClick={openReportModal} className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl text-sm font-bold text-red-600 border border-red-100 shadow-sm hover:bg-red-50 transition-colors">
                    <TriangleAlert size={16} /> Report an Issue
                  </button>
                </div>
@@ -496,34 +545,27 @@ export default function ActiveDeliveries() {
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
               <h3 className="text-sm font-black text-[#212121] mb-4">Quick Actions</h3>
               <div className="space-y-1">
-                <button className="w-full flex items-center justify-between px-2 py-3 hover:bg-gray-50 rounded-xl transition-colors group">
+                <button onClick={() => router.push('/dashboard/delivery')} className="w-full flex items-center justify-between px-2 py-3 hover:bg-gray-50 rounded-xl transition-colors group">
                   <div className="flex items-center gap-3">
                     <Wallet size={16} className="text-green-600" />
                     <span className="text-xs font-bold text-gray-700">View Earnings</span>
                   </div>
                   <div className="text-gray-300 group-hover:text-green-600">›</div>
                 </button>
-                <button className="w-full flex items-center justify-between px-2 py-3 hover:bg-gray-50 rounded-xl transition-colors group">
+                <button onClick={() => router.push('/dashboard/delivery/reviews')} className="w-full flex items-center justify-between px-2 py-3 hover:bg-gray-50 rounded-xl transition-colors group">
                   <div className="flex items-center gap-3">
                     <TrendingUp size={16} className="text-orange-500" />
                     <span className="text-xs font-bold text-gray-700">My Performance</span>
                   </div>
                   <div className="text-gray-300 group-hover:text-orange-500">›</div>
                 </button>
-                <button className="w-full flex items-center justify-between px-2 py-3 hover:bg-gray-50 rounded-xl transition-colors group">
-                  <div className="flex items-center gap-3">
-                    <Headset size={16} className="text-blue-500" />
-                    <span className="text-xs font-bold text-gray-700">Help & Support</span>
-                  </div>
-                  <div className="text-gray-300 group-hover:text-blue-500">›</div>
-                </button>
-                <button className="w-full flex items-center justify-between px-2 py-3 hover:bg-red-50 rounded-xl transition-colors group">
+                <a href="tel:112" className="w-full flex items-center justify-between px-2 py-3 hover:bg-red-50 rounded-xl transition-colors group">
                   <div className="flex items-center gap-3">
                     <PhoneCall size={16} className="text-red-500" />
                     <span className="text-xs font-bold text-red-600">Emergency Contact</span>
                   </div>
                   <div className="text-gray-300 group-hover:text-red-500">›</div>
-                </button>
+                </a>
               </div>
             </div>
 
@@ -714,6 +756,62 @@ export default function ActiveDeliveries() {
                 className="flex-1 py-3 text-sm font-bold text-black bg-[#FFC107] rounded-xl hover:bg-[#ffb300] transition-colors disabled:opacity-50"
               >
                 {processingId ? 'Confirming...' : 'Mark Delivered'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showReportModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-100">
+              <h2 className="text-lg font-black text-[#212121]">Report an Issue</h2>
+              <p className="text-xs text-gray-500 font-medium mt-1">Our team reviews every report.</p>
+            </div>
+            <div className="p-6 space-y-4">
+              {inProgressJobs.length > 1 && (
+                <div>
+                  <label className="text-xs font-bold text-gray-500">Delivery</label>
+                  <select value={reportJobId} onChange={e => setReportJobId(e.target.value)} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100">
+                    {inProgressJobs.map(j => (
+                      <option key={j.jobId} value={j.jobId}>{j.cropName} · {j.weightKg} kg · {j.buyer.name || 'Buyer'}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="text-xs font-bold text-gray-500">The issue is with</label>
+                <div className="grid grid-cols-2 gap-2 mt-1">
+                  {(['buyer', 'farmer'] as const).map(who => (
+                    <button
+                      key={who}
+                      type="button"
+                      onClick={() => setReportAgainst(who)}
+                      className={`py-2 rounded-xl text-sm font-bold border transition-colors ${reportAgainst === who ? 'border-[#1B5E20] bg-green-50 text-[#1B5E20]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      {who === 'buyer' ? 'Buyer' : 'Farmer'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">Reason</label>
+                <select value={reportReason} onChange={e => setReportReason(e.target.value)} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100">
+                  {['Wrong Product', 'Damaged Goods', 'Misbehavior', 'Payment Issue', 'Fraud', 'Other'].map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500">What happened? (optional)</label>
+                <textarea value={reportDetails} onChange={e => setReportDetails(e.target.value)} rows={3} maxLength={2000} className="w-full mt-1 p-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-100" />
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 rounded-b-3xl">
+              <button onClick={() => setShowReportModal(false)} className="px-5 py-2.5 rounded-xl font-bold text-gray-600 hover:bg-gray-200 transition-colors">Cancel</button>
+              <button onClick={handleSubmitReport} disabled={submittingReport} className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-colors disabled:opacity-50">
+                {submittingReport ? 'Sending...' : 'Send Report'}
               </button>
             </div>
           </div>

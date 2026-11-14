@@ -197,10 +197,6 @@ export default function BuyersTab() {
           <h1 className="text-2xl font-black text-gray-900">Buyers</h1>
           <p className="text-sm font-semibold text-gray-500 mt-1">View, manage and monitor all buyer accounts.</p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl shadow-sm text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors">
-          More Actions
-          <MoreVertical className="w-4 h-4 text-gray-400" />
-        </button>
       </div>
 
       {/* Metrics Cards */}
@@ -352,10 +348,6 @@ export default function BuyersTab() {
           </div>
           
           <div className="flex items-center gap-2">
-            <button className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors">
-              <Filter className="w-4 h-4" />
-              Filter
-            </button>
           </div>
         </div>
 
@@ -431,7 +423,7 @@ export default function BuyersTab() {
                     </td>
                     <td className="py-3 px-6" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
+                        <button onClick={() => toggleRow(buyer.id)} 
                           title="View Profile"
                           className="p-1.5 text-gray-400 hover:text-[#1B5E20] hover:bg-green-50 rounded-lg transition-colors"
                         >

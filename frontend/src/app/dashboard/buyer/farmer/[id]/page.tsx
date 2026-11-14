@@ -355,7 +355,10 @@ export default function FarmerPublicProfilePage() {
             </div>
 
             <div className="relative group shrink-0">
-              <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-bold text-gray-600 hover:bg-gray-50">
+              <button
+                onClick={() => setReviewSort(reviewSort === "highest" ? "lowest" : "highest")}
+                className="flex items-center gap-2 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-bold text-gray-600 hover:bg-gray-50"
+              >
                 Sort: {reviewSort === "highest" ? "Highest Rating" : "Lowest Rating"} <ChevronDown className="w-3 h-3" />
               </button>
               <div className="absolute right-0 top-full mt-1 bg-white border border-gray-100 shadow-lg rounded-lg py-1 w-36 hidden group-hover:block z-20">
