@@ -345,11 +345,6 @@ export default function OrderDetailPage() {
                 <p className="text-sm text-gray-500 font-medium flex items-center gap-1.5 mb-1">
                   <MapPin size={14} /> {order.farmer?.village}, {order.farmer?.district}
                 </p>
-                {order.status === 'DELIVERED' || order.status === 'COMPLETED' ? (
-                  <p className="text-sm text-gray-500 font-medium flex items-center gap-1.5">
-                    <Phone size={14} /> {order.farmer?.phone}
-                  </p>
-                ) : null}
               </div>
               <div className="text-right">
                 <div className="flex items-center justify-end gap-1 text-[#FFC107]">

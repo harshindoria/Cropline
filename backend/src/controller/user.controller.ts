@@ -423,8 +423,8 @@ export const getFarmerPublicProfile = async (req: Request, res: Response): Promi
         aboutMe: true,
         createdAt: true,
         isVerified: true,
-        phone: true,
-        email: true,
+        // No phone or email: anyone logged in can open this profile. Buyers get the
+        // farmer's phone on their own order instead.
         farmerProfile: { select: { farmArea: true, primaryCrops: primaryCropsSelect, farmingType: true, soilType: true, waterSource: true } },
       }
     });

@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import api from "@/lib/axios";
 import type { CropNameSource, FarmerPublicProfile } from "@/types/api";
 import { 
-  ArrowLeft, MapPin, CheckCircle2, Star, Package, Leaf, Users, Phone, Clock, MessageCircle, Loader2, ShoppingBasket, ChevronDown, ChevronLeft, ChevronRight
+  ArrowLeft, MapPin, CheckCircle2, Star, Package, Leaf, Users, Clock, MessageCircle, Loader2, ShoppingBasket, ChevronDown, ChevronLeft, ChevronRight
 } from "lucide-react";
 import Image from "next/image";
 import CropCard from "../../components/CropCard";
@@ -306,15 +306,7 @@ export default function FarmerPublicProfilePage() {
             <div className="flex-1 flex flex-col gap-2 justify-center">
               {[5, 4, 3, 2, 1].map((stars) => {
                 const total = farmer.reviews?.totalCount || 0;
-                // Mock distribution if exact data isn't available
-                let count = 0;
-                if (total > 0) {
-                  if (stars === 5) count = Math.floor(total * 0.75);
-                  else if (stars === 4) count = Math.floor(total * 0.18);
-                  else if (stars === 3) count = Math.floor(total * 0.05);
-                  else if (stars === 2) count = Math.floor(total * 0.01);
-                  else if (stars === 1) count = total - Math.floor(total*0.75) - Math.floor(total*0.18) - Math.floor(total*0.05) - Math.floor(total*0.01);
-                }
+                const count = farmer.reviews?.distribution?.[stars] || 0;
                 const percent = total > 0 ? (count / total) * 100 : 0;
                 
                 return (
@@ -476,18 +468,6 @@ export default function FarmerPublicProfilePage() {
         {/* Footer Contact Bar */}
         <div className="bg-white rounded-[24px] p-6 border border-gray-100 shadow-sm flex items-center justify-between gap-6 mt-8">
           <div className="flex flex-wrap items-center gap-8 w-full">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center">
-                <Phone className="w-5 h-5 text-[#2E7D32]" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Phone</p>
-                <p className="text-base font-black text-[#212121]">{farmer.phone || 'Not Provided'}</p>
-              </div>
-            </div>
-
-            <div className="w-px h-10 bg-gray-100 hidden md:block"></div>
-
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center">
                 <MapPin className="w-5 h-5 text-[#2E7D32]" />

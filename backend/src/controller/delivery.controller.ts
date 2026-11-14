@@ -740,7 +740,7 @@ export const getActiveJobs = async (req: Request, res: Response): Promise<void> 
           include: {
             paymentRecord: true,
             crop: { include: { catalog: true } },
-            farmer: { select: { name: true, phone: true } },
+            farmer: { select: { name: true } }, // never the farmer's phone
             buyer: { select: { name: true, phone: true } }
           }
         }

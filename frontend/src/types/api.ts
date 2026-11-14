@@ -191,8 +191,6 @@ export type MyReviews = {
 export type FarmerPublicProfile = {
   id: string;
   name: string | null;
-  phone: string;
-  email: string | null;
   village: string | null;
   district: string | null;
   state: string | null;
@@ -252,7 +250,7 @@ export type ActiveJob = {
   totalBuyerPrice: Decimal;
   pickupLocation: { latitude: number; longitude: number; village: string; district: string; state: string };
   dropLocation: { latitude: number; longitude: number; address: string | null };
-  farmer: { name: string | null; phone: string };
+  farmer: { name: string | null };
   buyer: { name: string | null; phone: string };
   estimatedDeliveryAt: string | null;
   acceptedAt: string;

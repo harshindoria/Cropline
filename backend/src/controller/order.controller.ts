@@ -469,7 +469,8 @@ export const getOrderById = async (req: Request, res: Response): Promise<void> =
       include: {
         crop: { include: { catalog: true } },
         buyer: { select: { id: true, name: true, email: true, phone: true, village: true, district: true, state: true, pincode: true } },
-        farmer: { select: { id: true, name: true, email: true, phone: true, village: true, district: true, state: true, rating: true, ratingCount: true, isVerified: true } },
+        // The farmer's phone and email are never shown to buyers.
+        farmer: { select: { id: true, name: true, village: true, district: true, state: true, rating: true, ratingCount: true, isVerified: true } },
         paymentRecord: true,
         otps: true,
         deliveryJobs: { where: ACTIVE_JOB, take: 1, include: { deliveryPartner: { select: { id: true, name: true, phone: true, deliveryProfile: { select: { vehicleType: true } } } } } }

@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import api from "@/lib/axios";
 import { apiErrorMessage } from "@/lib/apiError";
 import { payForOrder } from "@/lib/razorpayCheckout";
-import type { CropDetail } from "@/types/api";
+import type { CropDetail, FarmerPublicProfile } from "@/types/api";
 import Script from "next/script";
 import {
   ArrowLeft, Leaf, Clock, TrendingUp, MapPin, Star, ShieldCheck, Package, Minus, Plus, CreditCard, Banknote, ShoppingBasket, ChevronLeft, Navigation, Loader2
@@ -99,6 +99,16 @@ export default function CropDetailPage() {
     }
   }, [user, cropId]);
 
+  // Reviews are given to the farmer, so the crop page shows the farmer's reviews.
+  const [farmerReviews, setFarmerReviews] = useState<FarmerPublicProfile["reviews"] | null>(null);
+  const farmerId = crop?.farmerId;
+  useEffect(() => {
+    if (!farmerId) return;
+    api.get(`/users/farmer/${farmerId}/public`)
+      .then(res => { if (res.data.success) setFarmerReviews(res.data.data.reviews); })
+      .catch(err => console.error("Failed to fetch reviews", err));
+  }, [farmerId]);
+
   if (loading || loadingCrop) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-[#F9FAF7]">
@@ -116,6 +126,11 @@ export default function CropDetailPage() {
       </div>
     );
   }
+
+  // The farmer's rating, from real reviews only.
+  const reviewCount = farmerReviews?.totalCount ?? Number(crop.farmer?.ratingCount ?? 0);
+  const farmerRating = Number(crop.farmer?.rating) || 0;
+  const latestReviews = (farmerReviews?.textReviews || []).slice(0, 3);
 
   // Calculations
   const farmerBasePrice = Number(crop.basePricePerKg) || 0;
@@ -363,11 +378,17 @@ export default function CropDetailPage() {
               </p>
             </div>
             <div className="text-right">
-              <div className="flex items-center justify-end gap-1 text-[#FFC107]">
-                <Star size={18} fill="currentColor" />
-                <span className="font-bold text-[#212121]">{crop.farmer?.rating || "4.5"}</span>
-              </div>
-              <p className="text-xs text-gray-400 font-medium mt-1">{crop.farmer?.ratingCount || 0} reviews</p>
+              {reviewCount > 0 ? (
+                <>
+                  <div className="flex items-center justify-end gap-1 text-[#FFC107]">
+                    <Star size={18} fill="currentColor" />
+                    <span className="font-bold text-[#212121]">{farmerRating.toFixed(1)}</span>
+                  </div>
+                  <p className="text-xs text-gray-400 font-medium mt-1">{reviewCount} reviews</p>
+                </>
+              ) : (
+                <p className="text-xs text-gray-400 font-semibold">No reviews yet</p>
+              )}
             </div>
           </div>
 
@@ -375,87 +396,89 @@ export default function CropDetailPage() {
           <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-black text-[#1B5E20]">Reviews & Ratings</h3>
-              <button className="px-4 py-2 bg-green-50 text-[#1B5E20] text-sm font-bold rounded-xl hover:bg-green-100 transition-colors">
-                Write a Review
-              </button>
-            </div>
-            
-            {/* Summary Rating */}
-            <div className="flex items-center gap-6 mb-8 border-b border-gray-100 pb-6">
-              <div className="text-center">
-                <h4 className="text-5xl font-black text-[#212121]">{crop.farmer?.rating || "4.5"}</h4>
-                <div className="flex items-center gap-1 text-[#FFC107] my-2">
-                  <Star size={16} fill="currentColor" />
-                  <Star size={16} fill="currentColor" />
-                  <Star size={16} fill="currentColor" />
-                  <Star size={16} fill="currentColor" />
-                  <Star size={16} className="text-gray-200" fill="currentColor" />
-                </div>
-                <p className="text-xs font-semibold text-gray-400">Based on {crop.farmer?.ratingCount || 0} reviews</p>
-              </div>
-              <div className="flex-1 space-y-2 hidden sm:block">
-                {[5,4,3,2,1].map(star => (
-                  <div key={star} className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-gray-500 w-2">{star}</span>
-                    <Star size={12} className="text-gray-400 shrink-0" fill="currentColor" />
-                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-[#FFC107] rounded-full" style={{ width: star > 3 ? '70%' : star === 3 ? '20%' : '5%' }}></div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              {reviewCount > 0 && (
+                <button
+                  onClick={() => router.push(`/dashboard/buyer/farmer/${crop.farmerId}`)}
+                  className="px-4 py-2 bg-green-50 text-[#1B5E20] text-sm font-bold rounded-xl hover:bg-green-100 transition-colors"
+                >
+                  See all reviews
+                </button>
+              )}
             </div>
 
-            {/* Individual Reviews */}
-            <div className="space-y-6">
-              {/* Mock Review 1 */}
-              <div className="border-b border-gray-50 pb-6 last:border-0 last:pb-0">
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-700 font-bold">
-                      A
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-[#212121]">Arjun Singh</p>
-                      <p className="text-[10px] font-semibold text-gray-400">Purchased 50 kg</p>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-semibold text-gray-400">2 days ago</span>
-                </div>
-                <div className="flex items-center gap-1 text-[#FFC107] mb-2">
-                  <Star size={12} fill="currentColor" />
-                  <Star size={12} fill="currentColor" />
-                  <Star size={12} fill="currentColor" />
-                  <Star size={12} fill="currentColor" />
-                  <Star size={12} fill="currentColor" />
-                </div>
-                <p className="text-sm text-gray-600 font-medium">Quality was excellent. The apples were very fresh and delivered exactly on time. Will definitely buy again from this farmer.</p>
+            {reviewCount === 0 ? (
+              <div className="text-center py-8">
+                <div className="text-3xl mb-2">⭐</div>
+                <p className="text-sm font-bold text-[#212121]">No reviews yet</p>
+                <p className="text-xs text-gray-500 font-medium mt-1">
+                  Buyers can review this farmer after their order is delivered.
+                </p>
               </div>
-              
-              {/* Mock Review 2 */}
-              <div className="border-b border-gray-50 pb-6 last:border-0 last:pb-0">
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center text-purple-700 font-bold">
-                      R
+            ) : (
+              <>
+                {/* Summary Rating */}
+                <div className="flex items-center gap-6 mb-8 border-b border-gray-100 pb-6">
+                  <div className="text-center">
+                    <h4 className="text-5xl font-black text-[#212121]">{farmerRating.toFixed(1)}</h4>
+                    <div className="flex items-center gap-1 text-[#FFC107] my-2">
+                      {[1, 2, 3, 4, 5].map(i => (
+                        <Star key={i} size={16} className={i <= Math.round(farmerRating) ? "" : "text-gray-200"} fill="currentColor" />
+                      ))}
                     </div>
-                    <div>
-                      <p className="text-sm font-bold text-[#212121]">Rahul M.</p>
-                      <p className="text-[10px] font-semibold text-gray-400">Purchased 20 kg</p>
-                    </div>
+                    <p className="text-xs font-semibold text-gray-400">Based on {reviewCount} reviews</p>
                   </div>
-                  <span className="text-[10px] font-semibold text-gray-400">1 week ago</span>
+                  <div className="flex-1 space-y-2 hidden sm:block">
+                    {[5, 4, 3, 2, 1].map(star => {
+                      const count = farmerReviews?.distribution?.[star] || 0;
+                      return (
+                        <div key={star} className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-gray-500 w-2">{star}</span>
+                          <Star size={12} className="text-gray-400 shrink-0" fill="currentColor" />
+                          <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-[#FFC107] rounded-full" style={{ width: `${(count / reviewCount) * 100}%` }}></div>
+                          </div>
+                          <span className="text-[10px] font-semibold text-gray-400 w-5 text-right">{count}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 text-[#FFC107] mb-2">
-                  <Star size={12} fill="currentColor" />
-                  <Star size={12} fill="currentColor" />
-                  <Star size={12} fill="currentColor" />
-                  <Star size={12} fill="currentColor" />
-                  <Star size={12} className="text-gray-200" fill="currentColor" />
-                </div>
-                <p className="text-sm text-gray-600 font-medium">Good quality overall, but a few pieces were slightly bruised. The packaging could be slightly better.</p>
-              </div>
-            </div>
+
+                {/* Latest written reviews */}
+                {latestReviews.length === 0 ? (
+                  <p className="text-sm text-gray-500 font-medium">Buyers have rated this farmer but have not written a review yet.</p>
+                ) : (
+                  <div className="space-y-6">
+                    {latestReviews.map(review => (
+                      <div key={review.id} className="border-b border-gray-50 pb-6 last:border-0 last:pb-0">
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-[#1B5E20] font-bold">
+                              {(review.reviewer?.name || "B").charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-[#212121]">{review.reviewer?.name || "Buyer"}</p>
+                              {review.order?.crop?.catalog?.englishName && (
+                                <p className="text-[10px] font-semibold text-gray-400">Bought {review.order.crop.catalog.englishName}</p>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-semibold text-gray-400">
+                            {new Date(review.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 text-[#FFC107] mb-2">
+                          {[1, 2, 3, 4, 5].map(i => (
+                            <Star key={i} size={12} className={i <= review.rating ? "" : "text-gray-200"} fill="currentColor" />
+                          ))}
+                        </div>
+                        <p className="text-sm text-gray-600 font-medium">{review.comment}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
         </div>
