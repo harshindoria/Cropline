@@ -347,10 +347,14 @@ export default function OrderDetailPage() {
                 </p>
               </div>
               <div className="text-right">
-                <div className="flex items-center justify-end gap-1 text-[#FFC107]">
-                  <Star size={16} fill="currentColor" />
-                  <span className="font-bold text-[#212121] text-sm">{order.farmer?.rating || "4.5"}</span>
-                </div>
+                {Number(order.farmer?.ratingCount) > 0 ? (
+                  <div className="flex items-center justify-end gap-1 text-[#FFC107]">
+                    <Star size={16} fill="currentColor" />
+                    <span className="font-bold text-[#212121] text-sm">{Number(order.farmer?.rating).toFixed(1)}</span>
+                  </div>
+                ) : (
+                  <span className="text-xs font-semibold text-gray-400">No reviews yet</span>
+                )}
               </div>
             </div>
           </div>
