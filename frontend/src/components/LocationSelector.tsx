@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { MapPin, ChevronDown, Check, Search } from "lucide-react";
-import { INDIA_STATES, getDistrictsForState, getStateNames } from "@/lib/india-locations";
+import { MapPin, ChevronDown, Check, Search, Navigation, Loader2 } from "lucide-react";
+import { getDistrictsForState, getStateNames, matchDistrictName, matchStateName } from "@/lib/india-locations";
+import { Coordinates, getGpsPosition, reverseGeocode } from "@/lib/location";
 
 export interface LocationValue {
   state: string;
@@ -19,6 +20,9 @@ interface LocationSelectorProps {
   required?: boolean;
   label?: string;
   compact?: boolean; // Compact mode for modals
+  // Turns on the live location button. Called with the exact position, or null once the
+  // user picks a different state or district, because the position no longer matches.
+  onCoordinatesChange?: (coordinates: Coordinates | null) => void;
 }
 
 function SearchableDropdown({
@@ -121,17 +125,62 @@ export default function LocationSelector({
   required = false,
   label = "Address / Location",
   compact = false,
+  onCoordinatesChange,
 }: LocationSelectorProps) {
   const stateNames = getStateNames();
   const districts = value.state ? getDistrictsForState(value.state) : [];
+  const [locating, setLocating] = useState(false);
+  const [liveLocationMessage, setLiveLocationMessage] = useState<{ text: string; isError: boolean } | null>(null);
 
   const handleStateChange = (state: string) => {
     // Reset district when state changes — prevents stale district from another state
     onChange({ ...value, state, district: "" });
+    onCoordinatesChange?.(null);
   };
 
   const handleDistrictChange = (district: string) => {
     onChange({ ...value, district });
+    onCoordinatesChange?.(null);
+  };
+
+  const fillFromLiveLocation = async () => {
+    setLocating(true);
+    setLiveLocationMessage(null);
+    try {
+      const position = await getGpsPosition();
+      const address = await reverseGeocode(position.lat, position.lng);
+      const state = matchStateName(address?.state);
+
+      if (!state) {
+        onCoordinatesChange?.(null);
+        setLiveLocationMessage({ text: "We could not read your address. Please fill it in below.", isError: true });
+        return;
+      }
+
+      const district = matchDistrictName(state, address?.district);
+      const pincode = address?.pincode?.replace(/\D/g, "") ?? "";
+
+      onChange({
+        ...value,
+        state,
+        district,
+        village: address?.village || value.village,
+        pincode: pincode.length === 6 ? pincode : value.pincode,
+      });
+      onCoordinatesChange?.({ lat: position.lat, lng: position.lng });
+      setLiveLocationMessage(
+        district
+          ? { text: "Location added. Please check the details below.", isError: false }
+          : { text: "Location added. Please select your district below.", isError: true }
+      );
+    } catch (error) {
+      setLiveLocationMessage({
+        text: error instanceof Error ? error.message : "Could not get your location.",
+        isError: true,
+      });
+    } finally {
+      setLocating(false);
+    }
   };
 
   return (
@@ -140,6 +189,28 @@ export default function LocationSelector({
         <div className="flex items-center gap-2">
           <MapPin className="w-4 h-4 text-[#2E7D32] shrink-0" />
           <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">{label}</span>
+        </div>
+      )}
+
+      {onCoordinatesChange && (
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={fillFromLiveLocation}
+            disabled={locating}
+            className="w-full flex items-center justify-center gap-2 border-2 border-[#1B5E20] text-[#1B5E20] hover:bg-[#E8F5E9] disabled:opacity-60 rounded-xl py-2.5 text-sm font-bold transition-colors"
+          >
+            {locating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Navigation className="w-4 h-4" />}
+            {locating ? "Finding your location..." : "Use my live location"}
+          </button>
+          {liveLocationMessage && (
+            <p
+              role="status"
+              className={`text-xs font-semibold ${liveLocationMessage.isError ? "text-red-600" : "text-[#2E7D32]"}`}
+            >
+              {liveLocationMessage.text}
+            </p>
+          )}
         </div>
       )}
 

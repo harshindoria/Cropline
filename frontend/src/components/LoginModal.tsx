@@ -7,6 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { ConfirmationResult } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import LocationSelector, { LocationValue } from "./LocationSelector";
+import { Coordinates } from "@/lib/location";
 import { describeAuthError, isExpectedAuthError } from "@/lib/authErrors";
 
 type Step = "phone" | "otp" | "new-user-form" | "success";
@@ -50,6 +51,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
     village: "",
     pincode: "",
   });
+  const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
 
   useEffect(() => {
     if (isOpen && authUser && !authUser.name && step !== "new-user-form") {
@@ -171,6 +173,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
         district: location.district,
         state: location.state,
         pincode: location.pincode,
+        ...(coordinates && { latitude: coordinates.lat, longitude: coordinates.lng }),
       });
       handleSuccess();
     } catch (err) {
@@ -440,6 +443,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
                       showPincode={true}
                       required={true}
                       label="Address / Location"
+                      onCoordinatesChange={setCoordinates}
                     />
 
                     <motion.button

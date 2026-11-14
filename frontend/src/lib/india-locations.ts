@@ -373,6 +373,34 @@ export function getStateNames(): string[] {
   return INDIA_STATES.map(s => s.name).sort();
 }
 
+const normalizePlaceName = (name: string) =>
+  name
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/\bdistrict\b/g, "")
+    .replace(/[^a-z0-9]/g, "");
+
+// Map services spell places differently from our lists, like "Jammu and Kashmir" or "Jaipur District".
+// Returns our spelling, or nothing when there is no single clear match, so a guess is never saved.
+function matchPlaceName(name: string | undefined, options: string[]): string {
+  const target = normalizePlaceName(name ?? "");
+  if (!target) return "";
+
+  const exact = options.find(option => normalizePlaceName(option) === target);
+  if (exact) return exact;
+
+  const similar = options.filter(option => {
+    const candidate = normalizePlaceName(option);
+    return candidate.length >= 4 && (candidate.includes(target) || target.includes(candidate));
+  });
+  return similar.length === 1 ? similar[0] : "";
+}
+
+export const matchStateName = (name?: string) => matchPlaceName(name, getStateNames());
+
+export const matchDistrictName = (stateName: string, name?: string) =>
+  matchPlaceName(name, getDistrictsForState(stateName));
+
 // Helper: Validate state + district combo
 export function isValidLocation(state: string, district: string): boolean {
   const districts = getDistrictsForState(state);

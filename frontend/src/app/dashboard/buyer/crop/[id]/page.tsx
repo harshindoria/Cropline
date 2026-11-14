@@ -2,16 +2,20 @@
 
 import { useAuth } from "@/context/AuthContext";
 import { useRouter, useParams } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import api from "@/lib/axios";
 import { apiErrorMessage } from "@/lib/apiError";
 import { payForOrder } from "@/lib/razorpayCheckout";
+import type { CropDetail } from "@/types/api";
 import Script from "next/script";
-import { 
-  ArrowLeft, Leaf, Clock, TrendingUp, MapPin, Star, ShieldCheck, Package, Minus, Plus, CreditCard, Banknote, ShoppingBasket, ChevronLeft
+import {
+  ArrowLeft, Leaf, Clock, TrendingUp, MapPin, Star, ShieldCheck, Package, Minus, Plus, CreditCard, Banknote, ShoppingBasket, ChevronLeft, Navigation, Loader2
 } from "lucide-react";
 import Image from "next/image";
-import { haversineDistance, calculateDeliveryFee } from "@/lib/location";
+import { haversineDistance, calculateDeliveryFee, getGpsPosition, reverseGeocode, GpsPosition } from "@/lib/location";
+
+// A location less precise than this could send the delivery to the wrong place.
+const LOW_ACCURACY_METERS = 1000;
 
 export default function CropDetailPage() {
   const { user, loading } = useAuth();
@@ -19,7 +23,7 @@ export default function CropDetailPage() {
   const params = useParams();
   const cropId = params.id as string;
 
-  const [crop, setCrop] = useState<any>(null);
+  const [crop, setCrop] = useState<CropDetail | null>(null);
   const [loadingCrop, setLoadingCrop] = useState(true);
   const [quantity, setQuantity] = useState<number>(5);
   const [deliveryAddress, setDeliveryAddress] = useState("");
@@ -27,6 +31,35 @@ export default function CropDetailPage() {
   const [processing, setProcessing] = useState(false);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [cropLang, setCropLang] = useState<"en" | "hi">("en");
+  const [gpsPosition, setGpsPosition] = useState<GpsPosition | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  const addressEditedByUser = useRef(false);
+
+  // An automatic detection never replaces an address the buyer typed; pressing the button does.
+  const detectLocation = useCallback(async (replaceTypedAddress: boolean) => {
+    setLocating(true);
+    setLocationError("");
+    try {
+      const position = await getGpsPosition();
+      setGpsPosition(position);
+      const place = await reverseGeocode(position.lat, position.lng);
+      if (place?.formattedAddress && (replaceTypedAddress || !addressEditedByUser.current)) {
+        setDeliveryAddress(place.formattedAddress);
+        addressEditedByUser.current = false;
+      }
+    } catch (err) {
+      setLocationError(err instanceof Error ? err.message : "Could not get your location.");
+    } finally {
+      setLocating(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user?.id && user.activeRole === "BUYER") {
+      detectLocation(false);
+    }
+  }, [user?.id, user?.activeRole, detectLocation]);
 
   useEffect(() => {
     const saved = localStorage.getItem("cropline_crop_lang");
@@ -50,7 +83,10 @@ export default function CropDetailPage() {
           const fetchedCrop = res.data.data;
           setCrop(fetchedCrop);
           setQuantity(Number(fetchedCrop.minOrderKg) || 1);
-          setDeliveryAddress(user?.village ? `${user.village}, ${user.district}, ${user.state}` : "");
+          // GPS may have answered first, so only fill this in if the address is still empty.
+          setDeliveryAddress((current) =>
+            current || (user?.village ? `${user.village}, ${user.district}, ${user.state}` : "")
+          );
         }
       } catch (err) {
         console.error("Failed to fetch crop", err);
@@ -93,14 +129,19 @@ export default function CropDetailPage() {
     discountAmount = (cropCost * Number(crop.offer.discountPercentage)) / 100;
   }
   
-  const buyerLat = user?.latitude ? Number(user.latitude) : 26.9124;
-  const buyerLng = user?.longitude ? Number(user.longitude) : 75.7873;
-  const farmerLat = crop.farmer?.latitude ? Number(crop.farmer.latitude) : 26.9124;
-  const farmerLng = crop.farmer?.longitude ? Number(crop.farmer.longitude) : 75.7873;
-  
-  const distanceKm = haversineDistance(buyerLat, buyerLng, farmerLat, farmerLng);
-  const deliveryFee = calculateDeliveryFee(distanceKm, quantityKg);
-  const total = cropCost - discountAmount + deliveryFee;
+  const savedCoords = user?.latitude && user?.longitude
+    ? { lat: Number(user.latitude), lng: Number(user.longitude) }
+    : null;
+  const deliveryCoords = gpsPosition ?? savedCoords;
+
+  // Same points the backend charges for: the farm's location and the delivery location.
+  const deliveryFee = deliveryCoords
+    ? calculateDeliveryFee(
+        haversineDistance(deliveryCoords.lat, deliveryCoords.lng, Number(crop.farmLatitude), Number(crop.farmLongitude)),
+        quantityKg
+      )
+    : null;
+  const total = cropCost - discountAmount + (deliveryFee ?? 0);
 
   const isOwnCrop = crop.farmerId === user?.id;
 
@@ -118,6 +159,10 @@ export default function CropDetailPage() {
       alert("Please provide a delivery address");
       return;
     }
+    if (!deliveryCoords) {
+      alert("We need your location to deliver this order. Please allow location access and press “Use my location”.");
+      return;
+    }
     try {
       setProcessing(true);
       
@@ -126,8 +171,8 @@ export default function CropDetailPage() {
         quantityKg,
         deliveryType: "DELIVERY",
         paymentType: paymentMethod === "ONLINE" ? "ONLINE" : "CASH", // COD acts as CASH
-        deliveryLatitude: buyerLat,
-        deliveryLongitude: buyerLng,
+        deliveryLatitude: deliveryCoords.lat,
+        deliveryLongitude: deliveryCoords.lng,
         deliveryAddress
       });
 
@@ -474,14 +519,44 @@ export default function CropDetailPage() {
 
             {/* Address */}
             <div className="mb-6">
-              <label className="block text-sm font-bold text-gray-600 mb-2">Delivery Address</label>
-              <textarea 
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <label htmlFor="delivery-address" className="text-sm font-bold text-gray-600">Delivery Address</label>
+                <button
+                  type="button"
+                  onClick={() => detectLocation(true)}
+                  disabled={locating}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#1B5E20] hover:underline disabled:opacity-60 disabled:no-underline"
+                >
+                  {locating ? <Loader2 size={14} className="animate-spin" /> : <Navigation size={14} />}
+                  {locating ? "Finding location..." : "Use my location"}
+                </button>
+              </div>
+              <textarea
+                id="delivery-address"
                 value={deliveryAddress}
-                onChange={(e) => setDeliveryAddress(e.target.value)}
+                onChange={(e) => {
+                  addressEditedByUser.current = true;
+                  setDeliveryAddress(e.target.value);
+                }}
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#1B5E20]/20 focus:border-[#1B5E20] resize-none"
                 rows={3}
                 placeholder="Enter complete delivery address..."
               ></textarea>
+              {gpsPosition && gpsPosition.accuracyMeters <= LOW_ACCURACY_METERS && (
+                <p className="text-xs font-semibold text-green-700 mt-1.5">
+                  GPS location set. Add your house number or a landmark if needed.
+                </p>
+              )}
+              {gpsPosition && gpsPosition.accuracyMeters > LOW_ACCURACY_METERS && (
+                <p className="text-xs font-semibold text-amber-700 mt-1.5">
+                  This location is only accurate to about {Math.round(gpsPosition.accuracyMeters / 1000)} km. Please check the address, or try again on your phone.
+                </p>
+              )}
+              {!gpsPosition && locationError && (
+                <p className="text-xs font-semibold text-amber-700 mt-1.5">
+                  {locationError} {savedCoords ? "Using the location saved in your profile." : "We need your location to place this order."}
+                </p>
+              )}
             </div>
 
             {/* Payment Method */}
@@ -527,7 +602,7 @@ export default function CropDetailPage() {
               )}
               <div className="flex justify-between text-gray-600">
                 <span>Est. Delivery</span>
-                <span>₹{deliveryFee.toFixed(2)}</span>
+                <span>{deliveryFee === null ? "Needs your location" : `₹${deliveryFee.toFixed(2)}`}</span>
               </div>
               <div className="h-px bg-gray-200 my-2"></div>
               <div className="flex justify-between text-xl font-black text-[#1B5E20]">
